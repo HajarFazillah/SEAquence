@@ -38,8 +38,8 @@ They can change or expand as the project develops.
 - Don’t struggle alone, ask for help.  
   혼자 고민하지 말고 팀원들에게 도움을 요청한다.
 
-- Join meetings, or tell the team in advance if you can’t.  
-  회의에 참여하고, 불참 시 미리 알린다.
+- Actively join meetings, or tell the team in advance if you can’t.  
+  논의나 회의에 적극적 참여하고, 불참 시 미리 알린다.
 
 ## 4. Conflict / 갈등
 - If there’s a problem, talk openly but respectfully.  
