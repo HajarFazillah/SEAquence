@@ -1,39 +1,52 @@
-# Team Ground Rules / 팀 그라운드 룰 (v0.1)
+# Team Ground Rules / 팀 그라운드 룰 (v0.9)
 
-This is a simple draft of our team’s ground rules.  
+This is a draft of our team’s ground rules.  
 팀워크를 위해 마련한 기본 규칙 초안입니다.  
 They can change or expand as the project develops.  
 프로젝트 진행 과정에서 필요에 따라 자유롭게 수정될 수 있습니다.  
 
----
-
 ## 1. Respect & Communication / 존중과 의사소통
-- Respect each other’s ideas.  
-  서로의 아이디어를 존중한다.  
+- Respect each other’s thoughts and ideas.  
+  서로 생각과 아이디어를 존중한다.  
 
 - Use both Korean and English freely when communicating.  
-  의사소통 시 한국어와 영어를 자유롭게 사용한다.  
+  의사소통 시 한국어와 영어를 자유롭게 모두 사용 가능한다.  
 
-- Be understanding, since we are all learning together.  
-  모두가 배우는 과정임을 이해한다.  
+- Remember that everyone is learning, mistakes can happen. 
+  모두 배우는 과정에 있고, 실수는 생길 수 있다.
 
----
+- Try to solve things with logic, not just emotions.
+  감정적으로 반응하기보다는 논리적으로 해결하려 한다.
 
 ## 2. Collaboration & Tools / 협업 및 도구
-- Share updates with the team regularly.  
-  진행 상황을 정기적으로 공유한다.  
+- Share updates often. Use **Notion** for main work and **KakaoTalk** for quick chats.  
+  진행 상황은 자주 공유하고, 주요 협업은 **Notion**, 빠른 소통은 **카카오톡** 사용.  
 
-- Use **Notion** for collaboration and **KakaoTalk** for quick chats.  
-  협업은 **Notion**, 빠른 대화는 **카카오톡**을 활용한다.  
+- Use GitHub for code and commits. Try to write clear commit messages.  
+  코드와 커밋은 GitHub를 사용하고, 커밋 메시지는 이해하기 쉽게 작성한다.
 
----
+- Feedback should be honest but kind.  
+  피드백은 솔직하되 친절하게 한다.
 
-## 3. Work Approach / 업무 방식
-- Do tasks on time as much as possible.  
-  맡은 일은 가능한 한 마감 전에 완료한다.  
+## 3. Work & Responsibility / 업무와 책임
+- Do tasks before deadlines as much as possible.  
+  가능한 한 마감일 전에 일을 끝낸다.  
 
-- Ask for help if needed.  
-  필요할 때는 도움을 요청한다.  
+- Tell the team early, if you can't finish something.
+  끝내지 못할 것 같으면 미리 알린다.
 
-- Focus on solutions instead of emotions.  
-  감정보다는 해결책에 집중한다.  
+- Don’t struggle alone, ask for help.  
+  혼자 고민하지 말고 팀원들에게 도움을 요청한다.
+
+- Join meetings, or tell the team in advance if you can’t.  
+  회의에 참여하고, 불참 시 미리 알린다.
+
+## 4. Conflict / 갈등
+- If there’s a problem, talk openly but respectfully.  
+  문제가 있으면 솔직하지만 존중하며 이야기한다.  
+
+- Focus feedback on the work, not the person.  
+  사람을 비판하지 말고 결과물에 대해 이야기한다.  
+
+- If we can’t agree, the team leader will guide the discussion and we will decide by majority.
+  합의가 어려우면 팀장이 논의를 이끌고 다수결로 결정한다.
