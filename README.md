@@ -1,4 +1,4 @@
-# SEAquence  
+# SEAquence   
 Capstone Design Project A  
 캡스톤디자인과창업프로젝트A  
 
@@ -7,11 +7,14 @@ Team Project Repository (v0.1)
 
 ---
 
-Team Members 
+Team Members
+
 Siti Hajar Asyiqin Binti Fazillah
 https://github.com/HajarFazillah
+
 Heimvichit, Nunnalin
 https://github.com/nalinzip
+
 Yuzana Win
 https://github.com/yuzanawinnnn
 
