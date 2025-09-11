@@ -50,3 +50,8 @@ They can change or expand as the project develops.
 
 - If we can’t agree, the team leader will guide the discussion and we will decide by majority.  
   합의가 어려우면 팀장이 논의를 이끌고 다수결로 결정한다.
+
+## 5. Github Commit
+- For fixing errors, use your own branch before merging into main branch 
+- Follow variable and file name convention 
+- Add in description as detailed as possible for team members reference
