@@ -21,13 +21,17 @@ Nothing is finalized yet — we will narrow down and refine later.
 1. **International Student App / 유학생 지원 앱**  
    - Map, course info, mentor–mentee, TOPIK schedule, immigration info, friend-making features  
    - 지도, 강의 정보, 멘토-멘티, TOPIK 일정, 이민 정보, 친구 만들기 기능  
-
-2. **Study Support / 학습 지원**  
-   - AI-based study planner, Korean learning mini-games  
-   - AI 기반 학습 플래너, 한국어 공부 미니게임  
-
-3. **Career & Resume / 커리어 & 이력서**  
+   - AI-based study planner, Korean learning mini-games 기능
+   - AI 기반 학습 플래너, 한국어 공부 미니게임
+   - Event & deadline reminders
+   - Built-in translation helper & simplified explanation (support multilanguage - Korean English Mandarin etc
+   - Peer-submitted notes or comments.
+2. **Lifestyle / 추천 시스쳄**
+   - 여행지 추천 / 대외활동 추천
+4. **Career & Resume / 커리어 & 이력서**  
    - Centralized access to university guides, PDFs, and important documents
    - AI-powered summarization & Q&A for complex documents
    - 대학 가이드, PDF, 중요 자료 중앙화 제공, AI 기반 문서 요약 및 질문 답변 기능
+5. **Money tracker & analysis buddy.**
+   - 머신러닝 추측
 
