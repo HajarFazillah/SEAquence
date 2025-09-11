@@ -1,4 +1,4 @@
-# Project Ideation / 프로젝트 아이데이션 (v0.1)
+# Project Ideation / 프로젝트 아이데이션 (v0.9)
 
 This document summarizes our team’s initial brainstorming ideas.  
 이 문서는 팀의 초기 브레인스토밍 아이디어를 정리한 초안입니다.  
@@ -8,10 +8,12 @@ Nothing is finalized yet — we will narrow down and refine later.
 ---
 
 ## Keywords & Tools / 아이디어 키워드 및 도구
-- **Development Tools / 개발 도구**: Figma, React, Android Studio, Flask, Django, Firebase, Unity, Python, Java, C, JavaScript, SQL  
-- **Functions / 기능**: Multi-language support (5) / 멀티 언어 지원(5개국어), Login/Logout, AI, Chatbot  
-- **Topics / 관심 주제**: International student app, Study support (TOPIK), Career/Resume, Finance management  
-  / 유학생 앱, 학습 지원(TOPIK), 커리어/이력서, 금융 관리  
+- **Development Tools / 개발 도구**: Figma, React, Flask, Django, Firebase, Python, SQL, 웹 개발, 프론트엔드, 백엔드, 데이터베이스, AI 통합, 챗봇, 다국어 지원
+- **Functions / 기능**:  
+  Information hub (category guides & FAQ), AI chatbot (Q&A & document summarization), Personalized checklist (essential tasks & tips by student type)  
+  / 정보 허브: 카테고리별 가이드 및 FAQ, AI 챗봇: 질문 답변 및 문서 요약, 개인화 체크리스트: 학생 유형별 필수 과제  
+- **Topics / 관심 주제**: International student web app, AI chatbot, Information summarization, Campus life adaptation, Personalized onboarding, Student guide  
+  / 유학생 웹앱, AI챗봇, 정보요약, 캠퍼스 생활 적응, 개인화
 
 ---
 
@@ -25,9 +27,7 @@ Nothing is finalized yet — we will narrow down and refine later.
    - AI 기반 학습 플래너, 한국어 공부 미니게임  
 
 3. **Career & Resume / 커리어 & 이력서**  
-   - Digital profile & resume management, AI analysis & improvement suggestions  
-   - 디지털 프로필 및 이력서 관리, AI 분석 및 개선 제안  
+   - Centralized access to university guides, PDFs, and important documents
+   - AI-powered summarization & Q&A for complex documents
+   - 대학 가이드, PDF, 중요 자료 중앙화 제공, AI 기반 문서 요약 및 질문 답변 기능
 
-4. **Finance Management / 금융 관리**  
-   - Multi-currency management (KRW, USD, THB, etc.)  
-   - 다중 통화 관리 (원, 달러, 바트 등)  
