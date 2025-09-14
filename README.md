@@ -7,20 +7,6 @@ Team Project Repository (v0.1)
 
 ---
 
-Team Members
-
-Siti Hajar Asyiqin Binti Fazillah
-https://github.com/HajarFazillah
-
-Heimvichit, Nunnalin
-https://github.com/nalinzip
-
-Yuzana Win
-https://github.com/yuzanawinnnn
-
-
----
-
 ## Welcome / 환영합니다
 Welcome to our team, SEAquence’s project repository!  
 This is our shared space where we collaborate, brainstorm, and build our project together.  
