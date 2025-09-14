@@ -2,8 +2,8 @@
 
 | 항목 | 내용 |
 |------|------|
-| 프로젝트명 | UniMate (TBC) |
-| 프로젝트 키워드 | 유학생 지원, 캠퍼스 적응, AI 챗봇 |
+| 프로젝트명 | TBC |
+| 프로젝트 키워드 | 웹앱, 유학생 지원, AI 챗봇, 정보요약, 스마트 추천 |
 | 트랙 | 산학 |
 | 프로젝트 멤버 | - Siti Hajar Asyiqin Binti Fazillah (팀장) https://github.com/HajarFazillah <br> - Heimvichit, Nunnalin https://github.com/nalinzip <br> - Yuzana Win https://github.com/yuzanawinnnn |
 | 팀지도교수 | 이형준 (TBD) |
