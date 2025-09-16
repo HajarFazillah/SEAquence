@@ -20,7 +20,7 @@ SEAquence 팀 프로젝트 저장소에 오신 것을 환영합니다!
 3) Yuzana Win
 
 **Team Supervisor / 팀지도교수**
-이형준 (TBD)
+<br>이형준 (TBD)
 
 ## Contents / 목차
 - `README.md` → Overview of this repo / 저장소 개요  
