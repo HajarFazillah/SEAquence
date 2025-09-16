@@ -53,7 +53,7 @@ They can change or expand as the project develops.
 
 ## 5. Github Commit
 - For fixing errors, use your own branch before merging into main branch
-  오류 수정 시, 브랜치를 이용하여 메인브랜치에 머치해야 된다. 
+   오류 수정 시, 브랜치를 이용하여 메인브랜치에 머치해야 된다. 
 
 - Follow variable and file name convention
   변수나 파일 이름 결정 시, 컨벤션 따라야 한다.
