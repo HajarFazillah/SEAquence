@@ -51,7 +51,7 @@ They can change or expand as the project develops.
 - If we can’t agree, the team leader will guide the discussion and we will decide by majority.  
   합의가 어려우면 팀장이 논의를 이끌고 다수결로 결정한다.
 
-## 5. Github Commit
+## 5. GitHub Commit
 - For fixing error, use your own branch before merging into main branch.  
   오류 수정 시, 브랜치를 이용하여 메인브랜치에 머치해야 된다.  
 
@@ -60,3 +60,6 @@ They can change or expand as the project develops.
 
 - Add in description as detailed as possible for team members' reference.  
   팀원들이 쉽게 참조할 수 있도록 자세한 설명을 추가하는 것을 추천한다.
+
+- Recommended to fix bugs in small scales (multiple times) rather than all at once - easier bug/error recovery and reverting to older history.  
+  버그/오류 수정 시, 한 번에 모두 수정하기보다는 작은 단위로 여러 번 수정하는 것이 과거 기록으로 쉽게 되돌리기에 용이하다.
