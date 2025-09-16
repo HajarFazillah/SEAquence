@@ -55,8 +55,8 @@ They can change or expand as the project develops.
 - For fixing error, use your own branch before merging into main branch.  
   오류 수정 시, 브랜치를 이용하여 메인브랜치에 머치해야 된다.  
 
-- Follow variable and file name convention
-  변수나 파일 이름 결정 시, 컨벤션 따라야 한다.
+- Follow variable and file name convention.  
+  변수나 파일 이름 결정 시, 컨벤션 따라야 한다.  
 
-- Add in description as detailed as possible for team members reference 
-  팀원들이 쉽게 참조할 수 있도록 자세한 설명을 추가하는 것을 추천한다. 
+- Add in description as detailed as possible for team members' reference.  
+  팀원들이 쉽게 참조할 수 있도록 자세한 설명을 추가하는 것을 추천한다.
