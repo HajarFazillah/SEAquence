@@ -52,8 +52,8 @@ They can change or expand as the project develops.
   합의가 어려우면 팀장이 논의를 이끌고 다수결로 결정한다.
 
 ## 5. Github Commit
-- For fixing errors, use your own branch before merging into main branch
-   오류 수정 시, 브랜치를 이용하여 메인브랜치에 머치해야 된다. 
+- For fixing error, use your own branch before merging into main branch.  
+  오류 수정 시, 브랜치를 이용하여 메인브랜치에 머치해야 된다.  
 
 - Follow variable and file name convention
   변수나 파일 이름 결정 시, 컨벤션 따라야 한다.
