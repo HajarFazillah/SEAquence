@@ -13,4 +13,4 @@
 |사용할 소프트웨어 패키지의 명칭과 핵심기능/용도, 사용시나리오| - **React / Next.js**: 프론트엔드, 반응형 UI <br> - **FastAPI** : 백엔드 API <br> - **Node.js / Express** 또는 **Django**: 백엔드 API <br> - **PostgreSQL / MongoDB**: 데이터 관리 <br> - **OpenAI API**: 챗봇, 요약 기능 <br> - **Firebase**: 인증, 알림 |
 |사용할 소프트웨어 패키지의 명칭과 URL| - React – https://react.dev <br> - Next.js – https://nextjs.org <br> - FastAPI - https://fastapi.tiangolo.com/ko/ <br> - MongoDB – https://www.mongodb.com <br> - OpenAI – https://platform.openai.com <br> - Firebase – https://firebase.google.com |
 |팀그라운드룰| [SEAquence's Team Ground Rules](https://github.com/HajarFazillah/SEAquence/blob/main/GroundRule.md) |
-|최종수정일| 2025-09-17 |
+|최종수정일| 2025-09-25 |
