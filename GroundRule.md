@@ -1,4 +1,4 @@
-# Team Ground Rules / 팀 그라운드 룰 (v0.9)
+# Team Ground Rules / 팀 그라운드 룰
 
 This is a draft of our team’s ground rules.  
 팀워크를 위해 마련한 기본 규칙 초안입니다.  
