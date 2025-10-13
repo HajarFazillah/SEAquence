@@ -6,7 +6,7 @@ Ewha Womans University, Computer Science & Engineering
 <br>캡스톤디자인과창업프로젝트A (스타트)   
 
 ## Team Project Repository
-팀 프로젝트 저장소 (v0.1)
+팀 프로젝트 저장소
 
 Welcome to our team, SEAquence’s project repository!  
 This is our shared space where we collaborate, brainstorm, and build our project together.  
@@ -20,12 +20,13 @@ SEAquence 팀 프로젝트 저장소에 오신 것을 환영합니다!
 3) Yuzana Win
 
 **Team Supervisor / 팀지도교수**
-<br>이형준 (TBD)
+<br>반효경 교수님 (TBD)
 
 ## Contents / 목차
-- `README.md` → Overview of this repo / 저장소 개요  
+- `README.md` → Overview of this repo / 저장소 개요
+- `Project-Scenario.md` → Overview of the project / 프로젝트 개요  
 - `Ideation.md` → Brainstorming ideas / 아이디어 브레인스토밍  
-- `GroundRule.md` → Team rules and agreements / 팀 규칙 및 협약  
+- `GroundRule.md` → Team rules and agreements / 팀 그라운드 룰  
 
 ## Project Overview / 프로젝트 개요
 - To be updated as the project develops.  
