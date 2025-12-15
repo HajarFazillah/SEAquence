@@ -85,7 +85,6 @@ Talkativ는 다음과 같은 핵심 기술 요소를 기반으로 설계되었�
 
 - README.md           # 프로젝트 및 저장소 개요
 - Project-Scenario.md # 프로젝트 시나리오 및 문제 정의
-- Ideation.md         # 아이디어 브레인스토밍 기록
 - GroundRule.md       # 팀 협업 규칙
 - (추가 예정)
 
