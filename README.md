@@ -1,40 +1,114 @@
-# SEAquence   
-Ewha Womans University, Computer Science & Engineering
-<br>25-2 Capstone Design Project A  
+# 08 SEAquence - Talkativ  
+### Ewha Womans University  
+### Computer Science & Engineering  
+### Capstone Design Project A (2025-2)
 
-25-2 컴퓨터공학전공 졸업 프로젝트
-<br>캡스톤디자인과창업프로젝트A (스타트)   
+---
 
-## Team Project Repository
-팀 프로젝트 저장소
+## 📌 프로젝트 개요 (Project Overview)
 
-Welcome to our team, SEAquence’s project repository!  
-This is our shared space where we collaborate, brainstorm, and build our project together.  
+**Talkativ**는 한국어가 익숙하지 않은 사용자가 실제 사람과의 대화 상황에서  
+더 자연스럽고 적절한 한국어 표현을 사용할 수 있도록 돕는  
+**‘한국어 대화 중재 AI(Conversation Mediator AI)’** 기반 학습 지원 시스템입니다.
 
-SEAquence 팀 프로젝트 저장소에 오신 것을 환영합니다!  
-이곳은 우리가 함께 협업하고, 아이디어를 나누며, 프로젝트를 만들어가는 공동 공간입니다.  
+기존 LLM 서비스가 사람과 AI 간의 질문–응답에 초점을 맞추는 것과 달리,  
+Talkativ는 **사람–사람 대화 상황**을 중심으로 AI가 중재자 역할을 수행하여  
+대화 주제, 관계 맥락, 공손성 수준을 고려한 한국어 표현을 제안하는 것을 목표로 합니다.
 
-**Team Members / 팀원**
-1) Siti Hajar Asyiqin Binti Fazillah
-2) Heimvichit, Nunnalin
-3) Yuzana Win
+본 저장소는 Ewha Womans University  
+**컴퓨터공학전공 캡스톤디자인과창업프로젝트A**의 팀 프로젝트 저장소입니다.
 
-**Team Supervisor / 팀지도교수**
-<br>반효경 교수님 (TBD)
+---
 
-## Contents / 목차
-- `README.md` → Overview of this repo / 저장소 개요
-- `Project-Scenario.md` → Overview of the project / 프로젝트 개요  
-- `Ideation.md` → Brainstorming ideas / 아이디어 브레인스토밍  
-- `GroundRule.md` → Team rules and agreements / 팀 그라운드 룰  
+## 🎯 프로젝트 목적 (Project Goals)
 
-## Project Overview / 프로젝트 개요
-- To be updated as the project develops.  
-- 프로젝트가 진행됨에 따라 업데이트될 예정입니다.  
+- 한국어 학습자가 실제 대화 상황에서 느끼는 **언어적·심리적 부담 완화**
+- 대화 상대와의 **관계(지위, 나이, 친밀도)**를 고려한 말투·표현 학습 지원
+- 단순 번역이나 챗봇이 아닌, **대화 맥락 기반 한국어 코칭 시스템 설계**
+- Capstone A 단계에서 **시스템 설계·기술 구조·차별성 정의** 완료
 
-## Note / 참고
-This repository is a collaborative asset for our team.  
-It will continue to grow as we make progress together.  
+---
 
-이 저장소는 우리 팀의 협업 자산입니다.  
-프로젝트 진행과 함께 계속 발전해 나갈 것입니다.  
+## 🧠 핵심 기술 개요 (Core Technologies)
+
+Talkativ는 다음과 같은 핵심 기술 요소를 기반으로 설계되었습니다.
+
+### 1. 대화 토픽 분석 엔진
+- 사용자 발화에서 대화 주제를 자동 분석
+- 메타데이터 기반 태깅 + 키워드 규칙 + LLM 보조 구조
+- 멀티라벨 토픽 체계로 실제 대화 맥락 반영
+
+### 2. 사용자–아바타 관계 분석 모듈
+- 사용자와 대화 상대(아바타)의 관계를 정량화
+- 나이, 역할, 언어 수준, 불안도, 관심사 등을 고려
+- 관계 난이도 및 권장 말투 수준 산출
+
+### 3. 한국어 공손성·말투 분석
+- 관계 기반 권장 말투와 실제 발화 말투 비교
+- 종결어미, 높임 표현, 호칭 등을 분석
+- 잠재적 무례도 감지 및 개선 피드백 제공
+
+### 4. LLM–ML 하이브리드 구조
+- LLM: 문맥 이해, 표현 생성, 설명 제공
+- 전통 ML: 관계 분석, 난이도·말투 판단
+- 품질, 응답 속도, 설명 가능성을 모두 고려한 설계
+
+---
+
+## 🧩 프로젝트 범위 (Scope)
+
+- **Capstone A:**  
+  - 문제 정의 및 사용자 요구 분석  
+  - 시스템 구조 설계  
+  - 핵심 기술 및 데이터 구조 정의  
+  - 차별성 정립 및 심층인터뷰 준비  
+
+- **Capstone B (예정):**  
+  - 핵심 기능 구현  
+  - 모델 학습 및 평가  
+  - 프로토타입 완성 및 사용자 테스트  
+
+---
+
+## 👥 팀 구성 (Team Members)
+
+- **Siti Hajar Asyiqin Binti Fazillah** – Team Leader  
+- **Heimvichit, Nunnalin**  
+- **Yuzana Win**
+
+### 👩‍🏫 Team Supervisor
+- **반효경 교수님**
+
+---
+
+## 📁 저장소 구성 (Repository Structure)
+
+- README.md           # 프로젝트 및 저장소 개요
+- Project-Scenario.md # 프로젝트 시나리오 및 문제 정의
+- Ideation.md         # 아이디어 브레인스토밍 기록
+- GroundRule.md       # 팀 협업 규칙
+- (추가 예정)
+
+> 본 저장소는 프로젝트 진행에 따라 지속적으로 업데이트됩니다.
+
+---
+
+## 🔒 데이터 및 윤리 원칙 (Data & Ethics)
+
+- 음성 원본은 저장하지 않고 STT 텍스트만 활용
+- 개인정보 및 식별 정보 비저장·마스킹 원칙 준수
+- 사용자 동의 기반 데이터 수집 및 분석
+- 개인 대화 데이터를 직접 모델 파인튜닝에 사용하지 않음
+
+---
+
+## 📎 참고 사항 (Notes)
+
+- 본 저장소는 **팀 협업 및 설계 기록을 위한 공식 프로젝트 자산**입니다.
+- 구현 코드 및 실험 결과는 Capstone B 단계에서 추가될 예정입니다.
+- 본 프로젝트는 교육 목적의 캡스톤 디자인 과제로 수행됩니다.
+
+---
+
+감사합니다!  
+This repository will continue to evolve as the project progresses 🚀
