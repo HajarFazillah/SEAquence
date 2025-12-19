@@ -1,0 +1,402 @@
+# Talkativ Demo 2: Relationship Analysis Module
+
+이 노트북은 Talkativ의 **관계 분석 모듈**을 시연합니다.
+
+## 주요 기능
+- 사용자-아바타 프로필 기반 피처 추출
+- 관계 난이도 점수 계산
+- 권장 말투 등급 분류
+- scikit-learn / XGBoost 기반 ML 모델
+
+## 1. 환경 설정
+
+# 필요한 라이브러리 설치
+!pip install -q pandas numpy scikit-learn xgboost matplotlib seaborn
+
+import pandas as pd
+import numpy as np
+from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from enum import Enum
+import json
+
+# ML 라이브러리
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, mean_squared_error, classification_report
+import xgboost as xgb
+
+# 시각화
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+print(" 라이브러리 로드 완료!")
+
+## 2. 데이터 구조 및 상수 정의
+
+# 역할별 사회적 지위 레벨
+ROLE_LEVELS = {
+    "student": 0, "part_timer": 0,
+    "peer": 1, "junior": 1,
+    "senior": 2, "team_leader": 2,
+    "professor": 3, "boss": 3,
+    "ceo": 4
+}
+
+KOREAN_LEVEL_VALUES = {"beginner": 0, "intermediate": 1, "advanced": 2, "native": 3}
+LEVEL_VALUES = {"low": 0, "medium": 1, "high": 2}
+FORMALITY_LABELS = {0: "informal", 1: "mixed", 2: "polite", 3: "very_polite"}
+
+@dataclass
+class PersonProfile:
+    """사용자/아바타 프로필"""
+    name: str
+    age: int
+    role: str
+    nationality: str = "Korean"
+    korean_level: str = "native"
+    speaking_confidence: str = "medium"
+    korean_speaking_anxiety: str = "medium"
+    personality_tags: List[str] = field(default_factory=list)
+    topic_tags: List[str] = field(default_factory=list)
+    avoid_topics: List[str] = field(default_factory=list)
+    difficult_relations: List[str] = field(default_factory=list)
+    power_distance_preference: str = "medium"
+
+print(" 데이터 구조 정의 완료!")
+
+## 3. 피처 추출기
+
+class RelationshipFeatureExtractor:
+    """관계 피처 추출기"""
+
+    def extract_features(self, user: PersonProfile, avatar: PersonProfile) -> Dict:
+        features = {}
+
+        # 나이 관련
+        features['age_diff'] = abs(user.age - avatar.age)
+        features['age_gap_bucket'] = 0 if features['age_diff'] <= 3 else (1 if features['age_diff'] <= 9 else 2)
+        features['user_is_younger'] = 1 if user.age < avatar.age else 0
+
+        # 역할/지위
+        user_level = ROLE_LEVELS.get(user.role, 1)
+        avatar_level = ROLE_LEVELS.get(avatar.role, 1)
+        features['user_role_level'] = user_level
+        features['avatar_role_level'] = avatar_level
+        features['status_gap'] = avatar_level - user_level
+        features['is_difficult_relation'] = 1 if avatar.role in user.difficult_relations else 0
+
+        # 문화
+        features['cross_cultural'] = 0 if user.nationality == avatar.nationality else 1
+
+        # 언어
+        features['korean_level'] = KOREAN_LEVEL_VALUES.get(user.korean_level, 1)
+        features['speaking_confidence'] = LEVEL_VALUES.get(user.speaking_confidence, 1)
+        features['speaking_anxiety'] = LEVEL_VALUES.get(user.korean_speaking_anxiety, 1)
+
+        # 성격/토픽 유사도
+        common_personality = set(user.personality_tags) & set(avatar.personality_tags)
+        features['common_personality_count'] = len(common_personality)
+        features['has_common_personality'] = 1 if common_personality else 0
+
+        common_topics = set(user.topic_tags) & set(avatar.topic_tags)
+        avoid = set(user.avoid_topics) | set(avatar.avoid_topics)
+        safe_topics = common_topics - avoid
+        features['safe_common_topic_count'] = len(safe_topics)
+        features['has_safe_common_topic'] = 1 if safe_topics else 0
+
+        features['power_distance_pref'] = LEVEL_VALUES.get(user.power_distance_preference, 1)
+
+        return features
+
+extractor = RelationshipFeatureExtractor()
+print(" 피처 추출기 초기화 완료!")
+
+## 4. 예제 프로필 및 분석
+
+# 사용자 (유학생)
+user = PersonProfile(
+    name="지민", age=22, role="student", nationality="American",
+    korean_level="intermediate", speaking_confidence="low",
+    korean_speaking_anxiety="high",
+    personality_tags=["introverted", "careful", "friendly"],
+    topic_tags=["kpop", "cafe_food", "campus_life"],
+    avoid_topics=["politics", "religion"],
+    difficult_relations=["professor", "boss"],
+    power_distance_preference="high"
+)
+
+# 아바타들
+avatars = {
+    "professor": PersonProfile(name="김 교수님", age=52, role="professor",
+                               personality_tags=["formal", "serious"],
+                               topic_tags=["class_study", "career_future"]),
+    "senior": PersonProfile(name="민수 선배", age=25, role="senior",
+                            personality_tags=["friendly", "helpful"],
+                            topic_tags=["campus_life", "part_time_job", "kpop"]),
+    "peer": PersonProfile(name="수진", age=22, role="peer",
+                          personality_tags=["outgoing", "friendly"],
+                          topic_tags=["kpop", "cafe_food", "daily_life"]),
+    "boss": PersonProfile(name="카페 사장님", age=42, role="boss",
+                          personality_tags=["practical", "direct"],
+                          topic_tags=["cafe_food", "part_time_job"])
+}
+
+print(" 프로필 생성 완료!")
+
+# 피처 추출 테스트
+print(" 피처 추출 결과\n" + "="*60)
+
+all_features = []
+for name, avatar in avatars.items():
+    f = extractor.extract_features(user, avatar)
+    f['avatar'] = name
+    all_features.append(f)
+    print(f"\n{avatar.name}: status_gap={f['status_gap']}, age_diff={f['age_diff']}, anxiety={f['speaking_anxiety']}")
+
+features_df = pd.DataFrame(all_features)
+display(features_df[['avatar', 'status_gap', 'age_gap_bucket', 'speaking_anxiety', 'safe_common_topic_count']])
+
+## 5. 규칙 기반 분석기
+
+class RuleBasedAnalyzer:
+    """규칙 기반 관계 분석기"""
+
+    def calculate_difficulty(self, f: Dict) -> float:
+        score = (
+            0.35 * min(max(0, f['status_gap']) / 3, 1) +
+            0.15 * (f['age_gap_bucket'] / 2) +
+            0.15 * f['is_difficult_relation'] +
+            0.15 * (f['speaking_anxiety'] / 2) +
+            0.10 * f['cross_cultural'] +
+            0.05 * (0 if f['has_safe_common_topic'] else 1) +
+            0.05 * (1 - f['korean_level'] / 3)
+        )
+        return min(max(score, 0), 1)
+
+    def calculate_formality(self, f: Dict) -> Tuple[float, str]:
+        score = (
+            0.4 * min(max(0, f['status_gap']), 2) +
+            0.2 * f['age_gap_bucket'] +
+            0.2 * f['speaking_anxiety'] +
+            0.2 * f['power_distance_pref']
+        )
+        # 하드 제약
+        if f['avatar_role_level'] >= 3:
+            score = max(score, 1.0)
+
+        if score >= 1.6: label = "very_polite"
+        elif score >= 1.0: label = "polite"
+        elif score >= 0.5: label = "mixed"
+        else: label = "informal"
+
+        return score, label
+
+    def analyze(self, user: PersonProfile, avatar: PersonProfile) -> Dict:
+        f = extractor.extract_features(user, avatar)
+        difficulty = self.calculate_difficulty(f)
+        formality_score, formality_label = self.calculate_formality(f)
+
+        return {
+            "difficulty": round(difficulty, 3),
+            "formality_score": round(formality_score, 3),
+            "recommended_formality": formality_label,
+            "features": f
+        }
+
+analyzer = RuleBasedAnalyzer()
+print("규칙 기반 분석기 초기화 완료!")
+
+# 분석 실행
+print(" 관계 분석 결과\n" + "="*60)
+
+results = []
+for name, avatar in avatars.items():
+    r = analyzer.analyze(user, avatar)
+    results.append({
+        'avatar': avatar.name,
+        'difficulty': r['difficulty'],
+        'formality_score': r['formality_score'],
+        'recommended': r['recommended_formality']
+    })
+    print(f"\n{avatar.name}")
+    print(f"   난이도: {r['difficulty']:.1%} | 형식성: {r['formality_score']:.2f} | 권장말투: {r['recommended_formality']}")
+
+results_df = pd.DataFrame(results)
+
+## 6. ML 모델 학습 (합성 데이터)
+
+def generate_synthetic_data(n_samples=500):
+    """학습용 합성 데이터 생성"""
+    np.random.seed(42)
+    data = []
+
+    roles = ['student', 'peer', 'senior', 'professor', 'boss']
+    role_probs = [0.3, 0.25, 0.2, 0.15, 0.1]
+
+    for _ in range(n_samples):
+        user_age = np.random.randint(18, 35)
+        avatar_role = np.random.choice(roles, p=role_probs)
+        avatar_level = ROLE_LEVELS.get(avatar_role, 1)
+
+        # 역할에 따른 나이 설정
+        if avatar_role == 'peer': avatar_age = user_age + np.random.randint(-2, 3)
+        elif avatar_role == 'senior': avatar_age = user_age + np.random.randint(1, 6)
+        elif avatar_role in ['professor', 'boss']: avatar_age = user_age + np.random.randint(15, 35)
+        else: avatar_age = user_age + np.random.randint(-5, 10)
+
+        age_diff = abs(user_age - avatar_age)
+        age_gap_bucket = 0 if age_diff <= 3 else (1 if age_diff <= 9 else 2)
+        status_gap = avatar_level
+        speaking_anxiety = np.random.randint(0, 3)
+        korean_level = np.random.randint(0, 4)
+        power_pref = np.random.randint(0, 3)
+        cross_cultural = np.random.choice([0, 1], p=[0.7, 0.3])
+        is_difficult = 1 if avatar_role in ['professor', 'boss'] and np.random.random() > 0.5 else 0
+        safe_topics = np.random.randint(0, 5)
+
+        # 난이도 계산
+        difficulty = (
+            0.35 * min(status_gap / 3, 1) +
+            0.15 * (age_gap_bucket / 2) +
+            0.15 * is_difficult +
+            0.15 * (speaking_anxiety / 2) +
+            0.10 * cross_cultural +
+            0.05 * (1 if safe_topics == 0 else 0)
+        )
+        difficulty = np.clip(difficulty + np.random.normal(0, 0.05), 0, 1)
+
+        # 형식성 계산
+        formality = 0.4 * min(status_gap, 2) + 0.2 * age_gap_bucket + 0.2 * speaking_anxiety + 0.2 * power_pref
+        if avatar_level >= 3: formality = max(formality, 1.0)
+        formality = np.clip(formality + np.random.normal(0, 0.1), 0, 2)
+
+        formality_label = 3 if formality >= 1.6 else (2 if formality >= 1.0 else (1 if formality >= 0.5 else 0))
+
+        data.append({
+            'age_diff': age_diff, 'age_gap_bucket': age_gap_bucket,
+            'status_gap': status_gap, 'avatar_role_level': avatar_level,
+            'is_difficult_relation': is_difficult, 'cross_cultural': cross_cultural,
+            'korean_level': korean_level, 'speaking_anxiety': speaking_anxiety,
+            'safe_common_topic_count': safe_topics, 'power_distance_pref': power_pref,
+            'difficulty': difficulty, 'formality_label': formality_label
+        })
+
+    return pd.DataFrame(data)
+
+train_df = generate_synthetic_data(500)
+print(f" 합성 데이터 생성: {len(train_df)} samples")
+print(train_df['formality_label'].value_counts().sort_index())
+
+# 피처/라벨 분리
+feature_cols = ['age_diff', 'age_gap_bucket', 'status_gap', 'avatar_role_level',
+                'is_difficult_relation', 'cross_cultural', 'korean_level',
+                'speaking_anxiety', 'safe_common_topic_count', 'power_distance_pref']
+
+X = train_df[feature_cols]
+y_difficulty = train_df['difficulty']
+y_formality = train_df['formality_label']
+
+X_train, X_test, y_diff_train, y_diff_test = train_test_split(X, y_difficulty, test_size=0.2, random_state=42)
+_, _, y_form_train, y_form_test = train_test_split(X, y_formality, test_size=0.2, random_state=42)
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+print(f"Train: {len(X_train)}, Test: {len(X_test)}")
+
+# 난이도 회귀 모델
+print(" 관계 난이도 회귀 모델 학습\n" + "="*50)
+
+models_reg = {
+    'RandomForest': RandomForestRegressor(n_estimators=100, random_state=42),
+    'GradientBoosting': GradientBoostingRegressor(n_estimators=100, random_state=42),
+    'XGBoost': xgb.XGBRegressor(n_estimators=100, random_state=42, verbosity=0)
+}
+
+for name, model in models_reg.items():
+    model.fit(X_train_scaled, y_diff_train)
+    pred = model.predict(X_test_scaled)
+    mse = mean_squared_error(y_diff_test, pred)
+    rmse = np.sqrt(mse)
+    print(f"{name}: RMSE = {rmse:.4f}")
+
+# 말투 분류 모델
+print("\n 권장 말투 분류 모델 학습\n" + "="*50)
+
+models_clf = {
+    'LogisticRegression': LogisticRegression(max_iter=1000, random_state=42),
+    'RandomForest': RandomForestClassifier(n_estimators=100, random_state=42),
+    'XGBoost': xgb.XGBClassifier(n_estimators=100, random_state=42, verbosity=0)
+}
+
+for name, model in models_clf.items():
+    model.fit(X_train_scaled, y_form_train)
+    pred = model.predict(X_test_scaled)
+    acc = accuracy_score(y_form_test, pred)
+    print(f"{name}: Accuracy = {acc:.2%}")
+
+## 7. 통합 예측 클래스
+
+class MLRelationshipAnalyzer:
+    """ML 기반 관계 분석기"""
+
+    def __init__(self):
+        self.extractor = RelationshipFeatureExtractor()
+        self.scaler = StandardScaler()
+        self.difficulty_model = xgb.XGBRegressor(n_estimators=100, random_state=42, verbosity=0)
+        self.formality_model = xgb.XGBClassifier(n_estimators=100, random_state=42, verbosity=0)
+        self.feature_cols = feature_cols
+        self.is_trained = False
+
+    def train(self, train_df: pd.DataFrame):
+        X = train_df[self.feature_cols]
+        y_diff = train_df['difficulty']
+        y_form = train_df['formality_label']
+
+        X_scaled = self.scaler.fit_transform(X)
+        self.difficulty_model.fit(X_scaled, y_diff)
+        self.formality_model.fit(X_scaled, y_form)
+        self.is_trained = True
+        print(" 모델 학습 완료!")
+
+    def predict(self, user: PersonProfile, avatar: PersonProfile) -> Dict:
+        if not self.is_trained:
+            raise ValueError("모델이 학습되지 않았습니다.")
+
+        features = self.extractor.extract_features(user, avatar)
+        X = pd.DataFrame([{k: features[k] for k in self.feature_cols}])
+        X_scaled = self.scaler.transform(X)
+
+        difficulty = self.difficulty_model.predict(X_scaled)[0]
+        formality_idx = self.formality_model.predict(X_scaled)[0]
+
+        return {
+            "difficulty": float(np.clip(difficulty, 0, 1)),
+            "formality_label": FORMALITY_LABELS[formality_idx],
+            "features": features
+        }
+
+# 학습 및 테스트
+ml_analyzer = MLRelationshipAnalyzer()
+ml_analyzer.train(train_df)
+
+# ML 모델 예측 테스트
+print(" ML 모델 예측 결과\n" + "="*60)
+
+for name, avatar in avatars.items():
+    result = ml_analyzer.predict(user, avatar)
+    print(f"\n{avatar.name}: 난이도={result['difficulty']:.1%}, 권장말투={result['formality_label']}")
+
+## Summary
+
+이 노트북에서 구현한 기능:
+
+1. **피처 추출**: 나이, 역할, 위계, 언어 수준, 토픽 유사도 등
+2. **규칙 기반 분석**: 가중치 기반 난이도/형식성 점수 계산
+3. **ML 모델 학습**: RandomForest, XGBoost 회귀/분류
+4. **통합 분석기**: 실제 프로필 입력 → 예측 결과 출력
+
