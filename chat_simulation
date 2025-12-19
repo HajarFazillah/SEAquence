@@ -1,0 +1,729 @@
+# Talkativ 데모: 대화 시뮬레이션 (Interactive Chat)
+
+---
+
+## 1. 개요
+
+### 1.1 이 데모의 목적
+
+이 데모는 앞서 구현한 모든 모듈을 통합하여 실제 대화 시뮬레이션을 수행합니다.
+
+**통합되는 모듈:**
+1. 관계 분석 모듈 (Demo 1)
+2. 공손성 분석 모듈 (Demo 2)
+3. LLM 프롬프트 (Demo 3)
+
+### 1.2 시뮬레이션 흐름
+
+```
+1. 사용자/아바타 프로필 설정
+        |
+        v
+2. 관계 분석 (권장 말투 결정)
+        |
+        v
+3. 대화 가이드 생성
+        |
+        v
+4. 대화 시작
+   |-- 사용자 입력
+   |-- 공손성 분석 & 피드백
+   |-- 아바타 응답 생성 (LLM)
+   |-- 반복
+```
+
+### 1.3 향후 확장 계획
+
+1. **실제 LLM API 연동**: HyperCLOVA X API 키 연결
+2. **음성 인식 통합**: CLOVA Speech STT 연동
+3. **음성 합성 통합**: CLOVA Voice TTS 연동
+4. **UI 구현**: React Native 앱과 연동
+
+---
+
+import re
+import time
+from typing import List, Dict, Optional
+from dataclasses import dataclass, field
+from datetime import datetime
+
+print("라이브러리 로드 완료")
+
+## 2. 핵심 모듈 정의
+
+앞서 구현한 모듈들을 간략화하여 통합합니다.
+
+# 프로필 클래스
+@dataclass
+class PersonProfile:
+    name: str
+    age: int
+    role: str
+    korean_level: str = "native"
+    anxiety: str = "medium"
+    personality: str = ""
+    topics: List[str] = field(default_factory=list)
+    avoid_topics: List[str] = field(default_factory=list)
+    background: str = ""
+
+# 역할 수준
+ROLE_LEVELS = {"student": 0, "peer": 1, "senior": 2, "professor": 3}
+
+print("프로필 클래스 정의 완료")
+
+# 관계 분석기 (간략화)
+class RelationshipAnalyzer:
+    def analyze(self, user: PersonProfile, avatar: PersonProfile) -> Dict:
+        user_level = ROLE_LEVELS.get(user.role, 0)
+        avatar_level = ROLE_LEVELS.get(avatar.role, 1)
+        status_gap = avatar_level - user_level
+
+        # 말투 결정
+        if status_gap >= 2:
+            formality = "very_polite"
+        elif status_gap >= 1:
+            formality = "polite"
+        else:
+            formality = "informal"
+
+        # 공통 토픽
+        common = set(user.topics) & set(avatar.topics)
+        avoid = set(user.avoid_topics) | set(avatar.avoid_topics)
+        safe_topics = list(common - avoid)
+
+        return {
+            "role_pair": f"{user.role}-{avatar.role}",
+            "status_gap": status_gap,
+            "recommended_formality": formality,
+            "safe_topics": safe_topics,
+            "difficulty": min(0.3 * status_gap + 0.2, 1.0)
+        }
+
+print("관계 분석기 정의 완료")
+
+# 공손성 분석기 (간략화)
+class PolitenessAnalyzer:
+    ENDINGS = {
+        "very_polite": [r"습니다", r"습니까", r"십시오"],
+        "polite": [r"요$", r"세요", r"죠"],
+        "informal": [r"해$", r"어$", r"야$", r"냐"]
+    }
+
+    def analyze(self, text: str) -> Dict:
+        score = 50
+        level = "mixed"
+
+        for lvl, patterns in self.ENDINGS.items():
+            for p in patterns:
+                if re.search(p, text):
+                    if lvl == "very_polite":
+                        score += 30
+                        level = "very_polite"
+                    elif lvl == "polite":
+                        score += 20
+                        level = "polite"
+                    else:
+                        score -= 20
+                        level = "informal"
+                    break
+
+        # 호칭 분석
+        if re.search(r"님", text):
+            score += 15
+        if re.search(r"[가-힣]+[아야](?![가-힣])", text):
+            score -= 10
+
+        return {
+            "score": max(0, min(100, score)),
+            "level": level
+        }
+
+print("공손성 분석기 정의 완료")
+
+# 피드백 생성기
+class FeedbackGenerator:
+    FORMALITY_ORDER = ["informal", "mixed", "polite", "very_polite"]
+
+    def generate(self, text: str, recommended: str, actual: str, score: int) -> Dict:
+        rec_idx = self.FORMALITY_ORDER.index(recommended)
+        act_idx = self.FORMALITY_ORDER.index(actual)
+        gap = rec_idx - act_idx
+
+        if gap <= 0:
+            return {
+                "status": "good",
+                "message": "좋아요! 적절한 말투를 사용하고 있어요.",
+                "suggestion": None
+            }
+        elif gap == 1:
+            return {
+                "status": "caution",
+                "message": "괜찮지만, 조금 더 공손하게 말하면 좋아요.",
+                "suggestion": self._suggest(text, recommended)
+            }
+        else:
+            return {
+                "status": "warning",
+                "message": "이 상황에서는 존댓말이 필요해요!",
+                "suggestion": self._suggest(text, recommended)
+            }
+
+    def _suggest(self, text: str, target: str) -> str:
+        """간단한 표현 변환 (실제로는 LLM 사용 예정)"""
+        if target == "very_polite":
+            text = re.sub(r"어떻게 해\??", "어떻게 하면 될까요?", text)
+            text = re.sub(r"뭐야\??", "무엇인가요?", text)
+        return text
+
+print("피드백 생성기 정의 완료")
+
+# 아바타 응답 생성기 (시뮬레이션 모드)
+class AvatarResponseGenerator:
+    """
+    아바타 응답 생성기
+
+    현재는 규칙 기반 시뮬레이션 모드입니다.
+    향후 HyperCLOVA X API를 연동하여 실제 LLM 응답을 생성합니다.
+    """
+
+    def __init__(self, avatar: PersonProfile, formality: str):
+        self.avatar = avatar
+        self.formality = formality
+        self.responses = self._prepare_responses()
+
+    def _prepare_responses(self) -> Dict:
+        """역할별 사전 정의 응답 (시뮬레이션용)"""
+        if self.avatar.role == "professor":
+            return {
+                "greeting": "네, 어서 오세요. 무슨 일로 오셨나요?",
+                "career": "진로 고민이 있군요. 구체적으로 어떤 부분이 가장 걱정되세요?",
+                "study": "수업 관련 질문이군요. 어떤 부분이 어려우셨어요?",
+                "default": "네, 그렇군요. 더 자세히 말씀해 주시겠어요?",
+                "farewell": "네, 도움이 되었길 바랍니다. 또 궁금한 점 있으면 찾아오세요."
+            }
+        elif self.avatar.role == "senior":
+            return {
+                "greeting": "어, 왔어? 무슨 일이야?",
+                "career": "아, 진로 고민? 나도 그랬어. 어떤 게 제일 고민이야?",
+                "study": "과제 때문에? 뭐가 어려워?",
+                "default": "오 그래? 더 얘기해봐.",
+                "farewell": "응, 힘내! 또 연락해~"
+            }
+        else:  # peer
+            return {
+                "greeting": "야 왔어? 뭐해?",
+                "career": "아 진로? 나도 요즘 그거 고민이야ㅋㅋ",
+                "study": "과제? 어떤 거?",
+                "default": "오 진짜? 대박ㅋㅋ",
+                "farewell": "응 그래 나중에 봐~"
+            }
+
+    def generate(self, user_input: str, context: List[Dict] = None, use_llm: bool = False) -> str:
+        """
+        응답 생성
+
+        현재: 키워드 매칭 기반 시뮬레이션
+        향후: LLM API 호출
+        """
+        user_lower = user_input.lower()
+
+        # 키워드 기반 응답 선택
+        if any(w in user_lower for w in ["안녕", "찾아", "왔습니다"]):
+            return self.responses["greeting"]
+        elif any(w in user_lower for w in ["진로", "취업", "대학원", "면접"]):
+            return self.responses["career"]
+        elif any(w in user_lower for w in ["과제", "수업", "시험", "팀플"]):
+            return self.responses["study"]
+        elif any(w in user_lower for w in ["감사", "고마", "갈게", "끝"]):
+            return self.responses["farewell"]
+        else:
+            return self.responses["default"]
+
+
+    def _build_system_prompt(self) -> str:
+        """아바타 역할/관계/말투를 시스템 프롬프트로 구성.
+
+        - formality: 관계 분석 결과에 기반한 권장 말투(예: very_polite)
+        - avoid_topics: 대화에서 회피해야 할 주제 목록
+        """
+        avoid = ", ".join(self.avatar.avoid_topics) if self.avatar.avoid_topics else "없음"
+        topics = ", ".join(self.avatar.topics) if self.avatar.topics else "일반 대화"
+        return (
+            f"너는 Talkativ 데모의 대화 아바타다.\n"
+            f"- 아바타 이름: {self.avatar.name}\n"
+            f"- 아바타 역할: {self.avatar.role}\n"
+            f"- 권장 말투: {self.formality}\n"
+            f"- 선호/가능 주제: {topics}\n"
+            f"- 회피 주제: {avoid}\n"
+            "대답은 한국어로, 간결하고 자연스럽게 작성한다."
+        )
+
+def generate_with_llm(self, user_input: str, system_prompt: str) -> str:
+        """
+        LLM API를 사용한 응답 생성 (향후 구현)
+
+        Args:
+            user_input: 사용자 입력
+            system_prompt: 아바타 시스템 프롬프트
+
+        Returns:
+            LLM 생성 응답
+        """
+        # CLOVA Studio(HyperCLOVA X) OpenAI-compatible API 호출
+        return call_clovastudio_chat(system_prompt=system_prompt, user_text=user_input)
+
+print("아바타 응답 생성기 정의 완료")
+
+## 3. 대화 세션 관리자
+
+@dataclass
+class ChatMessage:
+    """대화 메시지"""
+    role: str  # "user" or "avatar"
+    content: str
+    timestamp: str = field(default_factory=lambda: datetime.now().strftime("%H:%M"))
+    feedback: Optional[Dict] = None
+
+
+class ChatSession:
+    """
+    대화 세션 관리자
+
+    사용자와 아바타 간의 대화를 관리하고,
+    각 발화에 대한 피드백을 제공합니다.
+    """
+
+    def __init__(self, user: PersonProfile, avatar: PersonProfile):
+        self.user = user
+        self.avatar = avatar
+        self.history: List[ChatMessage] = []
+
+        # 모듈 초기화
+        self.relationship_analyzer = RelationshipAnalyzer()
+        self.politeness_analyzer = PolitenessAnalyzer()
+        self.feedback_generator = FeedbackGenerator()
+
+        # 관계 분석
+        self.relationship = self.relationship_analyzer.analyze(user, avatar)
+        self.recommended_formality = self.relationship["recommended_formality"]
+
+        # 아바타 응답 생성기
+        self.avatar_generator = AvatarResponseGenerator(avatar, self.recommended_formality)
+
+    def get_guide(self) -> Dict:
+        """대화 가이드 생성"""
+        formality_info = {
+            "very_polite": {
+                "description": "격식체 존댓말",
+                "endings": ["-습니다", "-세요", "-습니까"],
+                "example": "안녕하세요. 상담 받으러 왔습니다."
+            },
+            "polite": {
+                "description": "일반 존댓말",
+                "endings": ["-요", "-세요", "-죠"],
+                "example": "안녕하세요! 질문이 있어요."
+            },
+            "informal": {
+                "description": "반말",
+                "endings": ["-해", "-어", "-야"],
+                "example": "야, 안녕! 뭐해?"
+            }
+        }
+
+        f_info = formality_info.get(self.recommended_formality, formality_info["polite"])
+
+        return {
+            "relationship": self.relationship["role_pair"],
+            "difficulty": f"{self.relationship['difficulty']:.0%}",
+            "recommended_formality": self.recommended_formality,
+            "formality_info": f_info,
+            "safe_topics": self.relationship["safe_topics"],
+            "tips": [
+                f"{f_info['description']}을 사용하세요.",
+                f"종결어미: {', '.join(f_info['endings'])}",
+                f"예시: {f_info['example']}"
+            ]
+        }
+
+    def send_message(self, user_input: str) -> Dict:
+        """
+        메시지 전송 및 처리
+
+        1. 사용자 입력 분석
+        2. 피드백 생성
+        3. 아바타 응답 생성
+        """
+        # 1. 공손성 분석
+        politeness = self.politeness_analyzer.analyze(user_input)
+
+        # 2. 피드백 생성
+        feedback = self.feedback_generator.generate(
+            user_input,
+            self.recommended_formality,
+            politeness["level"],
+            politeness["score"]
+        )
+
+        # 3. 사용자 메시지 저장
+        user_msg = ChatMessage(
+            role="user",
+            content=user_input,
+            feedback={
+                "score": politeness["score"],
+                "level": politeness["level"],
+                **feedback
+            }
+        )
+        self.history.append(user_msg)
+
+        # 4. 아바타 응답 생성
+        avatar_response = self.avatar_generator.generate(user_input, use_llm=USE_LLM)
+        avatar_msg = ChatMessage(role="avatar", content=avatar_response)
+        self.history.append(avatar_msg)
+
+        return {
+            "user_message": user_msg,
+            "feedback": user_msg.feedback,
+            "avatar_response": avatar_msg
+        }
+
+    def get_history(self) -> List[ChatMessage]:
+        """대화 기록 반환"""
+        return self.history
+
+print("ChatSession 클래스 정의 완료")
+
+## 4. 시뮬레이션 실행
+
+### 4.1 시나리오 1: 교수님과 진로 상담
+
+- 위의 `Mode` 토글에서 `LLM (CLOVA Studio)`를 선택하면, 아바타 응답이 HyperCLOVA X API 호출로 생성됩니다(환경변수 `CLOVASTUDIO_API_KEY` 필요).
+- `Simulation` 모드는 기존 규칙 기반 응답을 사용하며 API 키가 필요하지 않습니다.
+
+
+# ============================================================
+# 4.0 실행 모드 전환: 시뮬레이션 모드 vs LLM 모드(HyperCLOVA X)
+# ============================================================
+# - USE_LLM = False : 규칙 기반 시뮬레이션(기존 동작). API 키 불필요
+# - USE_LLM = True  : CLOVA Studio(HyperCLOVA X) 호출. API 키 필요
+#
+# 권장: 환경변수로 API 키를 설정합니다.
+#   export CLOVASTUDIO_API_KEY="발급받은_키"
+#
+# 주의: 아래 셀은 "모드 선택 UI"만 제공합니다.
+#       실제 API 호출은 USE_LLM=True 이고, AvatarResponseGenerator.generate()가 호출될 때 실행됩니다.
+
+USE_LLM = False
+
+try:
+    import ipywidgets as widgets
+    from IPython.display import display, clear_output
+
+    mode_toggle = widgets.ToggleButtons(
+        options=[("Simulation", False), ("LLM (CLOVA Studio)", True)],
+        value=USE_LLM,
+        description="Mode:",
+        disabled=False,
+        button_style="",
+    )
+
+    out = widgets.Output()
+
+    def _on_mode_change(change):
+        global USE_LLM
+        if change.get("name") == "value":
+            USE_LLM = bool(change["new"])
+            with out:
+                clear_output()
+                print("현재 모드:", "LLM (CLOVA Studio)" if USE_LLM else "Simulation")
+
+    mode_toggle.observe(_on_mode_change)
+
+    display(mode_toggle, out)
+    print("모드를 선택한 뒤 아래 시뮬레이션 셀을 실행하세요.")
+except Exception as e:
+    print("ipywidgets를 불러오지 못했습니다. 수동으로 USE_LLM 값을 설정하세요.")
+    print("에러:", type(e).__name__, str(e))
+
+
+# ============================================================
+# 4.0.1 CLOVA Studio(HyperCLOVA X) 호출 함수 (requests 기반)
+# ============================================================
+# 이 함수는 OpenAI SDK를 사용하지 않고, HTTP 요청을 직접 전송합니다.
+# "Simulation" 모드에서는 호출되지 않으므로 API 키가 없어도 노트북이 동작합니다.
+#
+# 호출 조건:
+# - USE_LLM == True 이고
+# - AvatarResponseGenerator.generate()가 LLM 경로로 분기될 때
+#
+# API 키 주입:
+# - 환경변수 CLOVASTUDIO_API_KEY 를 사용합니다.
+
+import os
+import requests
+
+CLOVASTUDIO_BASE_URL = "https://clovastudio.stream.ntruss.com/v1/openai"
+CLOVASTUDIO_MODEL = "HCX-005"
+
+def call_clovastudio_chat(system_prompt: str,
+                          user_text: str,
+                          temperature: float = 0.7,
+                          max_tokens: int = 256,
+                          model: str = None) -> str:
+    """CLOVA Studio OpenAI-compatible Chat Completions 호출.
+
+    Parameters
+    ----------
+    system_prompt : str
+        모델 역할/규칙(시스템 프롬프트)
+    user_text : str
+        사용자 입력
+    temperature : float
+        출력 다양성 제어
+    max_tokens : int
+        생성 길이 상한
+    model : str
+        모델명(기본값: CLOVASTUDIO_MODEL)
+
+    Returns
+    -------
+    str
+        assistant 응답 텍스트
+    """
+    api_key = os.getenv("CLOVASTUDIO_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "LLM 모드 사용 시 환경변수 CLOVASTUDIO_API_KEY 가 필요합니다.\n"
+            "예) export CLOVASTUDIO_API_KEY='발급받은_키'"
+        )
+
+    url = f"{CLOVASTUDIO_BASE_URL}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model or CLOVASTUDIO_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    r = requests.post(url, headers=headers, json=payload, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    return data["choices"][0]["message"]["content"]
+
+
+# 프로필 설정
+user = PersonProfile(
+    name="지민",
+    age=22,
+    role="student",
+    korean_level="intermediate",
+    anxiety="high",
+    topics=["career_future", "kpop", "cafe_food"],
+    avoid_topics=["politics"]
+)
+
+professor = PersonProfile(
+    name="김 교수님",
+    age=52,
+    role="professor",
+    personality="학문적이고 진지하지만 학생을 배려하는 따뜻한 교수님",
+    topics=["career_future", "class_study"],
+    avoid_topics=["politics"],
+    background="컴퓨터공학과 교수. 지민의 지도교수"
+)
+
+# 세션 시작
+session1 = ChatSession(user, professor)
+
+print("시나리오 1: 교수님과 진로 상담")
+print("=" * 60)
+
+# 대화 가이드 확인
+guide = session1.get_guide()
+
+print("\n[대화 가이드]")
+print(f"관계: {guide['relationship']}")
+print(f"난이도: {guide['difficulty']}")
+print(f"권장 말투: {guide['recommended_formality']}")
+print(f"\n팁:")
+for tip in guide['tips']:
+    print(f"  - {tip}")
+
+def print_chat_result(result: Dict):
+    """대화 결과 출력"""
+    print("\n" + "-" * 50)
+
+    # 사용자 메시지
+    user_msg = result['user_message']
+    print(f"[{user_msg.timestamp}] {user_msg.role}: {user_msg.content}")
+
+    # 피드백
+    fb = result['feedback']
+    status_icon = {"good": "[v]", "caution": "[!]", "warning": "[X]"}
+    print(f"\n  {status_icon.get(fb['status'], '')} 피드백: {fb['message']}")
+    print(f"  점수: {fb['score']}/100 (실제: {fb['level']})")
+    if fb['suggestion']:
+        print(f"  추천: \"{fb['suggestion']}\"")
+
+    # 아바타 응답
+    avatar_msg = result['avatar_response']
+    print(f"\n[{avatar_msg.timestamp}] {avatar_msg.role}: {avatar_msg.content}")
+
+# 대화 1: 적절한 인사
+result1 = session1.send_message("교수님, 진로 상담을 받고 싶어서 찾아뵀습니다.")
+print_chat_result(result1)
+
+# 대화 2: 적절한 질문
+result2 = session1.send_message("취업이랑 대학원 중에 어떤 게 나을까요?")
+print_chat_result(result2)
+
+# 대화 3: 부적절한 반말 (피드백 발생)
+result3 = session1.send_message("교수님, 이거 어떻게 해?")
+print_chat_result(result3)
+
+# 대화 4: 마무리
+result4 = session1.send_message("감사합니다. 많은 도움이 되었습니다.")
+print_chat_result(result4)
+
+### 4.2 시나리오 2: 친구와 일상 대화
+
+# 친구 프로필
+friend = PersonProfile(
+    name="수진",
+    age=22,
+    role="peer",
+    personality="밝고 활발한 성격",
+    topics=["kpop", "cafe_food", "drama_movie"],
+    avoid_topics=["politics"],
+    background="같은 과 동기. 친한 친구."
+)
+
+# 세션 시작
+session2 = ChatSession(user, friend)
+
+print("\n" + "=" * 60)
+print("시나리오 2: 친구와 일상 대화")
+print("=" * 60)
+
+guide2 = session2.get_guide()
+print(f"\n권장 말투: {guide2['recommended_formality']}")
+
+# 친구와 대화: 반말 사용 (적절)
+result_f1 = session2.send_message("야 수진아! 오늘 뭐해?")
+print_chat_result(result_f1)
+
+# 친구에게 과도한 존댓말 (과공손)
+result_f2 = session2.send_message("수진님, 오늘 시간이 되시겠습니까?")
+print_chat_result(result_f2)
+
+### 4.3 대화 요약
+
+def summarize_session(session: ChatSession) -> Dict:
+    """세션 요약 통계"""
+    history = session.get_history()
+    user_messages = [m for m in history if m.role == "user"]
+
+    total = len(user_messages)
+    if total == 0:
+        return {"total": 0}
+
+    scores = [m.feedback["score"] for m in user_messages if m.feedback]
+    statuses = [m.feedback["status"] for m in user_messages if m.feedback]
+
+    return {
+        "total_messages": total,
+        "average_score": sum(scores) / len(scores) if scores else 0,
+        "good_count": statuses.count("good"),
+        "caution_count": statuses.count("caution"),
+        "warning_count": statuses.count("warning")
+    }
+
+# 시나리오 1 요약
+summary1 = summarize_session(session1)
+print("\n시나리오 1 (교수님) 요약")
+print("=" * 40)
+print(f"총 발화 수: {summary1['total_messages']}")
+print(f"평균 점수: {summary1['average_score']:.1f}/100")
+print(f"적절: {summary1['good_count']} / 주의: {summary1['caution_count']} / 부적절: {summary1['warning_count']}")
+
+---
+
+## 5. 향후 확장 계획
+
+### 5.1 LLM API 연동 예시
+
+```python
+# HyperCLOVA X API 연동 예시 코드
+def call_hyperclova(system_prompt: str, user_message: str) -> str:
+    import requests
+    
+    response = requests.post(
+        "https://clovastudio.apigw.ntruss.com/...",
+        headers={
+            "X-NCP-CLOVASTUDIO-API-KEY": API_KEY,
+            "Content-Type": "application/json"
+        },
+        json={
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            "temperature": 0.7,
+            "maxTokens": 200
+        }
+    )
+    return response.json()["result"]["message"]["content"]
+```
+
+### 5.2 음성 인식/합성 연동
+
+```python
+# CLOVA Speech STT 연동
+def speech_to_text(audio_file: bytes) -> str:
+    # STT API 호출
+    pass
+
+# CLOVA Voice TTS 연동  
+def text_to_speech(text: str) -> bytes:
+    # TTS API 호출
+    pass
+```
+
+### 5.3 구현 로드맵
+
+| 단계 | 내용 | 예상 기간 |
+|------|------|----------|
+| 1 | HyperCLOVA X API 연동 | 2주 |
+| 2 | CLOVA Speech 연동 | 2주 |
+| 3 | React Native UI | 3주 |
+| 4 | 백엔드 통합 | 2주 |
+
+## 6. 정리
+
+### 6.1 이 데모에서 구현한 것
+
+1. **통합 대화 시스템**: 관계 분석 + 공손성 분석 + 피드백 생성
+2. **ChatSession**: 대화 세션 관리
+3. **AvatarResponseGenerator**: 아바타 응답 생성 (시뮬레이션)
+4. **대화 시뮬레이션**: 교수님/친구 시나리오
+
+### 6.2 향후 확장
+
+1. HyperCLOVA X API 연동
+2. CLOVA Speech/Voice 연동
+3. React Native 앱 연동
+4. AI-Hub 데이터 학습
+
+### 6.3 데모 시연 포인트
+
+1. 관계에 따른 권장 말투 자동 결정
+2. 실시간 공손성 분석 및 피드백
+3. 부적절한 말투 사용 시 즉각 경고
+4. 구체적인 개선 표현 제안
