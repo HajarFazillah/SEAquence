@@ -1,0 +1,821 @@
+# Talkativ: 공손성 분석 모듈 (Politeness Analysis)
+
+---
+
+## 1. 모듈 개요
+
+### 1.1 이 모듈의 목적
+
+공손성 분석 모듈은 사용자의 실제 발화를 분석하여 말투가 상황에 적절한지 평가하고 실시간 피드백을 제공하는 모듈입니다.
+
+한국어의 공손성(politeness)은 크게 두 가지 요소로 결정됩니다:
+
+1. **종결어미 (Sentence endings)**: -습니다, -요, -해 등
+2. **호칭 (Address terms)**: 님, 씨, 아/야 등
+
+이 모듈은 이 두 요소를 분석하여 발화의 공손성 수준을 점수화하고, 관계 분석 모듈에서 권장한 말투와 비교하여 적절성을 평가합니다.
+
+### 1.2 입력과 출력
+
+**입력:**
+- 사용자의 발화 텍스트
+- 권장 말투 수준 (관계 분석 모듈에서 제공)
+
+**출력:**
+- 공손성 점수 (0 ~ 100)
+- 실제 말투 수준 (informal / mixed / polite / very_polite)
+- 탐지된 패턴 (종결어미, 호칭 등)
+- 적절성 평가 및 피드백
+
+### 1.3 향후 확장 계획
+
+1. **AI-Hub 데이터 연동**: 실제 대화 데이터에서 공손성 패턴 학습
+2. **LLM 기반 피드백**: HyperCLOVA X를 활용한 자연스러운 피드백 생성
+3. **음성 분석 통합**: CLOVA Speech STT 결과와 연동
+
+---
+
+
+
+import re
+from typing import List, Dict, Tuple, Optional
+from dataclasses import dataclass, field
+
+print("라이브러리 로드 완료")
+
+# ============================================================
+# 실행 모드 설정 (Simulation / LLM)
+# ============================================================
+# - Simulation: 규칙 기반 분석 및 피드백만 수행합니다. API 키가 없어도 실행됩니다.
+# - LLM (CLOVA Studio): 규칙 기반 결과를 바탕으로, CLOVA Studio(HyperCLOVA X)로부터
+#   추가 피드백(요약/수정 제안/대체 문장)을 생성합니다.
+#
+# 설계 의도:
+# - 데모에서 동일한 입력에 대해 (1) 규칙 기반 결과와 (2) LLM 보강 결과를 비교할 수 있도록
+#   모드 전환을 단일 플래그(USE_LLM)로 제어합니다.
+# ============================================================
+
+USE_LLM = False  # ipywidgets가 없는 환경에서는 이 값을 수동으로 True/False로 바꾸면 됩니다.
+
+try:
+    import ipywidgets as widgets
+    from IPython.display import display
+
+    mode_toggle = widgets.ToggleButtons(
+        options=[("Simulation", False), ("LLM (CLOVA Studio)", True)],
+        value=False,
+        description="Mode:",
+        disabled=False,
+        button_style=""
+    )
+
+    def _apply_mode(change):
+        global USE_LLM
+        USE_LLM = bool(change["new"])
+
+    mode_toggle.observe(_apply_mode, names="value")
+    display(mode_toggle)
+    print("현재 모드:", "LLM (CLOVA Studio)" if mode_toggle.value else "Simulation")
+except Exception:
+    print("ipywidgets를 사용할 수 없습니다. USE_LLM 값을 수동으로 설정하세요.")
+
+
+# ============================================================
+# CLOVA Studio(OpenAI-compatible) 호출 유틸리티
+# ============================================================
+# 본 노트북은 OpenAI SDK를 사용하지 않고, requests로 HTTP POST를 직접 수행합니다.
+# 목적은 '외부 라이브러리 의존 최소화'와 '요청/응답 구조의 명시적 확인'입니다.
+#
+# API 키 주입 방식:
+# - 환경변수 CLOVASTUDIO_API_KEY 로 관리합니다.
+# - LLM 모드에서만 키 존재를 검사합니다(시뮬레이션 모드 실행 방해 방지).
+#
+# 엔드포인트:
+# - https://clovastudio.stream.ntruss.com/v1/openai/chat/completions
+# ============================================================
+
+import os
+import requests
+
+CLOVASTUDIO_BASE_URL = "https://clovastudio.stream.ntruss.com/v1/openai"
+CLOVASTUDIO_MODEL = "HCX-005"  # CLOVA Studio 콘솔에 표시된 모델명으로 정확히 일치시켜야 합니다.
+
+def _get_clovastudio_api_key() -> str:
+    key = os.getenv("CLOVASTUDIO_API_KEY")
+    if not key:
+        raise RuntimeError(
+            "LLM 모드에서 CLOVA Studio API 키가 필요합니다.\n"
+            "환경변수 CLOVASTUDIO_API_KEY 를 설정하세요.\n"
+            "예) export CLOVASTUDIO_API_KEY='발급받은_키'"
+        )
+    return key
+
+def call_clovastudio_chat(system_prompt: str, user_text: str,
+                          temperature: float = 0.4, max_tokens: int = 256) -> str:
+    url = f"{CLOVASTUDIO_BASE_URL}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {_get_clovastudio_api_key()}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": CLOVASTUDIO_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    resp = requests.post(url, headers=headers, json=payload, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
+
+
+## 2. 한국어 공손성 패턴 정의
+
+### 2.1 종결어미 패턴
+
+한국어 종결어미는 말투 수준을 결정하는 가장 중요한 요소입니다.
+
+| 수준 | 종결어미 | 점수 영향 |
+|------|---------|----------|
+| very_polite | -습니다, -습니까 | +30 |
+| polite | -요, -세요, -죠 | +20 |
+| informal | -해, -어, -야 | -20 |
+
+### 2.2 호칭 패턴
+
+| 호칭 | 점수 영향 | 사용 상황 |
+|------|----------|----------|
+| 님 | +15 | 높임 (교수님) |
+| 씨 | +5 | 일반 존중 |
+| 아/야 | -10 | 반말 호칭 |
+
+# 종결어미 패턴 정의
+ENDING_PATTERNS = {
+    "very_polite": [
+        r"습니다[.?!]?$",
+        r"ㅂ니다[.?!]?$",
+        r"습니까[.?!]?$",
+        r"십시오[.?!]?$",
+        r"드리겠습니다[.?!]?$",
+    ],
+    "polite": [
+        r"해요[.?!]?$",
+        r"에요[.?!]?$",
+        r"예요[.?!]?$",
+        r"세요[.?!]?$",
+        r"죠[.?!]?$",
+        r"요[.?!]?$",
+        r"네요[.?!]?$",
+        r"을까요[.?!]?$",
+        r"ㄹ까요[.?!]?$",
+    ],
+    "informal": [
+        r"해[.?!]?$",
+        r"어[.?!]?$",
+        r"아[.?!]?$",
+        r"야[.?!]?$",
+        r"지[.?!]?$",
+        r"냐[.?!]?$",
+        r"니[.?!]?$",
+        r"거야[.?!]?$",
+        r"잖아[.?!]?$",
+    ]
+}
+
+# 호칭 패턴 정의
+HONORIFIC_PATTERNS = {
+    "nim": {"pattern": r"[가-힣]+님", "score_delta": 15, "description": "높임 호칭 (님)"},
+    "ssi": {"pattern": r"[가-힣]+씨", "score_delta": 5, "description": "일반 존칭 (씨)"},
+    "ah_ya": {"pattern": r"[가-힣]+[아야](?![가-힣])", "score_delta": -10, "description": "반말 호칭 (아/야)"}
+}
+
+# 높임 어휘 정의
+HONORIFIC_WORDS = {
+    "high_level": {
+        "words": ["드리", "여쭙", "뵙", "모시", "계시", "주무시"],
+        "score_delta": 10,
+        "description": "높임 어휘"
+    },
+    "softener": {
+        "words": ["혹시", "괜찮으시다면", "실례지만", "죄송하지만"],
+        "score_delta": 5,
+        "description": "완곡 표현"
+    }
+}
+
+# 무례 표현 패턴
+RUDE_PATTERNS = {
+    "direct_you": {"pattern": r"너(?![무희])", "score_delta": -15, "description": "직접적인 '너' 사용"},
+    "exclamation": {"pattern": r"야!", "score_delta": -15, "description": "야! 사용"},
+    "rude_question": {"pattern": r"뭐야|왜그래|뭔데", "score_delta": -10, "description": "무례한 질문"}
+}
+
+print("패턴 정의 완료")
+print(f"- very_polite 종결어미: {len(ENDING_PATTERNS['very_polite'])}개")
+print(f"- polite 종결어미: {len(ENDING_PATTERNS['polite'])}개")
+print(f"- informal 종결어미: {len(ENDING_PATTERNS['informal'])}개")
+
+## 3. 공손성 분석기 구현
+
+### 3.1 점수 계산 알고리즘
+
+기본 점수 50점에서 시작하여 다음 규칙으로 가감:
+
+```
+최종점수 = 50 (기본)
+         + 종결어미 점수 (+30/-20)
+         + 호칭 점수 (+15/-10)
+         + 높임어휘 점수 (+10)
+         + 무례표현 점수 (-15)
+```
+
+### 3.2 말투 수준 결정 기준
+
+- 80점 이상: very_polite
+- 60점 이상: polite
+- 40점 이상: mixed
+- 40점 미만: informal
+
+@dataclass
+class PolitenessResult:
+    """공손성 분석 결과"""
+    text: str
+    base_score: int = 50
+    final_score: int = 50
+    level: str = "mixed"
+    detected_endings: List[Dict] = field(default_factory=list)
+    detected_titles: List[Dict] = field(default_factory=list)
+    detected_honorifics: List[Dict] = field(default_factory=list)
+    detected_rude: List[Dict] = field(default_factory=list)
+    score_breakdown: Dict = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
+
+
+class KoreanPolitenessAnalyzer:
+    """
+    한국어 공손성 분석기
+
+    텍스트를 입력받아 종결어미, 호칭, 높임 어휘 등을 분석하고
+    공손성 점수를 계산합니다.
+    """
+
+    def analyze(self, text: str) -> PolitenessResult:
+        """텍스트의 공손성 분석"""
+        result = PolitenessResult(text=text)
+        score = 50
+        breakdown = {"base": 50, "endings": 0, "titles": 0, "honorifics": 0, "rude": 0}
+
+        # 1. 종결어미 분석
+        ending_score, detected_endings = self._analyze_endings(text)
+        score += ending_score
+        breakdown["endings"] = ending_score
+        result.detected_endings = detected_endings
+
+        # 2. 호칭 분석
+        title_score, detected_titles = self._analyze_titles(text)
+        score += title_score
+        breakdown["titles"] = title_score
+        result.detected_titles = detected_titles
+
+        # 3. 높임 어휘 분석
+        honorific_score, detected_honorifics = self._analyze_honorific_words(text)
+        score += honorific_score
+        breakdown["honorifics"] = honorific_score
+        result.detected_honorifics = detected_honorifics
+
+        # 4. 무례 표현 체크
+        rude_score, detected_rude, warnings = self._check_rude_patterns(text)
+        score += rude_score
+        breakdown["rude"] = rude_score
+        result.detected_rude = detected_rude
+        result.warnings = warnings
+
+        # 5. 최종 점수 및 레벨 결정
+        result.final_score = max(0, min(100, score))
+        result.level = self._get_level(result.final_score)
+        result.score_breakdown = breakdown
+
+        return result
+
+    def _analyze_endings(self, text: str) -> Tuple[int, List[Dict]]:
+        """종결어미 분석"""
+        score_delta = 0
+        detected = []
+
+        sentences = re.split(r'[.!?]+', text)
+
+        for sent in sentences:
+            sent = sent.strip()
+            if not sent:
+                continue
+
+            found = False
+
+            # very_polite 패턴 체크
+            for pattern in ENDING_PATTERNS["very_polite"]:
+                match = re.search(pattern, sent)
+                if match:
+                    score_delta += 30
+                    detected.append({"level": "very_polite", "pattern": match.group(), "sentence": sent, "score_delta": 30})
+                    found = True
+                    break
+
+            if found:
+                continue
+
+            # polite 패턴 체크
+            for pattern in ENDING_PATTERNS["polite"]:
+                match = re.search(pattern, sent)
+                if match:
+                    score_delta += 20
+                    detected.append({"level": "polite", "pattern": match.group(), "sentence": sent, "score_delta": 20})
+                    found = True
+                    break
+
+            if found:
+                continue
+
+            # informal 패턴 체크
+            for pattern in ENDING_PATTERNS["informal"]:
+                match = re.search(pattern, sent)
+                if match:
+                    score_delta -= 20
+                    detected.append({"level": "informal", "pattern": match.group(), "sentence": sent, "score_delta": -20})
+                    break
+
+        return score_delta, detected
+
+    def _analyze_titles(self, text: str) -> Tuple[int, List[Dict]]:
+        """호칭 분석"""
+        score_delta = 0
+        detected = []
+
+        for name, info in HONORIFIC_PATTERNS.items():
+            matches = re.findall(info["pattern"], text)
+            if matches:
+                score_delta += info["score_delta"] * len(matches)
+                for match in matches:
+                    detected.append({"type": name, "match": match, "score_delta": info["score_delta"]})
+
+        return score_delta, detected
+
+    def _analyze_honorific_words(self, text: str) -> Tuple[int, List[Dict]]:
+        """높임 어휘 분석"""
+        score_delta = 0
+        detected = []
+
+        for category, info in HONORIFIC_WORDS.items():
+            for word in info["words"]:
+                if word in text:
+                    score_delta += info["score_delta"]
+                    detected.append({"category": category, "word": word, "score_delta": info["score_delta"]})
+
+        return score_delta, detected
+
+    def _check_rude_patterns(self, text: str) -> Tuple[int, List[Dict], List[str]]:
+        """무례 표현 체크"""
+        score_delta = 0
+        detected = []
+        warnings = []
+
+        for name, info in RUDE_PATTERNS.items():
+            match = re.search(info["pattern"], text)
+            if match:
+                score_delta += info["score_delta"]
+                detected.append({"type": name, "match": match.group(), "score_delta": info["score_delta"]})
+                warnings.append(f"주의: {info['description']} - '{match.group()}'")
+
+        return score_delta, detected, warnings
+
+    def _get_level(self, score: int) -> str:
+        """점수를 말투 수준으로 변환"""
+        if score >= 80:
+            return "very_polite"
+        elif score >= 60:
+            return "polite"
+        elif score >= 40:
+            return "mixed"
+        else:
+            return "informal"
+
+# 분석기 인스턴스 생성
+politeness_analyzer = KoreanPolitenessAnalyzer()
+print("KoreanPolitenessAnalyzer 클래스 정의 완료")
+
+## 4. 적절성 평가기 (Appropriateness Evaluator)
+
+권장 말투와 실제 말투를 비교하여 적절성을 평가합니다.
+
+### 4.1 평가 기준
+
+| 권장-실제 차이 | 평가 | 설명 |
+|--------------|------|------|
+| gap >= 2 | inappropriate | 말투가 많이 낮음 |
+| gap == 1 | caution | 조금 더 공손하면 좋겠음 |
+| gap == 0 | appropriate | 적절한 말투 |
+| gap < 0 | very_polite | 기대 이상으로 공손 |
+
+class AppropriatenessEvaluator:
+    """
+    적절성 평가기
+
+    권장 말투와 실제 말투를 비교하여 적절성을 평가하고
+    피드백을 생성합니다.
+    """
+
+    LEVEL_ORDER = ["informal", "mixed", "polite", "very_polite"]
+
+    def evaluate(self, recommended: str, actual: str) -> Dict:
+        """
+        적절성 평가
+
+        Args:
+            recommended: 권장 말투 수준
+            actual: 실제 말투 수준
+
+        Returns:
+            평가 결과 딕셔너리
+        """
+        rec_idx = self.LEVEL_ORDER.index(recommended)
+        act_idx = self.LEVEL_ORDER.index(actual)
+        gap = rec_idx - act_idx
+
+        if gap >= 2:
+            return {
+                "status": "inappropriate",
+                "gap": gap,
+                "severity": "high",
+                "message": "말투가 상황에 비해 많이 낮습니다. 더 공손한 표현을 사용하세요.",
+                "recommended": recommended,
+                "actual": actual
+            }
+        elif gap == 1:
+            return {
+                "status": "caution",
+                "gap": gap,
+                "severity": "medium",
+                "message": "조금 더 공손한 표현이 좋겠습니다.",
+                "recommended": recommended,
+                "actual": actual
+            }
+        elif gap == 0:
+            return {
+                "status": "appropriate",
+                "gap": gap,
+                "severity": "none",
+                "message": "적절한 말투입니다!",
+                "recommended": recommended,
+                "actual": actual
+            }
+        else:
+            return {
+                "status": "very_polite",
+                "gap": gap,
+                "severity": "none",
+                "message": "매우 공손한 표현입니다! 상황에 따라 조금 편하게 말해도 괜찮아요.",
+                "recommended": recommended,
+                "actual": actual
+            }
+
+    def generate_suggestion(self, text: str, recommended: str) -> Optional[str]:
+        """
+        개선된 표현 제안
+
+        향후 LLM API를 연동하여 더 자연스러운 제안을 생성할 예정입니다.
+        현재는 간단한 규칙 기반으로 제안합니다.
+        """
+        suggestions = {
+            "very_polite": {
+                "이거 어떻게 해": "이것은 어떻게 하면 될까요?",
+                "이거 뭐야": "이것이 무엇인가요?",
+                "왜": "왜 그런지 여쭤봐도 될까요?",
+                "알겠어": "알겠습니다",
+                "고마워": "감사합니다"
+            },
+            "polite": {
+                "이거 어떻게 해": "이거 어떻게 해요?",
+                "이거 뭐야": "이거 뭐예요?",
+                "왜": "왜요?",
+                "알겠어": "알겠어요",
+                "고마워": "고마워요"
+            }
+        }
+
+        if recommended in suggestions:
+            for informal, formal in suggestions[recommended].items():
+                if informal in text:
+                    return text.replace(informal, formal)
+
+        return None
+
+# 평가기 인스턴스 생성
+evaluator = AppropriatenessEvaluator()
+print("AppropriatenessEvaluator 클래스 정의 완료")
+
+## 5. 통합 피드백 시스템
+
+공손성 분석과 적절성 평가를 통합하여 최종 피드백을 생성합니다.
+
+class PolitenessFeedbackSystem:
+    """
+    통합 피드백 시스템
+
+    공손성 분석 + 적절성 평가 + 피드백 생성을 통합합니다.
+    """
+
+    def __init__(self):
+        self.analyzer = KoreanPolitenessAnalyzer()
+        self.evaluator = AppropriatenessEvaluator()
+
+    def get_feedback(self, text: str, recommended_formality: str) -> Dict:
+        """
+        전체 피드백 생성
+
+        Args:
+            text: 사용자 발화
+            recommended_formality: 권장 말투 수준
+
+        Returns:
+            종합 피드백 딕셔너리
+        """
+        # 1. 공손성 분석
+        analysis = self.analyzer.analyze(text)
+
+        # 2. 적절성 평가
+        evaluation = self.evaluator.evaluate(recommended_formality, analysis.level)
+
+        # 3. 개선 제안 생성
+        suggestion = None
+        if evaluation["status"] in ["inappropriate", "caution"]:
+            suggestion = self.evaluator.generate_suggestion(text, recommended_formality)
+
+        return {
+            "input_text": text,
+            "analysis": {
+                "score": analysis.final_score,
+                "level": analysis.level,
+                "score_breakdown": analysis.score_breakdown,
+                "detected_patterns": {
+                    "endings": analysis.detected_endings,
+                    "titles": analysis.detected_titles,
+                    "honorifics": analysis.detected_honorifics,
+                    "rude": analysis.detected_rude
+                },
+                "warnings": analysis.warnings
+            },
+            "evaluation": evaluation,
+            "suggestion": suggestion,
+            "recommended_formality": recommended_formality
+        }
+
+# 피드백 시스템 인스턴스 생성
+feedback_system = PolitenessFeedbackSystem()
+print("PolitenessFeedbackSystem 클래스 정의 완료")
+
+# ============================================================
+# 모드 기반 피드백 생성 (Simulation / LLM)
+# ============================================================
+# - 규칙 기반(get_feedback)은 항상 실행합니다.
+# - USE_LLM=True인 경우, 규칙 기반 분석 결과를 근거로 LLM에게
+#   (1) 평가 요약, (2) 수정 제안, (3) 대체 문장을 추가로 생성하도록 요청합니다.
+# - 결과는 feedback 딕셔너리에 llm_feedback 또는 llm_error 필드로 포함됩니다.
+# ============================================================
+
+def build_politeness_llm_prompt(text: str, recommended: str, analysis: Dict, evaluation: Dict) -> str:
+    score = analysis.get("score")
+    actual_level = analysis.get("level")
+    eval_msg = evaluation.get("message")
+
+    return (
+        "너는 한국어 공손성(말투) 코치다.\n"
+        "주어진 입력 발화와 규칙 기반 분석 결과를 근거로, 사용자가 권장 말투에 맞추도록 도와라.\n"
+        "출력은 한국어로, 아래 형식을 정확히 따른다.\n\n"
+        "[평가 요약]\n"
+        "- (1~2문장)\n"
+        "[수정 제안]\n"
+        "- 제안 1\n"
+        "- 제안 2\n"
+        "[대체 문장]\n"
+        "- 1문장\n\n"
+        f"입력 발화: {text}\n"
+        f"권장 말투: {recommended}\n"
+        f"규칙 기반 점수: {score}/100\n"
+        f"규칙 기반 판정: {actual_level}\n"
+        f"적절성 평가 메시지: {eval_msg}\n"
+        "주의: 불필요한 장황한 설명은 피하고, 실용적인 교정에 집중한다."
+    )
+
+def get_feedback_by_mode(text: str, recommended_formality: str) -> Dict:
+    base_feedback = feedback_system.get_feedback(text=text, recommended_formality=recommended_formality)
+
+    if not USE_LLM:
+        base_feedback["mode"] = "simulation"
+        return base_feedback
+
+    # LLM 모드: 규칙 기반 결과를 바탕으로 추가 피드백 생성
+    try:
+        analysis = base_feedback.get("analysis", {})
+        evaluation = base_feedback.get("evaluation", {})
+        system_prompt = build_politeness_llm_prompt(text, recommended_formality, analysis, evaluation)
+
+        llm_text = call_clovastudio_chat(
+            system_prompt=system_prompt,
+            user_text="위 형식에 맞춰 피드백을 생성해줘.",
+            temperature=0.4,
+            max_tokens=256
+        )
+        base_feedback["mode"] = "llm"
+        base_feedback["llm_feedback"] = llm_text
+    except Exception as e:
+        base_feedback["mode"] = "llm"
+        base_feedback["llm_error"] = str(e)
+
+    return base_feedback
+
+print("get_feedback_by_mode 함수 정의 완료")
+
+
+## 6. 테스트 및 결과 분석
+
+다양한 시나리오로 공손성 분석을 테스트합니다.
+
+def print_feedback_result(feedback: Dict):
+    """피드백 결과를 보기 좋게 출력"""
+    print("\n" + "=" * 70)
+    print(f"입력: \"{feedback['input_text']}\"")
+    print("=" * 70)
+
+    # 분석 결과
+    analysis = feedback['analysis']
+    print(f"\n[분석 결과]")
+    print(f"  공손성 점수: {analysis['score']}/100")
+    print(f"  판정 말투: {analysis['level']}")
+    print(f"  권장 말투: {feedback['recommended_formality']}")
+
+    # 점수 상세
+    breakdown = analysis['score_breakdown']
+    print(f"\n[점수 상세]")
+    print(f"  기본 점수: {breakdown['base']}")
+    print(f"  종결어미: {breakdown['endings']:+d}")
+    print(f"  호칭: {breakdown['titles']:+d}")
+    print(f"  높임 어휘: {breakdown['honorifics']:+d}")
+    print(f"  무례 표현: {breakdown['rude']:+d}")
+
+    # 탐지된 패턴
+    patterns = analysis['detected_patterns']
+    if patterns['endings']:
+        print(f"\n[탐지된 종결어미]")
+        for e in patterns['endings']:
+            print(f"  - {e['level']}: '{e['pattern']}' ({e['score_delta']:+d})")
+
+    if patterns['titles']:
+        print(f"\n[탐지된 호칭]")
+        for t in patterns['titles']:
+            print(f"  - '{t['match']}' ({t['score_delta']:+d})")
+
+    # 평가 결과
+    evaluation = feedback['evaluation']
+    print(f"\n[적절성 평가]")
+    print(f"  상태: {evaluation['status']}")
+    print(f"  메시지: {evaluation['message']}")
+
+    # 개선 제안
+    if feedback['suggestion']:
+        print(f"\n[개선 제안]")
+        print(f"  추천 표현: \"{feedback['suggestion']}\"")
+
+    # 경고
+    if analysis['warnings']:
+        print(f"\n[경고]")
+        for w in analysis['warnings']:
+            print(f"  - {w}")
+
+    # 실행 모드
+    if 'mode' in feedback:
+        print(f"\n[실행 모드]")
+        print(f"  mode: {feedback['mode']}")
+
+    # LLM 보강 피드백 (LLM 모드에서만 존재)
+    if feedback.get('llm_feedback'):
+        print(f"\n[LLM 보강 피드백]")
+        print(feedback['llm_feedback'])
+
+    if feedback.get('llm_error'):
+        print(f"\n[LLM 오류]")
+        print(feedback['llm_error'])
+
+
+
+# 테스트 케이스 1: 교수님께 적절한 격식체
+print("\n" + "#" * 70)
+print("테스트 1: 교수님께 적절한 격식체")
+print("#" * 70)
+
+feedback1 = get_feedback_by_mode(
+    text="교수님, 진로 상담을 받고 싶어서 찾아뵀습니다. 시간이 괜찮으시면 면담을 요청드려도 될까요?",
+    recommended_formality="very_polite"
+)
+print_feedback_result(feedback1)
+
+# 테스트 케이스 2: 교수님께 부적절한 반말
+print("\n" + "#" * 70)
+print("테스트 2: 교수님께 부적절한 반말")
+print("#" * 70)
+
+feedback2 = get_feedback_by_mode(
+    text="교수님, 이거 어떻게 해? 너무 어려워.",
+    recommended_formality="very_polite"
+)
+print_feedback_result(feedback2)
+
+# 테스트 케이스 3: 선배에게 적절한 존댓말
+print("\n" + "#" * 70)
+print("테스트 3: 선배에게 적절한 존댓말")
+print("#" * 70)
+
+feedback3 = get_feedback_by_mode(
+    text="선배님, 오늘 팀플 회의 몇 시예요? 제가 좀 늦을 것 같아요.",
+    recommended_formality="polite"
+)
+print_feedback_result(feedback3)
+
+# 테스트 케이스 4: 친구에게 적절한 반말
+print("\n" + "#" * 70)
+print("테스트 4: 친구에게 적절한 반말")
+print("#" * 70)
+
+feedback4 = get_feedback_by_mode(
+    text="수진아, 오늘 뭐해? 카페 갈래?",
+    recommended_formality="informal"
+)
+print_feedback_result(feedback4)
+
+# 테스트 케이스 5: 친구에게 과도한 존댓말
+print("\n" + "#" * 70)
+print("테스트 5: 친구에게 과도한 존댓말")
+print("#" * 70)
+
+feedback5 = get_feedback_by_mode(
+    text="수진님, 오늘 시간이 되시면 카페에 가시겠습니까?",
+    recommended_formality="informal"
+)
+print_feedback_result(feedback5)
+
+## 7. 향후 확장: LLM 기반 피드백
+
+### 7.1 확장 계획
+
+현재 규칙 기반 피드백의 한계:
+- 제한된 패턴만 탐지 가능
+- 문맥을 고려하지 못함
+- 자연스러운 대안 표현 생성 어려움
+
+LLM 기반으로 확장 시 개선 사항:
+- 문맥을 고려한 공손성 분석
+- 자연스러운 대안 표현 생성
+- 학습자 수준에 맞는 설명 제공
+- 문화적 뉘앙스 설명
+
+### 7.2 LLM 연동 예시 (향후 구현)
+
+```python
+# HyperCLOVA X API 연동 예시 (향후 구현)
+def generate_llm_feedback(text, recommended, actual, score):
+    prompt = f"""
+    사용자 발화: "{text}"
+    권장 말투: {recommended}
+    실제 말투: {actual}
+    공손성 점수: {score}/100
+    
+    이 발화에 대해 피드백을 제공하세요.
+    더 적절한 표현이 있다면 제안해주세요.
+    """
+    # API 호출
+    response = clova_api.generate(prompt)
+    return response
+```
+
+## 8. 정리
+
+### 8.1 이 모듈에서 구현한 것
+
+1. **종결어미 패턴 정의**: very_polite, polite, informal 3단계
+2. **호칭 패턴 정의**: 님, 씨, 아/야
+3. **KoreanPolitenessAnalyzer**: 공손성 점수 계산기
+4. **AppropriatenessEvaluator**: 적절성 평가기
+5. **PolitenessFeedbackSystem**: 통합 피드백 시스템
+
+### 8.2 향후 확장 계획
+
+1. **AI-Hub 데이터 연동**: 실제 대화 패턴 학습
+2. **LLM 기반 피드백**: HyperCLOVA X 연동
+3. **음성 분석 통합**: CLOVA Speech STT 결과 활용
+4. **개인화**: 사용자별 실수 패턴 학습
+
+### 8.3 다음 단계
+
+다음 데모에서는 LLM 프롬프트 엔지니어링을 다룹니다. 아바타 대화 생성, 피드백 생성 등에 사용되는 프롬프트를 상세히 분석합니다.
