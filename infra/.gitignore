@@ -1,0 +1,24 @@
+# Secrets / env files (do not commit)
+.env
+**/.env
+
+# Docker volumes / local data (if you add any bind mounts later)
+**/data/
+**/.mysql/
+
+# Node / React Native
+**/node_modules/
+**/.expo/
+**/.metro-cache/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+
+# Java / Spring Boot
+**/target/
+**/build/
+*.log
+
+# IDE
+.vscode/
+.idea/
