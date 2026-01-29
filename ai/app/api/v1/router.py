@@ -5,7 +5,7 @@ Combines all v1 API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1 import topics, analysis, chat, avatars, enhanced_analysis
+from app.api.v1 import topics, analysis, chat, avatars, progress, personalized_chat, enhanced_analysis
 
 api_router = APIRouter()
 
@@ -38,4 +38,16 @@ api_router.include_router(
     enhanced_analysis.router,
     prefix="/analysis",
     tags=["Enhanced Analysis"]
+)
+
+api_router.include_router(
+    progress.router,
+    prefix="/progress",
+    tags=["Progress & Personalization"]
+)
+
+api_router.include_router(
+    personalized_chat.router,
+    prefix="/chat",
+    tags=["Personalized Chat"]
 )
