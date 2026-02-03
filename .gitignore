@@ -1,0 +1,40 @@
+### Node / React Native ###
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# React Native caches (optional)
+*.log
+
+### Android ###
+android/.gradle/
+android/app/build/
+android/build/
+local.properties
+
+### iOS ###
+ios/build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+### Gradle / Java ###
+.gradle
+**/build/
+!**/src/**/build/
+bin/
+out/
+
+### IDEs ###
+.vscode/
+.idea/
+*.iml
+.DS_Store
+
+### Env files ###
+.env
+**/.env
+.env.*
+!.env.example
