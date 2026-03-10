@@ -1,43 +1,47 @@
-HELP.md
-.gradle
-build/
-!gradle/wrapper/gradle-wrapper.jar
-!**/src/main/**/build/
-!**/src/test/**/build/
+# --- Gradle / Java build outputs ---
+.gradle/
+**/build/
+!**/src/**/build/
 
-### STS ###
-.apt_generated
+# Keep Gradle wrapper jar tracked
+!gradle/wrapper/gradle-wrapper.jar
+
+# --- Spring Tool Suite / Eclipse ---
+.apt_generated/
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
-.sts4-cache
+.sts4-cache/
 bin/
-!**/src/main/**/bin/
-!**/src/test/**/bin/
+!**/src/**/bin/
 
-### IntelliJ IDEA ###
-.idea
-*.iws
+# --- IntelliJ IDEA ---
+.idea/
 *.iml
+*.iws
 *.ipr
 out/
-!**/src/main/**/out/
-!**/src/test/**/out/
+!**/src/**/out/
 
-### NetBeans ###
+# --- NetBeans ---
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
 
-### VS Code ###
+# --- VS Code (optional; decide team policy) ---
 .vscode/
 
-# env files
+# --- Env files ---
 .env
 **/.env
 .env.*
 !.env.example
+
+# --- Misc ---
+HELP.md
+*.log
+.DS_Store
