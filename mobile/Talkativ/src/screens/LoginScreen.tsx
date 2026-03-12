@@ -3,7 +3,11 @@ import React from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, SafeAreaView, ScrollView } from 'react-native';
 
-export const LoginScreen: React.FC = () => {
+interface Props {
+  onLogin?: () => void; // optional so existing usage doesn't break
+}
+
+export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
   const navigation = useNavigation();
 
   const handleKakao = () => {
