@@ -1,144 +1,428 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  SafeAreaView, ScrollView, TextInput,
+  View, Text, StyleSheet, SafeAreaView,
+  ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { Heart, ThumbsDown, Plus, Sparkles, MessageSquare } from 'lucide-react-native';
+import { Header, Card, Button, Tag } from '../components';
+
+const INTEREST_OPTIONS = [
+  'K-POP', '영화', '드라마', '음악', '독서', '여행', '카페', '음식',
+  '운동', '게임', '패션', '사진', '요리', '미술', '역사', '과학',
+  '비즈니스', '기술', '경제', '스포츠', '자기계발', '애니메이션',
+];
+
+const DISLIKE_OPTIONS = [
+  '정치', '종교', '논쟁', '스포츠', '연예인 가십', '학업 스트레스',
+  '취업 압박', '결혼/연애 압박', '외모 이야기', '돈 이야기',
+];
 
 export default function CreateProfileStep2Screen() {
   const navigation = useNavigation<any>();
-  const [name, setName]             = useState('');
-  const [description, setDescription] = useState('');
+  const route = useRoute<any>();
+  const { name, age, gender, koreanLevel } = route.params || {};
+
+  const [interests, setInterests] = useState<string[]>([]);
+  const [dislikes, setDislikes] = useState<string[]>([]);
+  const [customInterest, setCustomInterest] = useState('');
+  const [customDislike, setCustomDislike] = useState('');
+  const [memo, setMemo] = useState('');
+
+  const toggleInterest = (item: string) => {
+    if (interests.includes(item)) {
+      setInterests(interests.filter((i) => i !== item));
+    } else {
+      setDislikes(dislikes.filter((i) => i !== item));
+      setInterests([...interests, item]);
+    }
+  };
+
+  const toggleDislike = (item: string) => {
+    if (dislikes.includes(item)) {
+      setDislikes(dislikes.filter((i) => i !== item));
+    } else {
+      setInterests(interests.filter((i) => i !== item));
+      setDislikes([...dislikes, item]);
+    }
+  };
+
+  const addCustomInterest = () => {
+    const trimmed = customInterest.trim();
+    if (trimmed && !interests.includes(trimmed)) {
+      setInterests([...interests, trimmed]);
+      setCustomInterest('');
+    }
+  };
+
+  const addCustomDislike = () => {
+    const trimmed = customDislike.trim();
+    if (trimmed && !dislikes.includes(trimmed)) {
+      setDislikes([...dislikes, trimmed]);
+      setCustomDislike('');
+    }
+  };
+
+  const isValid = interests.length > 0;
+
+  const handleComplete = () => {
+    const userProfile = {
+      name,
+      age: parseInt(age, 10),
+      gender,
+      korean_level: koreanLevel,
+      interests,
+      dislikes,
+      memo: memo.trim(),
+      // AI-specific fields
+      ai_context: {
+        user_description: memo.trim(),
+        preferred_topics: interests,
+        avoided_topics: dislikes,
+        language_level: koreanLevel,
+        age_group: parseInt(age, 10) < 20 ? 'teen' : parseInt(age, 10) < 30 ? '20s' : parseInt(age, 10) < 40 ? '30s' : 'adult',
+      },
+    };
+
+    console.log('Creating user profile:', userProfile);
+    // TODO: Save to storage/API
+    navigation.navigate('Main');
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <Text style={styles.backArrow}>◀</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profiles</Text>
-        <TouchableOpacity style={styles.headerBtn}>
-          <Text style={styles.bellIcon}>🔔</Text>
-        </TouchableOpacity>
-      </View>
+      <Header title="프로필 만들기" subtitle="2/2" />
 
-      <ScrollView contentContainerStyle={styles.content}>
-
-        {/* Relationship dropdown */}
-        <TouchableOpacity style={styles.fieldRow}>
-          <View style={[styles.fieldIcon, { backgroundColor: '#FFE8E8' }]}>
-            <Text>👜</Text>
-          </View>
-          <View style={styles.fieldText}>
-            <Text style={styles.fieldLabel}>Relationship</Text>
-            <Text style={styles.fieldValue}>Work</Text>
-          </View>
-          <Text style={styles.dropdownArrow}>▼</Text>
-        </TouchableOpacity>
-
-        {/* Name input */}
-        <View style={styles.inputCard}>
-          <Text style={styles.inputLabel}>Name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter name"
-            placeholderTextColor="#C0C0D0"
-            value={name}
-            onChangeText={setName}
-          />
-        </View>
-
-        {/* Description input */}
-        <View style={styles.inputCard}>
-          <Text style={styles.inputLabel}>Description</Text>
-          <TextInput
-            style={[styles.input, styles.inputMultiline]}
-            placeholder="profile description, by words -- will be used as a prompt"
-            placeholderTextColor="#C0C0D0"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            numberOfLines={4}
-          />
-        </View>
-
-        {/* Age dropdown */}
-        <TouchableOpacity style={styles.fieldRow}>
-          <View style={[styles.fieldIcon, { backgroundColor: '#EAE8FF' }]}>
-            <Text>📅</Text>
-          </View>
-          <View style={styles.fieldText}>
-            <Text style={styles.fieldLabel}>Age</Text>
-            <Text style={styles.fieldValueMuted}>sample</Text>
-          </View>
-          <Text style={styles.dropdownArrow}>▼</Text>
-        </TouchableOpacity>
-
-        {/* Nationality dropdown */}
-        <TouchableOpacity style={styles.fieldRow}>
-          <View style={[styles.fieldIcon, { backgroundColor: '#EAE8FF' }]}>
-            <Text>📅</Text>
-          </View>
-          <View style={styles.fieldText}>
-            <Text style={styles.fieldLabel}>Nationality</Text>
-            <Text style={styles.fieldValueMuted}>sample</Text>
-          </View>
-          <Text style={styles.dropdownArrow}>▼</Text>
-        </TouchableOpacity>
-
-        {/* Current Status dropdown */}
-        <TouchableOpacity style={styles.fieldRow}>
-          <View style={[styles.fieldIcon, { backgroundColor: '#EAE8FF' }]}>
-            <Text>📅</Text>
-          </View>
-          <View style={styles.fieldText}>
-            <Text style={styles.fieldLabel}>Current status</Text>
-            <Text style={styles.fieldValueMuted}>sample</Text>
-          </View>
-        </TouchableOpacity>
-
-      </ScrollView>
-
-      {/* Next Button */}
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.nextBtn}
-          onPress={() => navigation.navigate('CreateProfileStep1')}  // TODO: wire to next step
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.content} 
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.nextBtnText}>Next</Text>
-          <Text style={styles.nextBtnArrow}>→</Text>
-        </TouchableOpacity>
-      </View>
+          <Text style={styles.title}>관심사와 메모를 추가해주세요</Text>
+          <Text style={styles.subtitle}>
+            AI가 당신의 관심사에 맞는 대화 주제를 준비합니다
+          </Text>
+
+          {/* Interests Section */}
+          <Card variant="elevated" style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <Heart size={20} color="#E53935" />
+              <Text style={styles.sectionTitle}>관심사 *</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countText}>{interests.length}</Text>
+              </View>
+            </View>
+            <Text style={styles.sectionHint}>
+              좋아하는 주제를 선택하세요 (최소 1개)
+            </Text>
+            
+            <View style={styles.tagGrid}>
+              {INTEREST_OPTIONS.map((item) => (
+                <Tag
+                  key={item}
+                  label={item}
+                  selected={interests.includes(item)}
+                  onPress={() => toggleInterest(item)}
+                />
+              ))}
+            </View>
+
+            {/* Custom input */}
+            <View style={styles.customInputRow}>
+              <TextInput
+                style={styles.customInput}
+                value={customInterest}
+                onChangeText={setCustomInterest}
+                placeholder="직접 입력..."
+                placeholderTextColor="#B0B0C5"
+                onSubmitEditing={addCustomInterest}
+              />
+              <TouchableOpacity 
+                style={[styles.addButton, !customInterest.trim() && styles.addButtonDisabled]}
+                onPress={addCustomInterest}
+                disabled={!customInterest.trim()}
+              >
+                <Plus size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </Card>
+
+          {/* Dislikes Section */}
+          <Card variant="elevated" style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <ThumbsDown size={20} color="#6C6C80" />
+              <Text style={styles.sectionTitle}>피하고 싶은 주제</Text>
+              <View style={styles.countBadgeGray}>
+                <Text style={styles.countTextGray}>{dislikes.length}</Text>
+              </View>
+            </View>
+            <Text style={styles.sectionHint}>
+              대화에서 피하고 싶은 주제를 선택하세요 (선택사항)
+            </Text>
+            
+            <View style={styles.tagGrid}>
+              {DISLIKE_OPTIONS.map((item) => (
+                <Tag
+                  key={item}
+                  label={item}
+                  selected={dislikes.includes(item)}
+                  onPress={() => toggleDislike(item)}
+                  variant="outline"
+                />
+              ))}
+            </View>
+
+            {/* Custom input */}
+            <View style={styles.customInputRow}>
+              <TextInput
+                style={styles.customInput}
+                value={customDislike}
+                onChangeText={setCustomDislike}
+                placeholder="직접 입력..."
+                placeholderTextColor="#B0B0C5"
+                onSubmitEditing={addCustomDislike}
+              />
+              <TouchableOpacity 
+                style={[styles.addButton, styles.addButtonGray, !customDislike.trim() && styles.addButtonDisabled]}
+                onPress={addCustomDislike}
+                disabled={!customDislike.trim()}
+              >
+                <Plus size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </Card>
+
+          {/* Memo Section */}
+          <Card variant="elevated" style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <MessageSquare size={20} color="#6C3BFF" />
+              <Text style={styles.sectionTitle}>메모 (AI 참고용)</Text>
+            </View>
+            <Text style={styles.sectionHint}>
+              AI가 당신을 더 잘 이해할 수 있도록 자유롭게 적어주세요
+            </Text>
+            
+            <TextInput
+              style={styles.memoInput}
+              value={memo}
+              onChangeText={setMemo}
+              placeholder="예: 저는 사회적 불안이 있어서 천천히 대화하고 싶어요. 실수해도 친절하게 대해주세요."
+              placeholderTextColor="#B0B0C5"
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+
+            <View style={styles.memoTips}>
+              <Sparkles size={14} color="#6C3BFF" />
+              <Text style={styles.memoTipsText}>
+                작성 팁: 성격, 학습 목표, 대화 스타일 선호도 등을 적어주세요
+              </Text>
+            </View>
+          </Card>
+
+          {/* Preview */}
+          <Card variant="outlined" style={styles.previewCard}>
+            <Text style={styles.previewTitle}>프로필 요약</Text>
+            <View style={styles.previewRow}>
+              <Text style={styles.previewLabel}>이름:</Text>
+              <Text style={styles.previewValue}>{name}</Text>
+            </View>
+            <View style={styles.previewRow}>
+              <Text style={styles.previewLabel}>나이:</Text>
+              <Text style={styles.previewValue}>{age}세</Text>
+            </View>
+            <View style={styles.previewRow}>
+              <Text style={styles.previewLabel}>한국어 수준:</Text>
+              <Text style={styles.previewValue}>
+                {koreanLevel === 'beginner' ? '초급' : koreanLevel === 'intermediate' ? '중급' : '고급'}
+              </Text>
+            </View>
+            <View style={styles.previewRow}>
+              <Text style={styles.previewLabel}>관심사:</Text>
+              <Text style={styles.previewValue}>{interests.slice(0, 3).join(', ')}{interests.length > 3 ? ` 외 ${interests.length - 3}개` : ''}</Text>
+            </View>
+          </Card>
+
+        </ScrollView>
+
+        {/* Complete Button */}
+        <View style={styles.footer}>
+          <Button
+            title="완료"
+            onPress={handleComplete}
+            disabled={!isValid}
+          />
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe:             { flex: 1, backgroundColor: '#F7F7FB' },
-  header:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
-  headerBtn:        { width: 36, alignItems: 'center' },
-  backArrow:        { fontSize: 18, color: '#1A1A2E' },
-  bellIcon:         { fontSize: 20 },
-  headerTitle:      { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  safe: { flex: 1, backgroundColor: '#F7F7FB' },
+  content: { paddingHorizontal: 20, paddingBottom: 100 },
 
-  content:          { paddingHorizontal: 20, paddingBottom: 100, gap: 14 },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6C6C80',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
 
-  fieldRow:         { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  fieldIcon:        { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-  fieldText:        { flex: 1 },
-  fieldLabel:       { fontSize: 11, color: '#B0B0C5', marginBottom: 2 },
-  fieldValue:       { fontSize: 15, fontWeight: '600', color: '#1A1A2E' },
-  fieldValueMuted:  { fontSize: 15, color: '#B0B0C5' },
-  dropdownArrow:    { fontSize: 12, color: '#B0B0C5' },
+  // Section Card
+  sectionCard: {
+    marginBottom: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A2E',
+  },
+  sectionHint: {
+    fontSize: 13,
+    color: '#6C6C80',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  countBadge: {
+    backgroundColor: '#FFEBEE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  countText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E53935',
+  },
+  countBadgeGray: {
+    backgroundColor: '#E2E2EC',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  countTextGray: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6C6C80',
+  },
 
-  inputCard:        { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  inputLabel:       { fontSize: 11, color: '#B0B0C5', marginBottom: 6 },
-  input:            { fontSize: 15, color: '#1A1A2E', padding: 0 },
-  inputMultiline:   { height: 90, textAlignVertical: 'top' },
+  // Tags
+  tagGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
 
-  footer:           { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#F7F7FB' },
-  nextBtn:          { backgroundColor: '#6C3BFF', borderRadius: 16, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  nextBtnText:      { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  nextBtnArrow:     { color: '#FFFFFF', fontSize: 18 },
+  // Custom Input
+  customInputRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  customInput: {
+    flex: 1,
+    backgroundColor: '#F5F5FA',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#1A1A2E',
+  },
+  addButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#6C3BFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addButtonGray: {
+    backgroundColor: '#6C6C80',
+  },
+  addButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  // Memo
+  memoInput: {
+    backgroundColor: '#F5F5FA',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 14,
+    color: '#1A1A2E',
+    minHeight: 100,
+    lineHeight: 20,
+  },
+  memoTips: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 12,
+    backgroundColor: '#F0EDFF',
+    padding: 12,
+    borderRadius: 10,
+  },
+  memoTipsText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#6C3BFF',
+    lineHeight: 18,
+  },
+
+  // Preview
+  previewCard: {
+    marginBottom: 20,
+    borderColor: '#6C3BFF',
+  },
+  previewTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6C3BFF',
+    marginBottom: 12,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  previewLabel: {
+    width: 80,
+    fontSize: 13,
+    color: '#6C6C80',
+  },
+  previewValue: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1A1A2E',
+    fontWeight: '500',
+  },
+
+  // Footer
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: '#F7F7FB',
+  },
 });
