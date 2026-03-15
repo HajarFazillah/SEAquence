@@ -18,13 +18,41 @@ export const COLORS = {
   error: '#E53935',
 };
 
-// Avatar backgrounds
+// Avatar backgrounds - Extended palette
 export const AVATAR_COLORS = {
+  // Original
   pink: '#FFB6C1',
   purple: '#C8B4F8',
   blue: '#B4D4F8',
   green: '#B4F8D4',
   yellow: '#F8E8B4',
+  
+  // Vibrant
+  coral: '#FF7F7F',
+  lavender: '#E6E6FA',
+  mint: '#98FB98',
+  peach: '#FFCBA4',
+  sky: '#87CEEB',
+  
+  // Deep
+  deepPurple: '#9C27B0',
+  deepBlue: '#3F51B5',
+  deepTeal: '#009688',
+  deepOrange: '#FF5722',
+  deepPink: '#E91E63',
+  
+  // Neutral
+  grey: '#9E9E9E',
+  blueGrey: '#607D8B',
+  brown: '#8D6E63',
+  charcoal: '#455A64',
+  
+  // Pastel
+  pastelRose: '#FFD1DC',
+  pastelLilac: '#DCD0FF',
+  pastelMint: '#AFFFDC',
+  pastelLemon: '#FFFACD',
+  pastelCoral: '#FFE4E1',
 };
 
 // System Avatars from AI Server

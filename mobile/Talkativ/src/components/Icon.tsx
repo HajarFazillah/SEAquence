@@ -56,6 +56,47 @@ import {
   Sun,
   Eye,
   EyeOff,
+  // New icons for avatars
+  Smile,
+  Frown,
+  Meh,
+  Angry,
+  Laugh,
+  UserCircle,
+  UserCircle2,
+  UserCheck,
+  UserPlus,
+  Crown,
+  Gem,
+  Sparkles,
+  Zap,
+  Flame,
+  Snowflake,
+  Cloud,
+  CloudRain,
+  Music,
+  Gamepad2,
+  Dumbbell,
+  Palette,
+  Camera,
+  Film,
+  Headphones,
+  Plane,
+  Car,
+  Bike,
+  Dog,
+  Cat,
+  Bird,
+  Flower2,
+  TreeDeciduous,
+  Mountain,
+  Waves,
+  Globe,
+  Compass,
+  Anchor,
+  Rocket,
+  Baby,
+  PersonStanding,
 } from 'lucide-react-native';
 
 export type IconName =
@@ -114,7 +155,48 @@ export type IconName =
   | 'moon'
   | 'sun'
   | 'eye'
-  | 'eyeOff';
+  | 'eyeOff'
+  // New avatar icons
+  | 'smile'
+  | 'frown'
+  | 'meh'
+  | 'angry'
+  | 'laugh'
+  | 'userCircle'
+  | 'userCircle2'
+  | 'userCheck'
+  | 'userPlus'
+  | 'crown'
+  | 'gem'
+  | 'sparkles'
+  | 'zap'
+  | 'flame'
+  | 'snowflake'
+  | 'cloud'
+  | 'cloudRain'
+  | 'music'
+  | 'gamepad'
+  | 'dumbbell'
+  | 'palette'
+  | 'camera'
+  | 'film'
+  | 'headphones'
+  | 'plane'
+  | 'car'
+  | 'bike'
+  | 'dog'
+  | 'cat'
+  | 'bird'
+  | 'flower'
+  | 'tree'
+  | 'mountain'
+  | 'waves'
+  | 'globe'
+  | 'compass'
+  | 'anchor'
+  | 'rocket'
+  | 'baby'
+  | 'person';
 
 const ICONS: Record<IconName, React.ComponentType<any>> = {
   home: Home,
@@ -173,6 +255,47 @@ const ICONS: Record<IconName, React.ComponentType<any>> = {
   sun: Sun,
   eye: Eye,
   eyeOff: EyeOff,
+  // New avatar icons
+  smile: Smile,
+  frown: Frown,
+  meh: Meh,
+  angry: Angry,
+  laugh: Laugh,
+  userCircle: UserCircle,
+  userCircle2: UserCircle2,
+  userCheck: UserCheck,
+  userPlus: UserPlus,
+  crown: Crown,
+  gem: Gem,
+  sparkles: Sparkles,
+  zap: Zap,
+  flame: Flame,
+  snowflake: Snowflake,
+  cloud: Cloud,
+  cloudRain: CloudRain,
+  music: Music,
+  gamepad: Gamepad2,
+  dumbbell: Dumbbell,
+  palette: Palette,
+  camera: Camera,
+  film: Film,
+  headphones: Headphones,
+  plane: Plane,
+  car: Car,
+  bike: Bike,
+  dog: Dog,
+  cat: Cat,
+  bird: Bird,
+  flower: Flower2,
+  tree: TreeDeciduous,
+  mountain: Mountain,
+  waves: Waves,
+  globe: Globe,
+  compass: Compass,
+  anchor: Anchor,
+  rocket: Rocket,
+  baby: Baby,
+  person: PersonStanding,
 };
 
 interface IconProps {
@@ -256,4 +379,45 @@ export {
   Sun,
   Eye,
   EyeOff,
+  // New exports
+  Smile,
+  Frown,
+  Meh,
+  Angry,
+  Laugh,
+  UserCircle,
+  UserCircle2,
+  UserCheck,
+  UserPlus,
+  Crown,
+  Gem,
+  Sparkles,
+  Zap,
+  Flame,
+  Snowflake,
+  Cloud,
+  CloudRain,
+  Music,
+  Gamepad2,
+  Dumbbell,
+  Palette,
+  Camera,
+  Film,
+  Headphones,
+  Plane,
+  Car,
+  Bike,
+  Dog,
+  Cat,
+  Bird,
+  Flower2,
+  TreeDeciduous,
+  Mountain,
+  Waves,
+  Globe,
+  Compass,
+  Anchor,
+  Rocket,
+  Baby,
+  PersonStanding,
 };
