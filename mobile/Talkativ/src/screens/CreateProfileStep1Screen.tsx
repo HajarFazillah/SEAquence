@@ -1,115 +1,262 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView,
+  View, Text, StyleSheet, SafeAreaView,
+  ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { User, Users, UserCircle } from 'lucide-react-native';
+import { Header, Card, Button, InputField } from '../components';
 
-const PREFERENCE_TAGS = ['친한 친구', '동료', '동료', '동료', '친한 친구', '동료', '동료', '동료', '동료'];
-const SENSITIVE_TAGS  = ['친한 친구', '동료', '동료', '동료', '친한 친구', '동료', '동료', '동료', '동료'];
+const GENDERS = [
+  { id: 'male', label: '남성', labelEn: 'Male', icon: User },
+  { id: 'female', label: '여성', labelEn: 'Female', icon: UserCircle },
+  { id: 'other', label: '기타', labelEn: 'Other', icon: Users },
+];
+
+const KOREAN_LEVELS = [
+  { id: 'beginner', label: '초급', labelEn: 'Beginner', desc: '한글을 읽을 수 있고 기본 인사를 할 수 있어요' },
+  { id: 'intermediate', label: '중급', labelEn: 'Intermediate', desc: '일상 대화가 가능하고 간단한 문장을 만들 수 있어요' },
+  { id: 'advanced', label: '고급', labelEn: 'Advanced', desc: '복잡한 주제도 대화할 수 있고 뉘앙스를 이해해요' },
+];
 
 export default function CreateProfileStep1Screen() {
   const navigation = useNavigation<any>();
-  const [selectedPrefs, setSelectedPrefs]       = useState<number[]>([0]);
-  const [selectedSensitive, setSelectedSensitive] = useState<number[]>([0]);
 
-  const togglePref = (i: number) =>
-    setSelectedPrefs((prev) =>
-      prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]
-    );
+  const [name, setName] = useState('');
+  const [age, setAge] = useState('');
+  const [gender, setGender] = useState('');
+  const [koreanLevel, setKoreanLevel] = useState('');
 
-  const toggleSensitive = (i: number) =>
-    setSelectedSensitive((prev) =>
-      prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]
-    );
+  const isValid = name.trim().length > 0 && age.trim().length > 0 && gender && koreanLevel;
+
+  const handleNext = () => {
+    navigation.navigate('CreateProfileStep2', {
+      name: name.trim(),
+      age: age.trim(),
+      gender,
+      koreanLevel,
+    });
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <Text style={styles.backArrow}>◀</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profiles</Text>
-        <TouchableOpacity style={styles.headerBtn}>
-          <Text style={styles.bellIcon}>🔔</Text>
-        </TouchableOpacity>
-      </View>
+      <Header title="프로필 만들기" subtitle="1/2" />
 
-      <ScrollView contentContainerStyle={styles.content}>
-
-        {/* Preferences Section */}
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>Preferences</Text>
-          <View style={styles.tagGrid}>
-            {PREFERENCE_TAGS.map((tag, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[styles.tag, selectedPrefs.includes(i) && styles.tagActive]}
-                onPress={() => togglePref(i)}
-              >
-                <Text style={[styles.tagText, selectedPrefs.includes(i) && styles.tagTextActive]}>
-                  {tag}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Sensitive Section */}
-        <View style={styles.card}>
-          <Text style={[styles.sectionLabel, { color: '#E53935' }]}>Sensitive</Text>
-          <View style={styles.tagGrid}>
-            {SENSITIVE_TAGS.map((tag, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[styles.tag, selectedSensitive.includes(i) && styles.tagActive]}
-                onPress={() => toggleSensitive(i)}
-              >
-                <Text style={[styles.tagText, selectedSensitive.includes(i) && styles.tagTextActive]}>
-                  {tag}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-      </ScrollView>
-
-      {/* Next Button */}
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.nextBtn}
-          onPress={() => navigation.navigate('Profiles')}
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.content} 
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.nextBtnText}>Next</Text>
-          <Text style={styles.nextBtnArrow}>→</Text>
-        </TouchableOpacity>
-      </View>
+          <Text style={styles.title}>기본 정보를 알려주세요</Text>
+          <Text style={styles.subtitle}>
+            AI가 당신에게 맞는 대화를 준비하는 데 도움이 됩니다
+          </Text>
+
+          {/* Name */}
+          <InputField
+            label="이름 / 닉네임 *"
+            value={name}
+            onChangeText={setName}
+            placeholder="어떻게 불러드릴까요?"
+          />
+
+          {/* Age */}
+          <InputField
+            label="나이 *"
+            value={age}
+            onChangeText={setAge}
+            placeholder="예: 25"
+            keyboardType="numeric"
+          />
+
+          {/* Gender */}
+          <Text style={styles.fieldLabel}>성별 *</Text>
+          <View style={styles.genderRow}>
+            {GENDERS.map((g) => (
+              <TouchableOpacity
+                key={g.id}
+                style={[
+                  styles.genderCard,
+                  gender === g.id && styles.genderCardActive,
+                ]}
+                onPress={() => setGender(g.id)}
+              >
+                <g.icon 
+                  size={24} 
+                  color={gender === g.id ? '#FFFFFF' : '#6C6C80'} 
+                />
+                <Text style={[
+                  styles.genderLabel,
+                  gender === g.id && styles.genderLabelActive,
+                ]}>
+                  {g.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Korean Level */}
+          <Text style={styles.fieldLabel}>한국어 수준 *</Text>
+          <View style={styles.levelList}>
+            {KOREAN_LEVELS.map((level) => (
+              <TouchableOpacity
+                key={level.id}
+                style={[
+                  styles.levelCard,
+                  koreanLevel === level.id && styles.levelCardActive,
+                ]}
+                onPress={() => setKoreanLevel(level.id)}
+              >
+                <View style={styles.levelHeader}>
+                  <Text style={[
+                    styles.levelLabel,
+                    koreanLevel === level.id && styles.levelLabelActive,
+                  ]}>
+                    {level.label}
+                  </Text>
+                  <Text style={[
+                    styles.levelLabelEn,
+                    koreanLevel === level.id && styles.levelLabelEnActive,
+                  ]}>
+                    {level.labelEn}
+                  </Text>
+                </View>
+                <Text style={[
+                  styles.levelDesc,
+                  koreanLevel === level.id && styles.levelDescActive,
+                ]}>
+                  {level.desc}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+        </ScrollView>
+
+        {/* Next Button */}
+        <View style={styles.footer}>
+          <Button
+            title="다음"
+            onPress={handleNext}
+            disabled={!isValid}
+            showArrow
+          />
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe:           { flex: 1, backgroundColor: '#F7F7FB' },
-  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
-  headerBtn:      { width: 36, alignItems: 'center' },
-  backArrow:      { fontSize: 18, color: '#1A1A2E' },
-  bellIcon:       { fontSize: 20 },
-  headerTitle:    { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  safe: { flex: 1, backgroundColor: '#F7F7FB' },
+  content: { paddingHorizontal: 20, paddingBottom: 100 },
 
-  content:        { paddingHorizontal: 20, paddingBottom: 100, gap: 16 },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6C6C80',
+    marginBottom: 28,
+    lineHeight: 20,
+  },
 
-  card:           { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
-  sectionLabel:   { fontSize: 16, fontWeight: '700', color: '#2E7D32', marginBottom: 16 },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1A1A2E',
+    marginBottom: 12,
+    marginTop: 8,
+  },
 
-  tagGrid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  tag:            { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 20, borderWidth: 1.5, borderColor: '#E2E2EC', backgroundColor: '#FFFFFF' },
-  tagActive:      { borderColor: '#6C3BFF', backgroundColor: '#FFFFFF' },
-  tagText:        { fontSize: 14, color: '#6C6C80' },
-  tagTextActive:  { color: '#6C3BFF', fontWeight: '600' },
+  // Gender
+  genderRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  genderCard: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#E2E2EC',
+    gap: 8,
+  },
+  genderCardActive: {
+    backgroundColor: '#6C3BFF',
+    borderColor: '#6C3BFF',
+  },
+  genderLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6C6C80',
+  },
+  genderLabelActive: {
+    color: '#FFFFFF',
+  },
 
-  footer:         { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#F7F7FB' },
-  nextBtn:        { backgroundColor: '#6C3BFF', borderRadius: 16, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  nextBtnText:    { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  nextBtnArrow:   { color: '#FFFFFF', fontSize: 18 },
+  // Korean Level
+  levelList: {
+    gap: 12,
+  },
+  levelCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#E2E2EC',
+  },
+  levelCardActive: {
+    borderColor: '#6C3BFF',
+    backgroundColor: '#F8F6FF',
+  },
+  levelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  levelLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A2E',
+  },
+  levelLabelActive: {
+    color: '#6C3BFF',
+  },
+  levelLabelEn: {
+    fontSize: 13,
+    color: '#B0B0C5',
+  },
+  levelLabelEnActive: {
+    color: '#6C3BFF',
+  },
+  levelDesc: {
+    fontSize: 13,
+    color: '#6C6C80',
+    lineHeight: 18,
+  },
+  levelDescActive: {
+    color: '#6C3BFF',
+  },
+
+  // Footer
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: '#F7F7FB',
+  },
 });

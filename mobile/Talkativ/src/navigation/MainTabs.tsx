@@ -1,17 +1,12 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text } from 'react-native';
+import { Home, Moon, Mic, User } from 'lucide-react-native';
 import { HomeScreen } from '../screens/HomeScreen';
 import AvatarScreen from '../screens/AvatarScreen';
 import RealtimeScreen from '../screens/RealtimeScreen';
 import { MyProfileScreen } from '../screens/MyProfileScreen';
 
 const Tab = createBottomTabNavigator();
-
-// Simple icon using emoji/text as placeholder (replace with real icons later)
-const TabIcon = ({ emoji, focused }: { emoji: string; focused: boolean }) => (
-  <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.4 }}>{emoji}</Text>
-);
 
 export const MainTabs: React.FC = () => {
   return (
@@ -37,28 +32,32 @@ export const MainTabs: React.FC = () => {
         name="Home"
         component={HomeScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🏠" focused={focused} />,
+          tabBarLabel: '홈',
+          tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
         }}
       />
       <Tab.Screen
         name="Avatar"
         component={AvatarScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🌙" focused={focused} />,
+          tabBarLabel: '아바타',
+          tabBarIcon: ({ color, size }) => <Moon size={size} color={color} />,
         }}
       />
       <Tab.Screen
         name="Real-time"
         component={RealtimeScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🎵" focused={focused} />,
+          tabBarLabel: '실시간',
+          tabBarIcon: ({ color, size }) => <Mic size={size} color={color} />,
         }}
       />
       <Tab.Screen
         name="My Profile"
         component={MyProfileScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
+          tabBarLabel: '프로필',
+          tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
     </Tab.Navigator>
