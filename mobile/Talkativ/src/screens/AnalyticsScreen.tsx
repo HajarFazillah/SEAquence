@@ -1,166 +1,269 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView,
-  ScrollView, TouchableOpacity,
+  ScrollView,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { 
+  TrendingUp, CheckCircle, AlertCircle, 
+  BookOpen, MessageCircle, Target,
+} from 'lucide-react-native';
+import { Header, Card, Button, ProgressBar, Icon, Tag } from '../components';
 
-const mockPatterns = [
-  { label: '응답 시간', value: 0.9,  result: '빠름',  color: '#4CAF50' },
-  { label: '대화 깊이', value: 0.55, result: '보통',  color: '#5B8DEF' },
-  { label: '주제 다양성', value: 0.7, result: '좋음', color: '#9C27B0' },
-];
-
-const mockRelationship = {
-  label: '좋은 관계',
-  sublabel: '관계 강도',
-  percentage: 87,
-  color: '#5B8DEF',
-};
-
-const mockRealProfile = {
-  label: '실물 프로필',
-  sublabel: '하자',
-  percentage: 60,
-  color: '#5B8DEF',
+// Mock analytics data
+const mockAnalytics = {
+  speechAccuracy: 0.85,
+  vocabularyScore: 0.72,
+  naturalness: 0.78,
+  improvements: [
+    { type: 'good', text: '합쇼체를 잘 사용했어요' },
+    { type: 'good', text: '존댓말 사용이 자연스러웠어요' },
+    { type: 'improve', text: '"~요"로 끝나는 문장을 더 연습하세요' },
+    { type: 'improve', text: '의문문 억양에 주의하세요' },
+  ],
+  learnedExpressions: [
+    '어떻게 지내세요?',
+    '좋은 하루 되세요',
+    '감사합니다',
+    '죄송합니다',
+  ],
+  suggestedTopics: ['일상 대화', '카페 주문', '자기소개'],
 };
 
 export default function AnalyticsScreen() {
   const navigation = useNavigation<any>();
-  const route      = useRoute<any>();
-  const avatar     = route.params?.avatar;
-  const duration   = route.params?.duration ?? '00:00';
-  const rating     = route.params?.rating ?? 4;
+  const route = useRoute<any>();
+  const { avatar, duration, rating } = route.params || {};
+
+  const handleGoHome = () => {
+    navigation.navigate('Main', { screen: 'Home' });
+  };
+
+  const handlePracticeAgain = () => {
+    navigation.navigate('AvatarSelection');
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <Text style={styles.backArrow}>◀</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Analytics</Text>
-        <View style={styles.headerBtn} />
-      </View>
+      <Header title="분석 결과" showBack={false} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* Top stat cards */}
-        <View style={styles.cardRow}>
+        {/* Overall Score */}
+        <Card variant="elevated" style={styles.overallCard}>
+          <Text style={styles.overallLabel}>종합 점수</Text>
+          <Text style={styles.overallScore}>
+            {Math.round((mockAnalytics.speechAccuracy + mockAnalytics.vocabularyScore + mockAnalytics.naturalness) / 3 * 100)}점
+          </Text>
+          <Text style={styles.overallDesc}>
+            {avatar?.name_ko || '아바타'}와 {duration || '5분'} 동안 대화했어요
+          </Text>
+        </Card>
 
-          {/* Relationship strength */}
-          <View style={styles.statCard}>
-            <Text style={styles.statCardLabel}>{mockRelationship.label}</Text>
-            <View style={styles.statCardIconRow}>
-              <Text style={styles.statCardEmoji}>👜</Text>
+        {/* Detailed Scores */}
+        <Text style={styles.sectionTitle}>상세 점수</Text>
+        <Card variant="elevated" style={styles.scoresCard}>
+          <View style={styles.scoreItem}>
+            <View style={styles.scoreHeader}>
+              <MessageCircle size={18} color="#6C3BFF" />
+              <Text style={styles.scoreLabel}>말투 정확도</Text>
+              <Text style={styles.scoreValue}>{Math.round(mockAnalytics.speechAccuracy * 100)}%</Text>
             </View>
-            <Text style={styles.statCardSublabel}>{mockRelationship.sublabel}</Text>
-            <Text style={styles.statCardPercent}>{mockRelationship.percentage}%</Text>
-            <View style={styles.progressBg}>
-              <View style={[styles.progressFill, {
-                width: `${mockRelationship.percentage}%` as any,
-                backgroundColor: mockRelationship.color,
-              }]} />
-            </View>
+            <ProgressBar progress={mockAnalytics.speechAccuracy} color="#6C3BFF" />
           </View>
 
-          {/* Real profile */}
-          <View style={styles.statCard}>
-            <Text style={styles.statCardLabel}>{mockRealProfile.label}</Text>
-            <View style={styles.statCardIconRow}>
-              <Text style={styles.statCardEmoji}>👜</Text>
+          <View style={styles.scoreItem}>
+            <View style={styles.scoreHeader}>
+              <BookOpen size={18} color="#4CAF50" />
+              <Text style={styles.scoreLabel}>어휘력</Text>
+              <Text style={styles.scoreValue}>{Math.round(mockAnalytics.vocabularyScore * 100)}%</Text>
             </View>
-            <Text style={styles.statCardSublabel}>{mockRealProfile.sublabel}</Text>
-            <View style={styles.progressBg}>
-              <View style={[styles.progressFill, {
-                width: `${mockRealProfile.percentage}%` as any,
-                backgroundColor: mockRealProfile.color,
-              }]} />
-            </View>
+            <ProgressBar progress={mockAnalytics.vocabularyScore} color="#4CAF50" />
           </View>
 
-        </View>
-
-        {/* 대화 패턴 */}
-        <Text style={styles.sectionTitle}>대화 패턴</Text>
-        <View style={styles.patternCard}>
-          {mockPatterns.map((p) => (
-            <View key={p.label} style={styles.patternRow}>
-              <Text style={styles.patternLabel}>{p.label}</Text>
-              <View style={styles.patternBarBg}>
-                <View style={[styles.patternBarFill, {
-                  width: `${p.value * 100}%` as any,
-                  backgroundColor: p.color,
-                }]} />
-              </View>
-              <Text style={styles.patternResult}>{p.result}</Text>
+          <View style={styles.scoreItem}>
+            <View style={styles.scoreHeader}>
+              <TrendingUp size={18} color="#F4A261" />
+              <Text style={styles.scoreLabel}>자연스러움</Text>
+              <Text style={styles.scoreValue}>{Math.round(mockAnalytics.naturalness * 100)}%</Text>
             </View>
+            <ProgressBar progress={mockAnalytics.naturalness} color="#F4A261" />
+          </View>
+        </Card>
+
+        {/* Improvements */}
+        <Text style={styles.sectionTitle}>피드백</Text>
+        <Card variant="elevated" style={styles.feedbackCard}>
+          {mockAnalytics.improvements.map((item, i) => (
+            <View key={i} style={styles.feedbackItem}>
+              {item.type === 'good' ? (
+                <CheckCircle size={18} color="#4CAF50" />
+              ) : (
+                <AlertCircle size={18} color="#F4A261" />
+              )}
+              <Text style={styles.feedbackText}>{item.text}</Text>
+            </View>
+          ))}
+        </Card>
+
+        {/* Learned Expressions */}
+        <Text style={styles.sectionTitle}>배운 표현</Text>
+        <Card variant="elevated" style={styles.expressionsCard}>
+          {mockAnalytics.learnedExpressions.map((exp, i) => (
+            <View key={i} style={styles.expressionItem}>
+              <View style={styles.expressionBullet} />
+              <Text style={styles.expressionText}>{exp}</Text>
+            </View>
+          ))}
+        </Card>
+
+        {/* Next Steps */}
+        <Text style={styles.sectionTitle}>다음 추천</Text>
+        <View style={styles.suggestedTags}>
+          {mockAnalytics.suggestedTopics.map((topic, i) => (
+            <Tag key={i} label={topic} variant="outline" />
           ))}
         </View>
 
-        {/* Used Vocabularies */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionCardTitle}>Used Vocabularies</Text>
-          {/* TODO: populate with actual words from session */}
-          <Text style={styles.sectionCardEmpty}>No data yet — will be populated after AI integration</Text>
-        </View>
-
-        {/* What can be improved */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionCardTitle}>What can be improved</Text>
-          {/* TODO: populate with AI feedback */}
-          <Text style={styles.sectionCardEmpty}>No data yet — will be populated after AI integration</Text>
-        </View>
-
-        {/* Done button */}
-        <TouchableOpacity
-          style={styles.doneBtn}
-          onPress={() => navigation.navigate('Main')}
-        >
-          <Text style={styles.doneBtnText}>Back to Home</Text>
-        </TouchableOpacity>
-
       </ScrollView>
+
+      {/* Footer Buttons */}
+      <View style={styles.footer}>
+        <Button
+          title="홈으로"
+          onPress={handleGoHome}
+          variant="outline"
+          style={styles.footerBtnOutline}
+        />
+        <Button
+          title="다시 연습하기"
+          onPress={handlePracticeAgain}
+          style={styles.footerBtn}
+        />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe:               { flex: 1, backgroundColor: '#F7F7FB' },
+  safe: { flex: 1, backgroundColor: '#F7F7FB' },
+  content: { paddingHorizontal: 20, paddingBottom: 120 },
 
-  header:             { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
-  headerBtn:          { width: 36, alignItems: 'center' },
-  backArrow:          { fontSize: 18, color: '#1A1A2E' },
-  headerTitle:        { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  // Overall
+  overallCard: {
+    alignItems: 'center',
+    backgroundColor: '#6C3BFF',
+    marginBottom: 24,
+  },
+  overallLabel: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+    marginBottom: 8,
+  },
+  overallScore: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  overallDesc: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+  },
 
-  content:            { paddingHorizontal: 20, paddingBottom: 40 },
+  // Section
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 12,
+  },
 
-  // Top cards
-  cardRow:            { flexDirection: 'row', gap: 14, marginBottom: 28 },
-  statCard:           { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 20, padding: 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
-  statCardLabel:      { fontSize: 11, color: '#B0B0C5', marginBottom: 8 },
-  statCardIconRow:    { marginBottom: 6 },
-  statCardEmoji:      { fontSize: 22 },
-  statCardSublabel:   { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 8 },
-  statCardPercent:    { fontSize: 13, color: '#6C6C80', marginBottom: 6 },
-  progressBg:         { height: 6, backgroundColor: '#E2E2EC', borderRadius: 4, overflow: 'hidden' },
-  progressFill:       { height: 6, borderRadius: 4 },
+  // Scores
+  scoresCard: {
+    marginBottom: 20,
+  },
+  scoreItem: {
+    marginBottom: 16,
+  },
+  scoreHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  scoreLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1A1A2E',
+    marginLeft: 8,
+  },
+  scoreValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1A2E',
+  },
 
-  // Pattern section
-  sectionTitle:       { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginBottom: 14 },
-  patternCard:        { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, gap: 16, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  patternRow:         { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  patternLabel:       { width: 72, fontSize: 13, color: '#1A1A2E' },
-  patternBarBg:       { flex: 1, height: 8, backgroundColor: '#E2E2EC', borderRadius: 4, overflow: 'hidden' },
-  patternBarFill:     { height: 8, borderRadius: 4 },
-  patternResult:      { width: 32, fontSize: 12, color: '#6C6C80', textAlign: 'right' },
+  // Feedback
+  feedbackCard: {
+    marginBottom: 20,
+  },
+  feedbackItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 12,
+  },
+  feedbackText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1A1A2E',
+    lineHeight: 20,
+  },
 
-  // Section cards
-  sectionCard:        { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  sectionCardTitle:   { fontSize: 15, fontWeight: '700', color: '#1A1A2E', marginBottom: 10 },
-  sectionCardEmpty:   { fontSize: 12, color: '#C0C0D0', fontStyle: 'italic' },
+  // Expressions
+  expressionsCard: {
+    marginBottom: 20,
+  },
+  expressionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  expressionBullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#6C3BFF',
+    marginRight: 10,
+  },
+  expressionText: {
+    fontSize: 14,
+    color: '#1A1A2E',
+  },
 
-  // Done button
-  doneBtn:            { backgroundColor: '#6C3BFF', borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
-  doneBtnText:        { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  // Suggested
+  suggestedTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+  },
+
+  // Footer
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: '#F7F7FB',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  footerBtnOutline: {
+    flex: 1,
+  },
+  footerBtn: {
+    flex: 1,
+  },
 });
