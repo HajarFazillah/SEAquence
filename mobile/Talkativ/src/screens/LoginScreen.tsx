@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView,
   TouchableOpacity, KeyboardAvoidingView, Platform,
-  ScrollView, TextInput,
+  ScrollView, TextInput, Image
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { ChevronLeft, MessageSquare } from 'lucide-react-native';
@@ -53,21 +53,19 @@ export const LoginScreen: React.FC = () => {
           {/* Welcome */}
           <Text style={styles.welcome}>Welcome to talkativ!</Text>
 
-          {/* Kakao Login */}
           <TouchableOpacity style={styles.kakaoButton} onPress={handleKakaoLogin}>
-            <View style={styles.kakaoIcon}>
-              <MessageSquare size={18} color="#000000" />
-            </View>
+            <Image source={require('../assets/images/kakao_logo.png')} style={styles.kakaoLogo}/>
             <Text style={styles.kakaoText}>CONTINUE WITH KAKAO</Text>
-          </TouchableOpacity>
+            </TouchableOpacity>
 
           {/* Google Login */}
           <TouchableOpacity style={styles.googleButton} onPress={handleGoogleLogin}>
-            <View style={styles.googleIcon}>
-              <Text style={styles.googleIconText}>G</Text>
+            <View style={styles.googleIconContainer}>
+            <Image source={require('../assets/images/google_logo.png')} style={styles.googleLogo}/>
             </View>
             <Text style={styles.googleText}>CONTINUE WITH GOOGLE</Text>
           </TouchableOpacity>
+
 
           {/* Divider */}
           <View style={styles.divider}>
@@ -173,15 +171,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     position: 'relative',
   },
-  kakaoIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#3C1E1E',
-    alignItems: 'center',
-    justifyContent: 'center',
+  kakaoLogo: {
+    width: 24,
+    height: 24,
     position: 'absolute',
-    left: 12,
+    left: 16,
   },
   kakaoText: {
     fontSize: 14,
@@ -226,6 +220,22 @@ const styles = StyleSheet.create({
     color: '#1A1A2E',
     letterSpacing: 0.5,
   },
+  googleLogo: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+  googleIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'absolute',
+    left: 12,
+  },
+
 
   // Divider
   divider: {
