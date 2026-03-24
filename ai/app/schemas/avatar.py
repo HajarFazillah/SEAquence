@@ -235,3 +235,28 @@ def get_role_label(role: Optional[str], custom_role: Optional[str] = None) -> st
     if role and role in ROLE_LABELS:
         return ROLE_LABELS[role]
     return "지인"
+
+# Updated get_speech_levels_for_role with custom role analyzer support
+def get_speech_levels_for_role_v2(role: Optional[str], custom_role: Optional[str] = None) -> dict:
+    """
+    Get recommended speech levels based on role.
+    Priority: predefined role → custom role text analysis → default
+    """
+    if role and role in ROLE_SPEECH_MAPPING:
+        mapping = ROLE_SPEECH_MAPPING[role]
+        return {
+            "to_user": SpeechLevel(mapping["to_user"]),
+            "from_user": SpeechLevel(mapping["from_user"]),
+        }
+
+    if custom_role and custom_role.strip():
+        try:
+            from app.services.custom_role_analyzer import get_speech_levels_for_custom_role
+            return get_speech_levels_for_custom_role(custom_role)
+        except Exception:
+            pass
+
+    return {
+        "to_user": SpeechLevel.POLITE,
+        "from_user": SpeechLevel.POLITE,
+    }

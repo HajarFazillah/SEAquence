@@ -307,7 +307,7 @@ async def get_all_roles():
         )
         categorized[config.category.value].append(role_info)
     
-    return categorized
+    return {"roles": categorized}
 
 
 @router.get("/closeness-options")
@@ -460,3 +460,67 @@ async def get_speech_level_examples():
     })
     
     return {"examples": examples}
+
+
+# ============================================================================
+# Custom Role Analysis
+# ============================================================================
+
+class CustomRoleRequest(BaseModel):
+    custom_role: str
+    user_age: Optional[int] = None
+    avatar_age: Optional[int] = None
+
+
+@router.post("/custom-role/analyze")
+async def analyze_custom_role(request: CustomRoleRequest):
+    """
+    Analyze a free-text custom role and infer speech levels.
+
+    ## Examples
+    - "고등학교 친구"  → informal/informal
+    - "군대 선임"     → informal/polite
+    - "회사 멘토"     → informal/polite
+    - "전 직장 상사"  → polite/formal
+    - "동네 어른"     → polite/formal
+    - "과외 선생님"   → polite/polite
+    """
+    from app.services.custom_role_analyzer import analyze_custom_role
+
+    result = analyze_custom_role(request.custom_role)
+
+    # If ages provided, also run through 25-factor calculator for extra precision
+    speech_level_calc = None
+    if request.user_age and request.avatar_age:
+        try:
+            closest_role = result.get("closest_predefined_role", "stranger")
+            inp = SpeechLevelInput(
+                role=closest_role,
+                user_age=request.user_age,
+                avatar_age=request.avatar_age,
+            )
+            calc_result = speech_calculator.calculate(inp)
+            speech_level_calc = {
+                "level": calc_result.user_to_avatar.value,
+                "score": calc_result.confidence,
+                "explanation": calc_result.explanation,
+            }
+        except Exception:
+            pass
+
+    return {
+        "custom_role": request.custom_role,
+        "inferred": {
+            "to_user":   result["to_user"],
+            "from_user": result["from_user"],
+            "closest_predefined_role": result["closest_predefined_role"],
+            "confidence": result["confidence"],
+            "inferred_from": result["inferred_from"],
+        },
+        "speech_calculator": speech_level_calc,
+        "summary": (
+            f"'{request.custom_role}' → "
+            f"아바타가 사용자에게: {result['to_user']}, "
+            f"사용자가 아바타에게: {result['from_user']}"
+        )
+    }
