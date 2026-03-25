@@ -41,6 +41,9 @@ out/
 .env.*
 !.env.example
 
+# --- Spring Boot config (contains secrets) ---
+**/src/main/resources/application.properties
+
 # --- Misc ---
 HELP.md
 *.log
