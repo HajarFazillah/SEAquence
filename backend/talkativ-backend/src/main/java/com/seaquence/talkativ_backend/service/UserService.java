@@ -1,12 +1,13 @@
 package com.seaquence.talkativ_backend.service;
 
-import com.seaquence.talkativ_backend.config.JwtUtil;
 import com.seaquence.talkativ_backend.dto.LoginRequest;
 import com.seaquence.talkativ_backend.dto.LoginResponse;
 import com.seaquence.talkativ_backend.dto.RegisterRequest;
 import com.seaquence.talkativ_backend.dto.UserResponse;
 import com.seaquence.talkativ_backend.entity.User;
 import com.seaquence.talkativ_backend.repository.UserRepository;
+import com.seaquence.talkativ_backend.security.JwtUtil;
+
 import org.springframework.stereotype.Service;
 
 import java.util.List;
