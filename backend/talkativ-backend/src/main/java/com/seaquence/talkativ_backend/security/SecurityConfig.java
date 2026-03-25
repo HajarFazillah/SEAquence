@@ -1,4 +1,4 @@
-package com.seaquence.talkativ_backend.config;
+package com.seaquence.talkativ_backend.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

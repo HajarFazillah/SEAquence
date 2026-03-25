@@ -1,4 +1,4 @@
-package com.seaquence.talkativ_backend.config;
+package com.seaquence.talkativ_backend.security;
 
 import io.jsonwebtoken.Jwts;
 //import io.jsonwebtoken.security.Keys;
