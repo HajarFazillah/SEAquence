@@ -8,6 +8,7 @@ import com.seaquence.talkativ_backend.entity.User;
 import com.seaquence.talkativ_backend.repository.UserRepository;
 import com.seaquence.talkativ_backend.security.JwtUtil;
 
+import org.springframework.security.crypto.password.PasswordEncoder;  // ← ADDED
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -19,10 +20,13 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
+    private final PasswordEncoder passwordEncoder;  // ← ADDED
 
-    public UserService(UserRepository userRepository, JwtUtil jwtUtil) {
+    public UserService(UserRepository userRepository, JwtUtil jwtUtil,
+                       PasswordEncoder passwordEncoder) {  // ← ADDED
         this.userRepository = userRepository;
         this.jwtUtil = jwtUtil;
+        this.passwordEncoder = passwordEncoder;  // ← ADDED
     }
 
     // Register new user
@@ -38,7 +42,7 @@ public class UserService {
         user.setUserId(UUID.randomUUID().toString());
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
-        user.setPassword(request.getPassword());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));  // ← already correct
         user.setNativeLang(request.getNativeLang());
         user.setTargetLang(request.getTargetLang());
         user.setKoreanLevel(request.getKoreanLevel() != null ? request.getKoreanLevel() : "intermediate");
@@ -54,7 +58,8 @@ public class UserService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        if (!user.getPassword().equals(request.getPassword())) {
+        // ← FIXED: was .equals() which doesn't work with BCrypt
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new RuntimeException("Invalid password");
         }
 

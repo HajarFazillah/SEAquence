@@ -22,7 +22,13 @@ export const registerUser = async (username: string, email: string, password: st
   const response = await fetch(`${SPRING_BASE_URL}/api/users/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email, password }),
+    body: JSON.stringify({
+      username,
+      email,
+      password,
+      nativeLang: 'en',   // ← default for now
+      targetLang: 'ko',   // ← always Korean
+    }),
   });
   if (!response.ok) throw new Error('Registration failed. Email may already be in use.');
   return response.json();
