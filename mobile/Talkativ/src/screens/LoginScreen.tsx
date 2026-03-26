@@ -24,7 +24,7 @@ export const LoginScreen: React.FC = () => {
   };
 
   const handleSignUp = () => {
-    navigation.navigate('Profiles');
+    navigation.navigate('SignUp');
   };
 
   const handleKakaoLogin = () => {
