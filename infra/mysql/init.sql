@@ -8,15 +8,21 @@ USE talkativ;
 -- 1. UserAvatar
 -- Stores user identity, profile, and privacy consent
 -- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS user_avatar (
-    user_id        VARCHAR(36)  PRIMARY KEY,          -- UUID
-    username       VARCHAR(100) NOT NULL,
-    email          VARCHAR(255) NOT NULL UNIQUE,
-    native_lang    VARCHAR(50),
-    topik_level    INT,                               -- 1–6
-    privacy_consent TINYINT(1)  NOT NULL DEFAULT 0,
-    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+CREATE DATABASE IF NOT EXISTS talkativ;
+USE talkativ;
+
+CREATE TABLE IF NOT EXISTS users (
+    user_id          VARCHAR(36)   PRIMARY KEY,
+    username         VARCHAR(100)  NOT NULL,
+    email            VARCHAR(255)  NOT NULL UNIQUE,
+    password         VARCHAR(255),
+    provider         VARCHAR(50)   DEFAULT 'local',
+    native_lang      VARCHAR(50),
+    target_lang      VARCHAR(50),
+    korean_level     VARCHAR(50),
+    privacy_consent  TINYINT(1)    NOT NULL DEFAULT 0,
+    created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- ------------------------------------------------------------
