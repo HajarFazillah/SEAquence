@@ -13,14 +13,16 @@ export const useHomeData = () => {
     const fetchAll = async () => {
       try {
         setLoading(true);
-        const [profileData, statsData, sessionsData] = await Promise.all([
+        const [profileResult, statsResult, sessionsResult] = await Promise.allSettled([
           getMyProfile(),
           getMyStats(),
           getActiveSessions(),
         ]);
-        setProfile(profileData);
-        setStats(statsData);
-        setActiveSessions(sessionsData);
+
+        if (profileResult.status === 'fulfilled') setProfile(profileResult.value);
+        if (statsResult.status === 'fulfilled') setStats(statsResult.value);
+        if (sessionsResult.status === 'fulfilled') setActiveSessions(sessionsResult.value);
+
       } catch (err) {
         setError('Failed to load home data');
         console.error(err);

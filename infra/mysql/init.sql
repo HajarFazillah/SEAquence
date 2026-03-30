@@ -29,12 +29,20 @@ CREATE TABLE IF NOT EXISTS users (
 -- 2. Session
 -- A single real-time conversation session
 -- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS session (
-    session_id     VARCHAR(36)  PRIMARY KEY,          -- UUID
-    user_id        VARCHAR(36)  NOT NULL,
-    started_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    ended_at       DATETIME,
-    FOREIGN KEY (user_id) REFERENCES user_avatar(user_id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id      VARCHAR(36)  PRIMARY KEY,
+    user_id         VARCHAR(36)  NOT NULL,
+    avatar_id       VARCHAR(100) NOT NULL,
+    avatar_name     VARCHAR(100) NOT NULL,
+    avatar_icon     VARCHAR(50)  NOT NULL,
+    avatar_bg       VARCHAR(20)  NOT NULL,
+    situation       VARCHAR(200) NOT NULL,
+    mood            INT          NOT NULL DEFAULT 50,
+    difficulty      VARCHAR(20)  NOT NULL DEFAULT 'medium',
+    status          VARCHAR(20)  NOT NULL DEFAULT 'active',
+    started_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at        DATETIME,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 -- ------------------------------------------------------------
