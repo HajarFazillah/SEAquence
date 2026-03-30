@@ -1,89 +1,150 @@
-1. Respect & Communication / 존중과 의사소통
+# 📋 SEAquence Team Ground Rules / 팀 그라운드룰
 
-- Respect each other's thoughts and ideas. 서로 생각과 아이디어를 존중한다.
-- Use both Korean and English freely when communicating. 의사소통 시 한국어와 영어를 자유롭게 모두 사용 가능한다.
-- Remember that everyone is learning, mistakes can happen. 모두 배우는 과정에 있고, 실수는 생길 수 있다.
-- Try to solve things with logic, not just emotions. 감정적으로 반응하기보다는 논리적으로 해결하려 한다.
-- Daily progress update on Notion/KakaoTalk. 매일 Notion/카카오톡에 진행 상황 업데이트.
+> **Team 08 — SEAquence**
+> Siti Hajar Asyiqin · Heimvichit Nunnalin · Yuzana Win
+> Ewha Womans University, Capstone Design & Entrepreneurship Project B, 2026
 
-2. Collaboration & Tools / 협업 및 도구
-- Share updates often. Use Notion for main work and KakaoTalk for quick chats. 진행 상황은 자주 공유하고, 주요 협업은 Notion, 빠른 소통은 카카오톡 사용.
-- Use GitHub for code and commits. Try to write clear commit messages. 코드와 커밋은 GitHub를 사용하고, 커밋 메시지는 이해하기 쉽. 게 작성한다.
-- Feedback should be honest but kind. 피드백은 솔직하되 친절하게 한다.
-- Track all tasks via GitHub Issues for transparency. 모든 작업을 GitHub Issue로 추적해 투명성 유지.
-- PR requires all teammate review before merging. PR 병합 전 모든 팀원 리뷰 필수.
-- All PRs must pass CI tests + include unit test coverage. 모든 PR은 CI 테스트 통과 + 단위 테스트 커버리지 포함.
-- Report bugs via GitHub Issue template (steps to reproduce). 
-버그는 GitHub Issue 템플릿으로 보고 (재현 단계 포함).
-- Code review feedback must be addressed within 24hrs. 		
-코드 리뷰 피드백 24시간 내 수정 반영.
+---
 
-3. Work & Responsibility / 업무와 책임
-- Do tasks before deadlines as much as possible. 가능한 한 마감일 전에 일을 끝낸다.
-- Tell the team early, if you can't finish something. 끝내지 못할 것 같으면 미리 알린다.
-- Don't struggle alone, ask for help. 혼자 고민하지 말고 팀원들에게 도움을 요청한다.
-- Actively join meetings, or tell the team in advance if you can't. 논의나 회의에 적극적 참여하고, 불참 시 미리 알린다.
-- Start assigned tasks within 24 hours 할당된 작업 24시간 내 시작.
-- Target completion 2 days before deadline when possible. 가능한 한 마감 2일 전 완료 목표.
+## 1. 🤝 Respect & Communication / 존중과 의사소통
 
-4. Conflict / 갈등
-- If there's a problem, talk openly but respectfully. 문제가 있으면 솔직하지만 존중하며 이야기한다.
-- Focus feedback on the work, not the person. 사람을 비판하지 말고 결과물에 대해 이야기한다.
-- If we can't agree, the team leader will guide the discussion and we will decide by majority. 합의가 어려우면 팀장이 논의를 이끌고 다수결로 결정한다.
-- Majority vote finalizes unresolved issues. 해결되지 않은 사안은 다수결로 최종 결정.
+- Respect each other's thoughts and ideas.
+  서로 생각과 아이디어를 존중한다.
+- Use both Korean and English freely when communicating.
+  의사소통 시 한국어와 영어를 자유롭게 모두 사용 가능한다.
+- Remember that everyone is learning — mistakes can happen.
+  모두 배우는 과정에 있고, 실수는 생길 수 있다.
+- Try to solve things with logic, not just emotions.
+  감정적으로 반응하기보다는 논리적으로 해결하려 한다.
+- Daily progress update on Notion/KakaoTalk.
+  매일 Notion/카카오톡에 진행 상황 업데이트.
 
-5. GitHub Commit
-- For fixing error, use your own branch before merging into main branch. 오류 수정 시, 브랜치를 이용하여 메인브랜치에 머치해야 된다.
-- Follow variable and file name convention. 변수나 파일 이름 결정 시, 컨벤션 따라야 한다.
-- Add in description as detailed as possible for team members' reference. 팀원들이 쉽게 참조할 수 있도록 자세한 설명을 추가하는 것을 추천한다.
-- Recommended to fix bugs in small scales (multiple times) rather than all at once - easier bug/error recovery and reverting to older history. 버그/오류 수정 시, 한 번에 모두 수정하기보다는 작은 단위로 여러 번 수정하는 것이 과거 기록으로 쉽게 되돌리기에 용이하다.
-- Branch naming: feature/task-ID-description or bugfix/ID-description. 브랜치명: feature/작업ID-설명 or bugfix/ID-설명.
-- PR template required: changes, testing done, deployment notes. PR 템플릿 필수: 변경사항, 테스트 결과, 배포 노트.
+---
 
-6. Code Review Standards/ 코드 리뷰 기준
- PR Author Checklist (Submitter): PR 제출 전 확인사항:
-- Clear description for every PR PR 제목 명확
-- PR description: What/Why/How + screenshots if UI PR 설명: 무엇/왜/어떻게 + UI면 스크린샷
-- Tests added for new features/bug fixes, no console errors 테스트 추가 (신규 기능/버그 픽스), 콘솔 에러 없음
-- Less than 400 lines total at once (split large changes) 총 400줄 이내 (큰 변경은 분리)
+## 2. 🛠️ Collaboration & Tools / 협업 및 도구
 
-Reviewer Checklist: 리뷰어 확인사항:
-- Does it solve the right problem? (check Issue) 올바른 문제 해결? (Issue 확인)
-- Code readable? (function names, comments) 코드 가독성? (함수명, 주석)
-- Edge cases handled? (null, empty, errors) 엣지 케이스 처리? (null, 빈값, 에러)
-- Performance OK? (no N+1 queries, loops) 성능 OK? (N+1 쿼리, 반복문)
-- Security? (no SQL injection, secrets) 보안? (SQL injection, secrets)
-- Tests cover changes + edge cases? 테스트가 변경사항+엣지 케이스 커버?
-	 Review Process 리뷰 프로세스:
-- 24hrs max response time per reviewer Bugs/security/performance → Must fix 리뷰어당 최대 24시간 응답 차단사항: 버그/보안/성능 → 필수 수정
-- Author addresses feedback within 12hrs 
-작성자 12시간 내 피드백 반영
+- Share updates often. Use Notion for main work and KakaoTalk for quick chats.
+  진행 상황은 자주 공유하고, 주요 협업은 Notion, 빠른 소통은 카카오톡 사용.
+- Use GitHub for code and commits. Try to write clear commit messages.
+  코드와 커밋은 GitHub를 사용하고, 커밋 메시지는 이해하기 쉽게 작성한다.
+- Feedback should be honest but kind.
+  피드백은 솔직하되 친절하게 한다.
+- Track all tasks via GitHub Issues for transparency.
+  모든 작업을 GitHub Issue로 추적해 투명성 유지.
+- PR requires all teammate review before merging.
+  PR 병합 전 모든 팀원 리뷰 필수.
+- All PRs must pass CI tests + include unit test coverage.
+  모든 PR은 CI 테스트 통과 + 단위 테스트 커버리지 포함.
+- Report bugs via GitHub Issue template (steps to reproduce).
+  버그는 GitHub Issue 템플릿으로 보고 (재현 단계 포함).
+- Code review feedback must be addressed within 24hrs.
+  코드 리뷰 피드백 24시간 내 수정 반영.
 
-7. QA Testing Requirements / 테스트 요구사항
-- Unit Tests: testing for new/changed code
-단위테스트: 변경코드
-- Integration Tests: API endpoints, DB operations
-통합테스트: API, DB 연동
-- UX Tests: user flows UI (login→dashboard→action)
-UX 테스트: UI 사용자 플로우
+---
 
--Test Data Requirements:
-테스트 데이터 요구사항:
-- Realistic synthetic data
-가명 합성 데이터만 사용 (실제 개인정보 X)
-- data for Edge cases: empty, null, max values, invalid inputs
-엣지 케이스: 빈값, 최대값, 잘못된 입력
-- data for AI/ML: Multiple seed values, different data splits
-AI/ML: 다른 시드값, 데이터 분할 테스트
+## 3. 📅 Work & Responsibility / 업무와 책임
 
-Test Execution Steps:
-실행 요구사항:
-- Local tests pass before PR (npm test, pytest)
-로컬 테스트 통과 후 PR (npm test)
-- CI/CD pipeline green before merge
-CI/CD 파이프라인 성공 후 병합
-- Regression test previous working features
-기존 기능 회귀 테스트
+- Do tasks before deadlines as much as possible.
+  가능한 한 마감일 전에 일을 끝낸다.
+- Tell the team early if you can't finish something.
+  끝내지 못할 것 같으면 미리 알린다.
+- Don't struggle alone — ask for help.
+  혼자 고민하지 말고 팀원들에게 도움을 요청한다.
+- Actively join meetings, or tell the team in advance if you can't.
+  논의나 회의에 적극적 참여하고, 불참 시 미리 알린다.
+- Start assigned tasks within 24 hours.
+  할당된 작업 24시간 내 시작.
+- Target completion 2 days before deadline when possible.
+  가능한 한 마감 2일 전 완료 목표.
 
+---
 
+## 4. ⚖️ Conflict / 갈등
 
+- If there's a problem, talk openly but respectfully.
+  문제가 있으면 솔직하지만 존중하며 이야기한다.
+- Focus feedback on the work, not the person.
+  사람을 비판하지 말고 결과물에 대해 이야기한다.
+- If we can't agree, the team leader will guide the discussion and we will decide by majority.
+  합의가 어려우면 팀장이 논의를 이끌고 다수결로 결정한다.
+- Majority vote finalizes unresolved issues.
+  해결되지 않은 사안은 다수결로 최종 결정.
+
+---
+
+## 5. 🔀 GitHub Commit
+
+- For fixing errors, use your own branch before merging into main.
+  오류 수정 시, 브랜치를 이용하여 메인 브랜치에 머지해야 된다.
+- Follow variable and file name conventions.
+  변수나 파일 이름 결정 시, 컨벤션을 따라야 한다.
+- Add descriptions as detailed as possible for teammates' reference.
+  팀원들이 쉽게 참조할 수 있도록 자세한 설명을 추가하는 것을 추천한다.
+- Fix bugs in small increments rather than all at once — easier to recover and revert.
+  버그/오류 수정 시, 한 번에 모두 수정하기보다는 작은 단위로 여러 번 수정하는 것이 과거 기록으로 쉽게 되돌리기에 용이하다.
+
+### Branch Naming Convention
+- feature/task-ID-description
+- bugfix/ID-description
+
+브랜치명: `feature/작업ID-설명` or `bugfix/ID-설명`
+
+### PR Template Requirements
+Each PR must include: 각 PR 필수 포함 사항:
+- Summary of changes / 변경사항 요약
+- Testing done / 테스트 결과
+- Deployment notes / 배포 노트
+
+---
+
+## 6. 🔍 Code Review Standards / 코드 리뷰 기준
+
+### ✅ PR Author Checklist (Submitter) / PR 제출 전 확인사항
+- [ ] Clear title for every PR / PR 제목 명확
+- [ ] PR description includes What/Why/How + screenshots if UI change
+  PR 설명: 무엇/왜/어떻게 + UI면 스크린샷
+- [ ] Tests added for new features/bug fixes, no console errors
+  테스트 추가 (신규 기능/버그 픽스), 콘솔 에러 없음
+- [ ] Less than 400 lines total — split large changes
+  총 400줄 이내 (큰 변경은 분리)
+
+### 🔎 Reviewer Checklist / 리뷰어 확인사항
+- [ ] Does it solve the right problem? (check Issue) / 올바른 문제 해결? (Issue 확인)
+- [ ] Code readable? (function names, comments) / 코드 가독성? (함수명, 주석)
+- [ ] Edge cases handled? (null, empty, errors) / 엣지 케이스 처리? (null, 빈값, 에러)
+- [ ] Performance OK? (no N+1 queries, loops) / 성능 OK? (N+1 쿼리, 반복문)
+- [ ] Security? (no SQL injection, no exposed secrets) / 보안? (SQL injection, secrets)
+- [ ] Tests cover changes + edge cases? / 테스트가 변경사항 + 엣지 케이스 커버?
+
+### ⏱️ Review Process / 리뷰 프로세스
+- Max **24hrs** response time per reviewer / 리뷰어당 최대 24시간 응답
+- Bugs/security/performance issues → **must fix** before merge
+  버그/보안/성능 → 필수 수정
+- Author addresses feedback within **12hrs** / 작성자 12시간 내 피드백 반영
+
+---
+
+## 7. 🧪 QA Testing Requirements / 테스트 요구사항
+
+### Test Types / 테스트 유형
+| Type | Scope |
+|---|---|
+| **Unit Tests** / 단위테스트 | All new/changed code / 변경코드 |
+| **Integration Tests** / 통합테스트 | API endpoints, DB operations / API, DB 연동 |
+| **UX Tests** / UX 테스트 | User flows: login → dashboard → action |
+
+### Test Data Requirements / 테스트 데이터 요구사항
+- Use realistic **synthetic data only** — no real personal information
+  가명 합성 데이터만 사용 (실제 개인정보 X)
+- Edge cases: empty, null, max values, invalid inputs
+  엣지 케이스: 빈값, 최대값, 잘못된 입력
+- AI/ML: multiple seed values, different data splits
+  AI/ML: 다른 시드값, 데이터 분할 테스트
+
+### Test Execution Steps / 실행 요구사항
+- [ ] Local tests pass before PR (`npm test`, `pytest`)
+  로컬 테스트 통과 후 PR
+- [ ] CI/CD pipeline green before merge
+  CI/CD 파이프라인 성공 후 병합
+- [ ] Regression test previous working features
+  기존 기능 회귀 테스트
