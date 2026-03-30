@@ -5,7 +5,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# React Native caches (optional)
+# React Native caches
 *.log
 
 ### Android ###
@@ -20,12 +20,28 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 
-### Gradle / Java ###
+### Gradle / Java (Spring Boot) ###
 .gradle
 **/build/
 !**/src/**/build/
 bin/
 out/
+*.class
+*.jar
+*.war
+*.ear
+target/
+
+### Python (FastAPI) ###
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+.pytest_cache/
 
 ### IDEs ###
 .vscode/
