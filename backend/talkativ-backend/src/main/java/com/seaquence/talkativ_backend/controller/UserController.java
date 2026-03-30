@@ -5,8 +5,10 @@ import com.seaquence.talkativ_backend.dto.UserResponse;
 import com.seaquence.talkativ_backend.service.UserService;
 import com.seaquence.talkativ_backend.dto.LoginRequest;
 import com.seaquence.talkativ_backend.dto.LoginResponse;
+import com.seaquence.talkativ_backend.dto.UserStats;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
 
 import java.util.List;
 
@@ -56,6 +58,18 @@ public class UserController {
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
         return ResponseEntity.ok(userService.login(request));
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> getMe(Authentication auth) {
+        String userId = (String) auth.getPrincipal();
+        return ResponseEntity.ok(userService.getMe(userId));
+    }
+
+    @GetMapping("/me/stats")
+    public ResponseEntity<UserStats> getMyStats(Authentication auth) {
+        String userId = (String) auth.getPrincipal();
+        return ResponseEntity.ok(userService.getMyStats(userId));
     }
 
 }
