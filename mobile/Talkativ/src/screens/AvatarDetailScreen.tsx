@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView,
-  ScrollView, TouchableOpacity,
+  ScrollView, TouchableOpacity, Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { 
-  ChevronRight, Heart, MessageCircle, Star, 
+import {
+  ChevronRight, Heart, MessageCircle,
   Edit, Trash2, Clock, TrendingUp, Sparkles, User as UserIcon,
 } from 'lucide-react-native';
-import { Header, Card, Button, Tag, StatusBadge, ProgressBar, Icon } from '../components';
+import { Header, Card, Button, Tag, StatusBadge, Icon } from '../components';
 import { SPEECH_LEVELS } from '../constants';
+import { deleteAvatar } from '../services/apiUser';
 
 export default function AvatarDetailScreen() {
   const navigation = useNavigation<any>();
@@ -18,15 +19,13 @@ export default function AvatarDetailScreen() {
 
   const [isFavorite, setIsFavorite] = useState(false);
 
-  // Mock conversation stats
+  // Kept as mock until Session API is wired
   const stats = {
     totalConversations: 8,
     totalMinutes: 45,
     avgScore: 82,
-    lastConversation: '2일 전',
   };
 
-  // Mock conversation history
   const recentConversations = [
     { id: '1', situation: '카페에서 수다', date: '2일 전', score: 85, duration: '05:30' },
     { id: '2', situation: '캠퍼스 만남', date: '5일 전', score: 78, duration: '03:20' },
@@ -41,18 +40,36 @@ export default function AvatarDetailScreen() {
     navigation.navigate('CreateAvatar', { avatar, isEdit: true });
   };
 
+  // ── UPDATED handleDelete ──────────────────────────────────────────────────
   const handleDelete = () => {
-    // TODO: Confirm and delete
-    navigation.goBack();
+    Alert.alert('아바타 삭제', '정말 삭제하시겠습니까?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteAvatar(String(avatar?.id));
+            navigation.navigate('Main', { screen: 'Avatar' });
+            // useFocusEffect in AvatarScreen auto-refreshes ✅
+          } catch {
+            Alert.alert('오류', '삭제에 실패했어요. 다시 시도해주세요.');
+          }
+        },
+      },
+    ]);
   };
+  // ─────────────────────────────────────────────────────────────────────────
 
-  const formalityToUser = avatar?.formality_to_user || 'polite';
-  const formalityFromUser = avatar?.formality_from_user || 'polite';
+  type SpeechLevel = 'formal' | 'polite' | 'informal';
+
+const formalityToUser = (avatar?.formality_to_user || 'polite') as SpeechLevel;
+const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLevel;
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header 
-        title="아바타 정보" 
+      <Header
+        title="아바타 정보"
         rightElement={
           <TouchableOpacity onPress={handleEdit}>
             <Edit size={22} color="#6C3BFF" />
@@ -65,15 +82,15 @@ export default function AvatarDetailScreen() {
         {/* Avatar Header */}
         <View style={styles.avatarHeader}>
           <View style={[styles.avatarIcon, { backgroundColor: avatar?.avatarBg || '#FFB6C1' }]}>
-            <Icon name={avatar?.icon || 'user'} size={48} color="#FFFFFF" />
+            <Icon name={(avatar?.icon || 'user') as any} size={48} color="#FFFFFF" />
           </View>
-          
+
           <View style={styles.avatarInfo}>
             <View style={styles.nameRow}>
               <Text style={styles.avatarName}>{avatar?.name_ko || '아바타'}</Text>
               <TouchableOpacity onPress={() => setIsFavorite(!isFavorite)}>
-                <Heart 
-                  size={24} 
+                <Heart
+                  size={24}
                   color={isFavorite ? '#E53935' : '#B0B0C5'}
                   fill={isFavorite ? '#E53935' : 'transparent'}
                 />
@@ -82,12 +99,11 @@ export default function AvatarDetailScreen() {
             <Text style={styles.avatarNameEn}>
               {avatar?.name_en || ''}{avatar?.age ? ` · ${avatar.age}세` : ''}
             </Text>
-            
             <View style={styles.badgeRow}>
               <StatusBadge status={avatar?.difficulty || 'medium'} />
               <View style={[
                 styles.typeBadge,
-                avatar?.avatarType === 'real' ? styles.typeBadgeReal : styles.typeBadgeFictional
+                avatar?.avatarType === 'real' ? styles.typeBadgeReal : styles.typeBadgeFictional,
               ]}>
                 {avatar?.avatarType === 'real' ? (
                   <UserIcon size={12} color="#2196F3" />
@@ -96,7 +112,7 @@ export default function AvatarDetailScreen() {
                 )}
                 <Text style={[
                   styles.typeBadgeText,
-                  avatar?.avatarType === 'real' ? styles.typeBadgeTextReal : styles.typeBadgeTextFictional
+                  avatar?.avatarType === 'real' ? styles.typeBadgeTextReal : styles.typeBadgeTextFictional,
                 ]}>
                   {avatar?.avatarType === 'real' ? '실제 인물' : '가상 인물'}
                 </Text>
@@ -108,7 +124,7 @@ export default function AvatarDetailScreen() {
         {/* Description */}
         <Card variant="elevated" style={styles.descCard}>
           <Text style={styles.descText}>
-            {avatar?.description_ko || avatar?.relationship_description || '대화 연습을 위한 아바타입니다.'}
+            {avatar?.relationship_description || '대화 연습을 위한 아바타입니다.'}
           </Text>
         </Card>
 
@@ -122,7 +138,7 @@ export default function AvatarDetailScreen() {
           </Card>
         )}
 
-        {/* Description */}
+        {/* Avatar Description */}
         {avatar?.description && (
           <Card variant="outlined" style={styles.memoCard}>
             <View style={styles.memoHeader}>
@@ -132,7 +148,7 @@ export default function AvatarDetailScreen() {
           </Card>
         )}
 
-        {/* Stats */}
+        {/* Stats — mock until Session API is wired */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <MessageCircle size={20} color="#6C3BFF" />
@@ -180,7 +196,7 @@ export default function AvatarDetailScreen() {
         <Text style={styles.sectionTitle}>관심사</Text>
         <Card variant="elevated" style={styles.interestsCard}>
           <View style={styles.tagGrid}>
-            {(avatar?.interests || ['K-POP', '카페', '영화']).map((interest: string, i: number) => (
+            {(avatar?.interests ?? []).map((interest: string, i: number) => (
               <Tag key={i} label={interest} selected />
             ))}
           </View>
@@ -200,7 +216,7 @@ export default function AvatarDetailScreen() {
           </>
         )}
 
-        {/* Recent Conversations */}
+        {/* Recent Conversations — mock until Session API is wired */}
         <Text style={styles.sectionTitle}>최근 대화</Text>
         <View style={styles.conversationList}>
           {recentConversations.map((conv) => (
@@ -229,11 +245,7 @@ export default function AvatarDetailScreen() {
 
       {/* Start Chat Button */}
       <View style={styles.footer}>
-        <Button
-          title="대화 시작하기"
-          onPress={handleStartChat}
-          showArrow
-        />
+        <Button title="대화 시작하기" onPress={handleStartChat} showArrow />
       </View>
     </SafeAreaView>
   );
@@ -242,247 +254,48 @@ export default function AvatarDetailScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 100 },
-
-  // Avatar Header
-  avatarHeader: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  avatarIcon: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  avatarInfo: {
-    alignItems: 'center',
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 4,
-  },
-  avatarName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1A1A2E',
-  },
-  avatarNameEn: {
-    fontSize: 14,
-    color: '#6C6C80',
-    marginBottom: 12,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  customBadge: {
-    backgroundColor: '#F0EDFF',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  customBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#6C3BFF',
-  },
-  typeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  typeBadgeFictional: {
-    backgroundColor: '#F3E5F5',
-  },
-  typeBadgeReal: {
-    backgroundColor: '#E3F2FD',
-  },
-  typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  typeBadgeTextFictional: {
-    color: '#9C27B0',
-  },
-  typeBadgeTextReal: {
-    color: '#2196F3',
-  },
-
-  // Description
-  descCard: {
-    marginBottom: 16,
-  },
-  descText: {
-    fontSize: 14,
-    color: '#6C6C80',
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-
-  // Memo
-  memoCard: {
-    marginBottom: 20,
-    borderColor: '#E2E2EC',
-  },
-  memoHeader: {
-    marginBottom: 8,
-  },
-  memoLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6C3BFF',
-  },
-  memoText: {
-    fontSize: 13,
-    color: '#6C6C80',
-    lineHeight: 20,
-  },
-
-  // Stats
-  statsRow: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: '#E2E2EC',
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginTop: 6,
-    marginBottom: 2,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: '#6C6C80',
-  },
-
-  // Section
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginBottom: 12,
-  },
-
-  // Speech
-  speechCard: {
-    marginBottom: 20,
-  },
-  speechRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  speechItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  speechLabel: {
-    fontSize: 12,
-    color: '#6C6C80',
-    marginBottom: 8,
-  },
-  speechBadge: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  speechBadgeText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // Interests
-  interestsCard: {
-    marginBottom: 20,
-  },
-  tagGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-
-  // Conversations
-  conversationList: {
-    gap: 10,
-    marginBottom: 20,
-  },
-  convCard: {
-    padding: 14,
-  },
-  convRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  convInfo: {
-    flex: 1,
-  },
-  convSituation: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1A1A2E',
-    marginBottom: 2,
-  },
-  convDate: {
-    fontSize: 12,
-    color: '#6C6C80',
-  },
-  convScore: {
-    backgroundColor: '#F0EDFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    marginRight: 8,
-  },
-  convScoreText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6C3BFF',
-  },
-
-  // Delete
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    marginBottom: 20,
-  },
-  deleteButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#E53935',
-  },
-
-  // Footer
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: '#F7F7FB',
-  },
+  avatarHeader: { alignItems: 'center', paddingVertical: 20 },
+  avatarIcon: { width: 100, height: 100, borderRadius: 50, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  avatarInfo: { alignItems: 'center' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
+  avatarName: { fontSize: 24, fontWeight: '700', color: '#1A1A2E' },
+  avatarNameEn: { fontSize: 14, color: '#6C6C80', marginBottom: 12 },
+  badgeRow: { flexDirection: 'row', gap: 8 },
+  typeBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  typeBadgeFictional: { backgroundColor: '#F3E5F5' },
+  typeBadgeReal: { backgroundColor: '#E3F2FD' },
+  typeBadgeText: { fontSize: 11, fontWeight: '600' },
+  typeBadgeTextFictional: { color: '#9C27B0' },
+  typeBadgeTextReal: { color: '#2196F3' },
+  descCard: { marginBottom: 16 },
+  descText: { fontSize: 14, color: '#6C6C80', lineHeight: 22, textAlign: 'center' },
+  memoCard: { marginBottom: 20, borderColor: '#E2E2EC' },
+  memoHeader: { marginBottom: 8 },
+  memoLabel: { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
+  memoText: { fontSize: 13, color: '#6C6C80', lineHeight: 20 },
+  statsRow: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  statItem: { flex: 1, alignItems: 'center' },
+  statDivider: { width: 1, backgroundColor: '#E2E2EC' },
+  statValue: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginTop: 6, marginBottom: 2 },
+  statLabel: { fontSize: 11, color: '#6C6C80' },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
+  speechCard: { marginBottom: 20 },
+  speechRow: { flexDirection: 'row', gap: 16 },
+  speechItem: { flex: 1, alignItems: 'center' },
+  speechLabel: { fontSize: 12, color: '#6C6C80', marginBottom: 8 },
+  speechBadge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+  speechBadgeText: { fontSize: 14, fontWeight: '600' },
+  interestsCard: { marginBottom: 20 },
+  tagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  conversationList: { gap: 10, marginBottom: 20 },
+  convCard: { padding: 14 },
+  convRow: { flexDirection: 'row', alignItems: 'center' },
+  convInfo: { flex: 1 },
+  convSituation: { fontSize: 15, fontWeight: '600', color: '#1A1A2E', marginBottom: 2 },
+  convDate: { fontSize: 12, color: '#6C6C80' },
+  convScore: { backgroundColor: '#F0EDFF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, marginRight: 8 },
+  convScoreText: { fontSize: 13, fontWeight: '600', color: '#6C3BFF' },
+  deleteButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, marginBottom: 20 },
+  deleteButtonText: { fontSize: 14, fontWeight: '600', color: '#E53935' },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#F7F7FB' },
 });
