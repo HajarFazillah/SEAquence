@@ -19,7 +19,7 @@ import { Card, Button, StatusBadge, Icon } from '../components';
 // Mock user data
 const mockUser = {
   name: 'Nunnalin',
-  avatarUrl: 'https://i.pravatar.cc/100?img=47',
+  avatarUrl: 'mobile/Talkativ/src/assets/images/chiikawa.png',
   interests: ['K-POP', '카페', '여행', '영화'],
 };
 

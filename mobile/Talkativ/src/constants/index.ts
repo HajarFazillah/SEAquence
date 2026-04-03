@@ -1,7 +1,7 @@
 import type { IconName } from '../components/Icon';
 
 // API Configuration
-export const API_BASE_URL = 'http://localhost:8000/api/v1';
+export const API_BASE_URL = 'http://10.240.46.93/api/v1';
 
 // Colors
 export const COLORS = {
