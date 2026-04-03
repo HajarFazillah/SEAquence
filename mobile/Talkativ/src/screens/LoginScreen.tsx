@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
+import { login } from '@react-native-kakao/user';
 import {
   View, Text, StyleSheet, SafeAreaView,
   TouchableOpacity, KeyboardAvoidingView, Platform,
-  ScrollView, TextInput, Image
+  ScrollView, TextInput, Image, Alert
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { ChevronLeft, MessageSquare } from 'lucide-react-native';
@@ -27,10 +28,16 @@ export const LoginScreen: React.FC = () => {
     navigation.navigate('SignUp');
   };
 
-  const handleKakaoLogin = () => {
-    // TODO: Implement Kakao OAuth
-    navigation.navigate('Main');
-  };
+const handleKakaoLogin = async () => {
+    try {
+      const result = await login();
+      console.log('Kakao login success:', result);
+      navigation.navigate('Main');
+    } catch (error: any) {
+      console.log('Kakao login failed:', error);
+      Alert.alert('Kakao Login Failed', error.message);
+    }
+};
 
   const handleGoogleLogin = () => {
     // TODO: Implement Google OAuth
