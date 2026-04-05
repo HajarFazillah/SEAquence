@@ -81,7 +81,7 @@ const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLev
 
         {/* Avatar Header */}
         <View style={styles.avatarHeader}>
-          <View style={[styles.avatarIcon, { backgroundColor: avatar?.avatarBg || '#FFB6C1' }]}>
+          <View style={[styles.avatarIcon, { backgroundColor: avatar?.avatar_bg || '#FFB6C1' }]}>
             <Icon name={(avatar?.icon || 'user') as any} size={48} color="#FFFFFF" />
           </View>
 
@@ -103,18 +103,18 @@ const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLev
               <StatusBadge status={avatar?.difficulty || 'medium'} />
               <View style={[
                 styles.typeBadge,
-                avatar?.avatarType === 'real' ? styles.typeBadgeReal : styles.typeBadgeFictional,
+                avatar?.avatar_type === 'real' ? styles.typeBadgeReal : styles.typeBadgeFictional,
               ]}>
-                {avatar?.avatarType === 'real' ? (
+                {avatar?.avatar_type === 'real' ? (
                   <UserIcon size={12} color="#2196F3" />
                 ) : (
                   <Sparkles size={12} color="#9C27B0" />
                 )}
                 <Text style={[
                   styles.typeBadgeText,
-                  avatar?.avatarType === 'real' ? styles.typeBadgeTextReal : styles.typeBadgeTextFictional,
+                  avatar?.avatar_type === 'real' ? styles.typeBadgeTextReal : styles.typeBadgeTextFictional,
                 ]}>
-                  {avatar?.avatarType === 'real' ? '실제 인물' : '가상 인물'}
+                  {avatar?.avatar_type === 'real' ? '실제 인물' : '가상 인물'}
                 </Text>
               </View>
             </View>

@@ -104,7 +104,7 @@ export default function AvatarSelectionScreen() {
                 >
                   <View style={styles.avatarRow}>
                     {/* Avatar icon */}
-                    <View style={[styles.avatarIcon, { backgroundColor: avatar.avatarBg }]}>
+                    <View style={[styles.avatarIcon, { backgroundColor: avatar.avatar_bg }]}>
                       <Icon name={(avatar.icon || 'user') as any} size={28} color="#FFFFFF" />
                     </View>
 

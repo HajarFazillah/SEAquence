@@ -115,16 +115,16 @@ interface AvatarFormData {
   name_en: string;
   age: string;
   gender: 'male' | 'female' | 'other';
-  avatarType: 'fictional' | 'real';
+  avatar_type: 'fictional' | 'real';      // was avatarType
   role: string;
-  customRole: string;
+  custom_role: string;                     // was customRole
   relationship_description: string;
   description: string;
   personality_traits: string[];
   speaking_style: string;
   interests: string[];
   dislikes: string[];
-  avatarBg: string;
+  avatar_bg: string;                       // was avatarBg
   icon: IconName;
   difficulty: 'easy' | 'medium' | 'hard';
   memo: string;
@@ -149,16 +149,16 @@ export default function CreateAvatarScreen() {
     name_en: '',
     age: '',
     gender: 'other',
-    avatarType: 'fictional',
+    avatar_type: 'fictional',                              // was avatarType
     role: '',
-    customRole: '',
+    custom_role: '',                                       // was customRole
     relationship_description: '',
     description: '',
     personality_traits: [],
     speaking_style: '',
     interests: [],
     dislikes: [],
-    avatarBg: Object.values(AVATAR_COLORS)[0],
+    avatar_bg: Object.values(AVATAR_COLORS)[0],           // was avatarBg
     icon: 'user' as IconName,
     difficulty: 'medium',
     memo: '',
@@ -212,7 +212,7 @@ export default function CreateAvatarScreen() {
   const generateBio = () => {
     setGeneratingBio(true);
     setTimeout(() => {
-      const roleLabel = ALL_ROLES.find(r => r.id === formData.role)?.label || formData.customRole || '지인';
+      const roleLabel = ALL_ROLES.find(r => r.id === formData.role)?.label || formData.custom_role || '지인';
       const traits = formData.personality_traits.slice(0, 3).join(', ') || '친절한';
       const interests = formData.interests.slice(0, 3).join(', ') || '다양한 주제';
       const avoidTopics = formData.dislikes.length > 0
@@ -259,7 +259,7 @@ export default function CreateAvatarScreen() {
     const avatarData = {
       ...formData,
       name_ko: formData.name_ko.trim(),
-      role: formData.role || formData.customRole,
+      role: formData.role || formData.custom_role,
       formality_to_user: speech.toUser,
       formality_from_user: speech.fromUser,
       bio: generatedBio,
@@ -286,7 +286,7 @@ export default function CreateAvatarScreen() {
   const isStepValid = () => {
     switch (currentStep) {
       case 1: return formData.name_ko.trim().length > 0;
-      case 2: case 2: return (formData.role ?? '').length > 0 || (formData.customRole ?? '').trim().length > 0;
+      case 2: return (formData.role ?? '').length > 0 || (formData.custom_role ?? '').trim().length > 0;
       case 3: return true;
       case 4: return formData.personality_traits.length > 0 && formData.interests.length > 0;
       case 5: return true;
@@ -302,18 +302,18 @@ export default function CreateAvatarScreen() {
       <Text style={styles.fieldLabel}>아바타 유형 *</Text>
       <View style={styles.typeRow}>
         <TouchableOpacity
-          style={[styles.typeCard, formData.avatarType === 'fictional' && styles.typeCardActive]}
-          onPress={() => updateField('avatarType', 'fictional')}
+          style={[styles.typeCard, formData.avatar_type === 'fictional' && styles.typeCardActive]}
+          onPress={() => updateField('avatar_type', 'fictional')}
         >
-          <Sparkles size={24} color={formData.avatarType === 'fictional' ? '#9C27B0' : '#B0B0C5'} />
-          <Text style={[styles.typeLabel, formData.avatarType === 'fictional' && { color: '#9C27B0' }]}>가상 인물</Text>
+          <Sparkles size={24} color={formData.avatar_type === 'fictional' ? '#9C27B0' : '#B0B0C5'} />
+          <Text style={[styles.typeLabel, formData.avatar_type === 'fictional' && { color: '#9C27B0' }]}>가상 인물</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.typeCard, formData.avatarType === 'real' && styles.typeCardActive, formData.avatarType === 'real' && { borderColor: '#2196F3' }]}
-          onPress={() => updateField('avatarType', 'real')}
+          style={[styles.typeCard, formData.avatar_type === 'real' && styles.typeCardActive, formData.avatar_type === 'real' && { borderColor: '#2196F3' }]}
+          onPress={() => updateField('avatar_type', 'real')}
         >
-          <User size={24} color={formData.avatarType === 'real' ? '#2196F3' : '#B0B0C5'} />
-          <Text style={[styles.typeLabel, formData.avatarType === 'real' && { color: '#2196F3' }]}>실제 인물</Text>
+          <User size={24} color={formData.avatar_type === 'real' ? '#2196F3' : '#B0B0C5'} />
+          <Text style={[styles.typeLabel, formData.avatar_type === 'real' && { color: '#2196F3' }]}>실제 인물</Text>
         </TouchableOpacity>
       </View>
       <InputField label="이름 (한국어) *" value={formData.name_ko} onChangeText={(v) => updateField('name_ko', v)} placeholder="예: 김지원" />
@@ -338,10 +338,10 @@ export default function CreateAvatarScreen() {
         {colorPalette.map(([key, color]) => (
           <TouchableOpacity
             key={key}
-            style={[styles.colorButton, { backgroundColor: color }, formData.avatarBg === color && styles.colorButtonActive]}
-            onPress={() => updateField('avatarBg', color)}
+            style={[styles.colorButton, { backgroundColor: color }, formData.avatar_bg === color && styles.colorButtonActive]}
+            onPress={() => updateField('avatar_bg', color)}
           >
-            {formData.avatarBg === color && <Check size={16} color="#FFFFFF" />}
+            {formData.avatar_bg === color && <Check size={16} color="#FFFFFF" />}
           </TouchableOpacity>
         ))}
       </View>
@@ -372,7 +372,7 @@ export default function CreateAvatarScreen() {
               <TouchableOpacity
                 key={role.id}
                 style={[styles.roleButton, formData.role === role.id && styles.roleButtonActive]}
-                onPress={() => { updateField('role', role.id); updateField('customRole', ''); }}
+                onPress={() => { updateField('role', role.id); updateField('custom_role', ''); }}
               >
                 <Text style={[styles.roleButtonText, formData.role === role.id && styles.roleButtonTextActive]}>
                   {role.label}
@@ -387,16 +387,16 @@ export default function CreateAvatarScreen() {
         <View style={styles.customRoleRow}>
           <TextInput
             style={styles.customRoleInput}
-            value={formData.customRole}
-            onChangeText={(v) => { updateField('customRole', v); if (v.trim()) updateField('role', ''); }}
+            value={formData.custom_role}
+            onChangeText={(v) => { updateField('custom_role', v); if (v.trim()) updateField('role', ''); }}
             placeholder="위에 없는 관계를 직접 입력하세요"
             placeholderTextColor="#B0B0C5"
           />
         </View>
-        {(formData.customRole ?? '').trim().length > 0 && (
+        {(formData.custom_role ?? '').trim().length > 0 && (
           <View style={styles.customRoleSelected}>
             <Check size={16} color="#4CAF50" />
-            <Text style={styles.customRoleSelectedText}>직접 입력: {formData.customRole}</Text>
+            <Text style={styles.customRoleSelectedText}>직접 입력: {formData.custom_role}</Text>
           </View>
         )}
       </View>
@@ -505,19 +505,19 @@ export default function CreateAvatarScreen() {
 
   const renderStep5 = () => {
     const speech = getRecommendedSpeech();
-    const roleLabel = ALL_ROLES.find(r => r.id === formData.role)?.label || formData.customRole || '지인';
+    const roleLabel = ALL_ROLES.find(r => r.id === formData.role)?.label || formData.custom_role || '지인';
     return (
       <View style={styles.stepContent}>
         <Text style={styles.stepTitle}>아바타 정보 확인</Text>
         <Text style={styles.stepSubtitle}>AI가 분석한 대화 가이드를 확인하세요</Text>
         <View style={styles.avatarPreview}>
-          <View style={[styles.previewAvatar, { backgroundColor: formData.avatarBg }]}>
+          <View style={[styles.previewAvatar, { backgroundColor: formData.avatar_bg }]}>
             <Icon name={formData.icon as any || 'user'} size={40} color="#FFFFFF" />
           </View>
           <Text style={styles.previewName}>{formData.name_ko || '아바타'}</Text>
           <Text style={styles.previewRole}>{roleLabel} · {formData.age ? `${formData.age}세` : ''}</Text>
           <View style={styles.previewTypeBadge}>
-            {formData.avatarType === 'fictional' ? (
+            {formData.avatar_type === 'fictional' ? (
               <><Sparkles size={12} color="#9C27B0" /><Text style={[styles.previewTypeText, { color: '#9C27B0' }]}>가상 인물</Text></>
             ) : (
               <><User size={12} color="#2196F3" /><Text style={[styles.previewTypeText, { color: '#2196F3' }]}>실제 인물</Text></>
