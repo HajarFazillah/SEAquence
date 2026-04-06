@@ -8,27 +8,41 @@ USE talkativ;
 -- 1. UserAvatar
 -- Stores user identity, profile, and privacy consent
 -- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS user_avatar (
-    user_id        VARCHAR(36)  PRIMARY KEY,          -- UUID
-    username       VARCHAR(100) NOT NULL,
-    email          VARCHAR(255) NOT NULL UNIQUE,
-    native_lang    VARCHAR(50),
-    topik_level    INT,                               -- 1–6
-    privacy_consent TINYINT(1)  NOT NULL DEFAULT 0,
-    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+CREATE DATABASE IF NOT EXISTS talkativ;
+USE talkativ;
+
+CREATE TABLE IF NOT EXISTS users (
+    user_id          VARCHAR(36)   PRIMARY KEY,
+    username         VARCHAR(100)  NOT NULL,
+    email            VARCHAR(255)  NOT NULL UNIQUE,
+    password         VARCHAR(255),
+    provider         VARCHAR(50)   DEFAULT 'local',
+    native_lang      VARCHAR(50),
+    target_lang      VARCHAR(50),
+    korean_level     VARCHAR(50),
+    privacy_consent  TINYINT(1)    NOT NULL DEFAULT 0,
+    created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- ------------------------------------------------------------
 -- 2. Session
 -- A single real-time conversation session
 -- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS session (
-    session_id     VARCHAR(36)  PRIMARY KEY,          -- UUID
-    user_id        VARCHAR(36)  NOT NULL,
-    started_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    ended_at       DATETIME,
-    FOREIGN KEY (user_id) REFERENCES user_avatar(user_id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id      VARCHAR(36)  PRIMARY KEY,
+    user_id         VARCHAR(36)  NOT NULL,
+    avatar_id       VARCHAR(100) NOT NULL,
+    avatar_name     VARCHAR(100) NOT NULL,
+    avatar_icon     VARCHAR(50)  NOT NULL,
+    avatar_bg       VARCHAR(20)  NOT NULL,
+    situation       VARCHAR(200) NOT NULL,
+    mood            INT          NOT NULL DEFAULT 50,
+    difficulty      VARCHAR(20)  NOT NULL DEFAULT 'medium',
+    status          VARCHAR(20)  NOT NULL DEFAULT 'active',
+    started_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at        DATETIME,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 -- ------------------------------------------------------------

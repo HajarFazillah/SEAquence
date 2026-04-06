@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView,
-  ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform,
+  ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Heart, ThumbsDown, Plus, Sparkles, MessageSquare } from 'lucide-react-native';
 import { Header, Card, Button, Tag } from '../components';
+import { registerUser } from '../services/apiAuth';
 
 const INTEREST_OPTIONS = [
   'K-POP', '영화', '드라마', '음악', '독서', '여행', '카페', '음식',
@@ -21,7 +22,8 @@ const DISLIKE_OPTIONS = [
 export default function CreateProfileStep2Screen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { name, age, gender, koreanLevel } = route.params || {};
+  // ← FIXED: added email + password from params
+  const { name, age, gender, koreanLevel, email, password } = route.params || {};
 
   const [interests, setInterests] = useState<string[]>([]);
   const [dislikes, setDislikes] = useState<string[]>([]);
@@ -65,40 +67,26 @@ export default function CreateProfileStep2Screen() {
 
   const isValid = interests.length > 0;
 
-  const handleComplete = () => {
-    const userProfile = {
-      name,
-      age: parseInt(age, 10),
-      gender,
-      korean_level: koreanLevel,
-      interests,
-      dislikes,
-      memo: memo.trim(),
-      // AI-specific fields
-      ai_context: {
-        user_description: memo.trim(),
-        preferred_topics: interests,
-        avoided_topics: dislikes,
-        language_level: koreanLevel,
-        age_group: parseInt(age, 10) < 20 ? 'teen' : parseInt(age, 10) < 30 ? '20s' : parseInt(age, 10) < 40 ? '30s' : 'adult',
-      },
-    };
-
-    console.log('Creating user profile:', userProfile);
-    // TODO: Save to storage/API
-    navigation.navigate('Main');
+  // ← FIXED: now calls backend registerUser
+  const handleComplete = async () => {
+    try {
+      await registerUser(name, email, password);
+      navigation.navigate('Main');
+    } catch (error: any) {
+      Alert.alert('Registration Failed', error.message);
+    }
   };
 
   return (
     <SafeAreaView style={styles.safe}>
       <Header title="프로필 만들기" subtitle="2/2" />
 
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView 
-          contentContainerStyle={styles.content} 
+        <ScrollView
+          contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -116,10 +104,7 @@ export default function CreateProfileStep2Screen() {
                 <Text style={styles.countText}>{interests.length}</Text>
               </View>
             </View>
-            <Text style={styles.sectionHint}>
-              좋아하는 주제를 선택하세요 (최소 1개)
-            </Text>
-            
+            <Text style={styles.sectionHint}>좋아하는 주제를 선택하세요 (최소 1개)</Text>
             <View style={styles.tagGrid}>
               {INTEREST_OPTIONS.map((item) => (
                 <Tag
@@ -130,8 +115,6 @@ export default function CreateProfileStep2Screen() {
                 />
               ))}
             </View>
-
-            {/* Custom input */}
             <View style={styles.customInputRow}>
               <TextInput
                 style={styles.customInput}
@@ -141,7 +124,7 @@ export default function CreateProfileStep2Screen() {
                 placeholderTextColor="#B0B0C5"
                 onSubmitEditing={addCustomInterest}
               />
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.addButton, !customInterest.trim() && styles.addButtonDisabled]}
                 onPress={addCustomInterest}
                 disabled={!customInterest.trim()}
@@ -160,10 +143,7 @@ export default function CreateProfileStep2Screen() {
                 <Text style={styles.countTextGray}>{dislikes.length}</Text>
               </View>
             </View>
-            <Text style={styles.sectionHint}>
-              대화에서 피하고 싶은 주제를 선택하세요 (선택사항)
-            </Text>
-            
+            <Text style={styles.sectionHint}>대화에서 피하고 싶은 주제를 선택하세요 (선택사항)</Text>
             <View style={styles.tagGrid}>
               {DISLIKE_OPTIONS.map((item) => (
                 <Tag
@@ -175,8 +155,6 @@ export default function CreateProfileStep2Screen() {
                 />
               ))}
             </View>
-
-            {/* Custom input */}
             <View style={styles.customInputRow}>
               <TextInput
                 style={styles.customInput}
@@ -186,7 +164,7 @@ export default function CreateProfileStep2Screen() {
                 placeholderTextColor="#B0B0C5"
                 onSubmitEditing={addCustomDislike}
               />
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.addButton, styles.addButtonGray, !customDislike.trim() && styles.addButtonDisabled]}
                 onPress={addCustomDislike}
                 disabled={!customDislike.trim()}
@@ -205,7 +183,6 @@ export default function CreateProfileStep2Screen() {
             <Text style={styles.sectionHint}>
               AI가 당신을 더 잘 이해할 수 있도록 자유롭게 적어주세요
             </Text>
-            
             <TextInput
               style={styles.memoInput}
               value={memo}
@@ -216,7 +193,6 @@ export default function CreateProfileStep2Screen() {
               numberOfLines={4}
               textAlignVertical="top"
             />
-
             <View style={styles.memoTips}>
               <Sparkles size={14} color="#6C3BFF" />
               <Text style={styles.memoTipsText}>
@@ -244,19 +220,16 @@ export default function CreateProfileStep2Screen() {
             </View>
             <View style={styles.previewRow}>
               <Text style={styles.previewLabel}>관심사:</Text>
-              <Text style={styles.previewValue}>{interests.slice(0, 3).join(', ')}{interests.length > 3 ? ` 외 ${interests.length - 3}개` : ''}</Text>
+              <Text style={styles.previewValue}>
+                {interests.slice(0, 3).join(', ')}{interests.length > 3 ? ` 외 ${interests.length - 3}개` : ''}
+              </Text>
             </View>
           </Card>
 
         </ScrollView>
 
-        {/* Complete Button */}
         <View style={styles.footer}>
-          <Button
-            title="완료"
-            onPress={handleComplete}
-            disabled={!isValid}
-          />
+          <Button title="완료" onPress={handleComplete} disabled={!isValid} />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -266,163 +239,35 @@ export default function CreateProfileStep2Screen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 100 },
-
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#6C6C80',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-
-  // Section Card
-  sectionCard: {
-    marginBottom: 16,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A2E',
-  },
-  sectionHint: {
-    fontSize: 13,
-    color: '#6C6C80',
-    marginBottom: 14,
-    lineHeight: 18,
-  },
-  countBadge: {
-    backgroundColor: '#FFEBEE',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  countText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#E53935',
-  },
-  countBadgeGray: {
-    backgroundColor: '#E2E2EC',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  countTextGray: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6C6C80',
-  },
-
-  // Tags
-  tagGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
-  },
-
-  // Custom Input
-  customInputRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
+  title: { fontSize: 22, fontWeight: '700', color: '#1A1A2E', marginBottom: 8 },
+  subtitle: { fontSize: 14, color: '#6C6C80', marginBottom: 24, lineHeight: 20 },
+  sectionCard: { marginBottom: 16 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  sectionTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
+  sectionHint: { fontSize: 13, color: '#6C6C80', marginBottom: 14, lineHeight: 18 },
+  countBadge: { backgroundColor: '#FFEBEE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  countText: { fontSize: 13, fontWeight: '600', color: '#E53935' },
+  countBadgeGray: { backgroundColor: '#E2E2EC', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  countTextGray: { fontSize: 13, fontWeight: '600', color: '#6C6C80' },
+  tagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  customInputRow: { flexDirection: 'row', gap: 10 },
   customInput: {
-    flex: 1,
-    backgroundColor: '#F5F5FA',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: '#1A1A2E',
+    flex: 1, backgroundColor: '#F5F5FA', borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 12, fontSize: 14, color: '#1A1A2E',
   },
-  addButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#6C3BFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonGray: {
-    backgroundColor: '#6C6C80',
-  },
-  addButtonDisabled: {
-    opacity: 0.5,
-  },
-
-  // Memo
+  addButton: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#6C3BFF', alignItems: 'center', justifyContent: 'center' },
+  addButtonGray: { backgroundColor: '#6C6C80' },
+  addButtonDisabled: { opacity: 0.5 },
   memoInput: {
-    backgroundColor: '#F5F5FA',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 14,
-    color: '#1A1A2E',
-    minHeight: 100,
-    lineHeight: 20,
+    backgroundColor: '#F5F5FA', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+    fontSize: 14, color: '#1A1A2E', minHeight: 100, lineHeight: 20,
   },
-  memoTips: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 12,
-    backgroundColor: '#F0EDFF',
-    padding: 12,
-    borderRadius: 10,
-  },
-  memoTipsText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#6C3BFF',
-    lineHeight: 18,
-  },
-
-  // Preview
-  previewCard: {
-    marginBottom: 20,
-    borderColor: '#6C3BFF',
-  },
-  previewTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#6C3BFF',
-    marginBottom: 12,
-  },
-  previewRow: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  previewLabel: {
-    width: 80,
-    fontSize: 13,
-    color: '#6C6C80',
-  },
-  previewValue: {
-    flex: 1,
-    fontSize: 13,
-    color: '#1A1A2E',
-    fontWeight: '500',
-  },
-
-  // Footer
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: '#F7F7FB',
-  },
+  memoTips: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 12, backgroundColor: '#F0EDFF', padding: 12, borderRadius: 10 },
+  memoTipsText: { flex: 1, fontSize: 12, color: '#6C3BFF', lineHeight: 18 },
+  previewCard: { marginBottom: 20, borderColor: '#6C3BFF' },
+  previewTitle: { fontSize: 14, fontWeight: '700', color: '#6C3BFF', marginBottom: 12 },
+  previewRow: { flexDirection: 'row', marginBottom: 8 },
+  previewLabel: { width: 80, fontSize: 13, color: '#6C6C80' },
+  previewValue: { flex: 1, fontSize: 13, color: '#1A1A2E', fontWeight: '500' },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#F7F7FB' },
 });

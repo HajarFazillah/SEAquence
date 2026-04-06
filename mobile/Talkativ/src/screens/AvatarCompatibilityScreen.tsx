@@ -7,6 +7,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Header, Card, Button, CompatibilityRing, StatusBadge, Tag, Icon } from '../components';
 import { SYSTEM_AVATARS } from '../constants';
 import { apiService } from '../services/api';
+import { getMyAvatars, createAvatar, updateAvatar, deleteAvatar, UserAvatar } from '../services/apiUser';
 
 interface CompatibilityData {
   avatar_id: string;

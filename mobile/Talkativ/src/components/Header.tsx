@@ -5,6 +5,7 @@ import { ChevronLeft, Bell } from 'lucide-react-native';
 
 interface HeaderProps {
   title: string;
+  subtitle?: string;           // ← ADDED
   showBack?: boolean;
   showBell?: boolean;
   onBellPress?: () => void;
@@ -14,6 +15,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   title,
+  subtitle,                    // ← ADDED
   showBack = true,
   showBell = false,
   onBellPress,
@@ -32,7 +34,13 @@ export const Header: React.FC<HeaderProps> = ({
         <View style={styles.headerBtn} />
       )}
 
-      <Text style={styles.headerTitle}>{title}</Text>
+      {/* ← ADDED: shows subtitle below title if provided */}
+      <View style={styles.titleContainer}>
+        <Text style={styles.headerTitle}>{title}</Text>
+        {subtitle && (
+          <Text style={styles.headerSubtitle}>{subtitle}</Text>
+        )}
+      </View>
 
       {rightElement ? (
         rightElement
@@ -59,9 +67,18 @@ const styles = StyleSheet.create({
     width: 36,
     alignItems: 'center',
   },
+  titleContainer: {        // ← ADDED
+    alignItems: 'center',
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#1A1A2E',
+  },
+  headerSubtitle: {        // ← ADDED
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#B0B0C5',
+    marginTop: 2,
   },
 });

@@ -1,4 +1,4 @@
-package com.seaquence.talkativ_backend;
+package com.seaquence.talkativ_backend.controller;
 
 import java.util.Map;
 import org.springframework.web.bind.annotation.*;

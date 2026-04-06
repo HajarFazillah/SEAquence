@@ -1,91 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView,
-  ScrollView, TouchableOpacity, Modal, Alert,
+  ScrollView, TouchableOpacity, Modal, Alert, ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User } from 'lucide-react-native';
 import { Header, Card, SearchBar, StatusBadge, Tag, Icon } from '../components';
 import { AVATAR_COLORS } from '../constants';
-
-// All avatars are user-created
-const mockAvatars = [
-  {
-    id: 'avatar_1',
-    name_ko: '김지원',
-    name_en: 'Jiwon',
-    age: '22',
-    role: 'junior',
-    difficulty: 'easy',
-    description_ko: '같은 동아리 후배',
-    avatarType: 'fictional', // 가상 인물
-    avatarBg: AVATAR_COLORS.mint,
-    icon: 'user',
-    interests: ['음악', '영화', '카페'],
-    memo: '밝고 에너지가 넘치는 성격',
-  },
-  {
-    id: 'avatar_2',
-    name_ko: '박수진',
-    name_en: 'Sujin',
-    age: '25',
-    role: 'friend',
-    difficulty: 'easy',
-    description_ko: '대학교 동기 친구',
-    avatarType: 'real', // 실제 인물
-    avatarBg: AVATAR_COLORS.pink,
-    icon: 'user',
-    interests: ['K-POP', '여행', '맛집'],
-    memo: '실제 친구를 기반으로 만듦',
-  },
-  {
-    id: 'avatar_3',
-    name_ko: '이민수',
-    name_en: 'Minsu',
-    age: '30',
-    role: 'senior',
-    difficulty: 'medium',
-    description_ko: '회사 선배',
-    avatarType: 'real',
-    avatarBg: AVATAR_COLORS.blue,
-    icon: 'user',
-    interests: ['운동', '독서', '커피'],
-    memo: '회사에서 만난 선배님',
-  },
-  {
-    id: 'avatar_4',
-    name_ko: '김교수님',
-    name_en: 'Prof. Kim',
-    age: '55',
-    role: 'professor',
-    difficulty: 'hard',
-    description_ko: '대학교 지도교수님',
-    avatarType: 'fictional',
-    avatarBg: AVATAR_COLORS.purple,
-    icon: 'graduationCap',
-    interests: ['연구', '역사', '클래식'],
-    memo: '엄격하지만 학생들을 아끼는 성격',
-  },
-];
-
-type AvatarType = typeof mockAvatars[0];
+import { getMyAvatars, deleteAvatar, UserAvatar } from '../services/apiUser';
 
 export default function AvatarScreen() {
   const navigation = useNavigation<any>();
   const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [avatars, setAvatars] = useState(mockAvatars);
+  const [avatars, setAvatars] = useState<UserAvatar[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<'all' | 'fictional' | 'real'>('all');
 
+  // Re-fetches every time screen is focused (after create / edit / delete)
+  useFocusEffect(
+    useCallback(() => {
+      const load = async () => {
+        try {
+          setLoading(true);
+          const data = await getMyAvatars();
+          setAvatars(data);
+        } catch (e) {
+          console.error('Failed to load avatars:', e);
+        } finally {
+          setLoading(false);
+        }
+      };
+      load();
+    }, [])
+  );
+
   const filteredAvatars = avatars.filter((avatar) => {
-    const matchesSearch = avatar.name_ko.includes(search) ||
-      avatar.name_en.toLowerCase().includes(search.toLowerCase()) ||
-      avatar.description_ko.includes(search);
-    const matchesFilter = filterType === 'all' || avatar.avatarType === filterType;
+    const matchesSearch =
+      (avatar.name_ko ?? '').includes(search) ||
+      (avatar.name_en ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (avatar.relationship_description ?? '').includes(search);
+    const matchesFilter = filterType === 'all' || avatar.avatar_type === filterType;
     return matchesSearch && matchesFilter;
   });
 
-  const handleAvatarPress = (avatar: AvatarType) => {
+  const handleAvatarPress = (avatar: UserAvatar) => {
     navigation.navigate('AvatarDetail', { avatar });
   };
 
@@ -104,7 +63,7 @@ export default function AvatarScreen() {
       ['독서', '요리', '여행'],
     ];
     const randomColors = Object.values(AVATAR_COLORS);
-    
+
     const randomAvatar = {
       name_ko: randomNames[Math.floor(Math.random() * randomNames.length)],
       name_en: '',
@@ -112,32 +71,37 @@ export default function AvatarScreen() {
       role: randomRoles[Math.floor(Math.random() * randomRoles.length)],
       interests: randomInterests[Math.floor(Math.random() * randomInterests.length)],
       personality_traits: ['친절한', '유쾌한'],
-      avatarBg: randomColors[Math.floor(Math.random() * randomColors.length)],
+      avatar_bg: randomColors[Math.floor(Math.random() * randomColors.length)],  // fixed
       difficulty: 'medium',
-      avatarType: 'fictional',
+      avatar_type: 'fictional',                                                    // fixed
     };
-    
-    navigation.navigate('CreateAvatar', { 
+
+    navigation.navigate('CreateAvatar', {
       mode: 'random',
       template: randomAvatar,
     });
   };
 
-  const handleEditAvatar = (avatar: AvatarType) => {
+  const handleEditAvatar = (avatar: UserAvatar) => {
     navigation.navigate('CreateAvatar', { avatar, isEdit: true });
   };
 
-  const handleDeleteAvatar = (avatar: AvatarType) => {
+  const handleDeleteAvatar = (avatar: UserAvatar) => {
     Alert.alert(
       '아바타 삭제',
       `${avatar.name_ko}을(를) 삭제하시겠습니까?`,
       [
         { text: '취소', style: 'cancel' },
-        { 
-          text: '삭제', 
+        {
+          text: '삭제',
           style: 'destructive',
-          onPress: () => {
-            setAvatars((prev) => prev.filter((a) => a.id !== avatar.id));
+          onPress: async () => {
+            try {
+              await deleteAvatar(String(avatar.id));
+              setAvatars((prev) => prev.filter((a) => a.id !== avatar.id));
+            } catch {
+              Alert.alert('오류', '삭제에 실패했어요. 다시 시도해주세요.');
+            }
           },
         },
       ]
@@ -202,93 +166,99 @@ export default function AvatarScreen() {
 
         {/* Avatar List */}
         <View style={styles.avatarList}>
-          {filteredAvatars.map((avatar) => (
-            <Card
-              key={avatar.id}
-              variant="elevated"
-              style={styles.avatarCard}
-              onPress={() => handleAvatarPress(avatar)}
-            >
-              <View style={styles.avatarRow}>
-                <View style={[styles.avatarIcon, { backgroundColor: avatar.avatarBg }]}>
-                  <Icon name={avatar.icon || 'user'} size={28} color="#FFFFFF" />
-                </View>
-                <View style={styles.avatarInfo}>
-                  <View style={styles.avatarNameRow}>
-                    <Text style={styles.avatarName}>{avatar.name_ko}</Text>
-                    <StatusBadge status={avatar.difficulty as 'easy' | 'medium' | 'hard'} />
+          {loading ? (
+            <ActivityIndicator size="large" color="#6C3BFF" style={{ marginTop: 40 }} />
+          ) : (
+            <>
+              {filteredAvatars.map((avatar) => (
+                <Card
+                  key={avatar.id}
+                  variant="elevated"
+                  style={styles.avatarCard}
+                  onPress={() => handleAvatarPress(avatar)}
+                >
+                  <View style={styles.avatarRow}>
+                    <View style={[styles.avatarIcon, { backgroundColor: avatar.avatar_bg }]}>
+                      <Icon name={avatar.icon || 'user'} size={28} color="#FFFFFF" />
+                    </View>
+                    <View style={styles.avatarInfo}>
+                      <View style={styles.avatarNameRow}>
+                        <Text style={styles.avatarName}>{avatar.name_ko}</Text>
+                        <StatusBadge status={avatar.difficulty as 'easy' | 'medium' | 'hard'} />
+                      </View>
+                      <Text style={styles.avatarMeta}>
+                        {avatar.name_en}{avatar.age ? ` · ${avatar.age}세` : ''}
+                      </Text>
+                      <Text style={styles.avatarDesc}>{avatar.relationship_description}</Text>
+                    </View>
                   </View>
-                  <Text style={styles.avatarMeta}>
-                    {avatar.name_en}{avatar.age ? ` · ${avatar.age}세` : ''}
-                  </Text>
-                  <Text style={styles.avatarDesc}>{avatar.description_ko}</Text>
-                </View>
-              </View>
 
-              {/* Avatar Type Badge */}
-              <View style={styles.typeBadgeRow}>
-                <View style={[
-                  styles.typeBadge,
-                  avatar.avatarType === 'fictional' ? styles.typeBadgeFictional : styles.typeBadgeReal
-                ]}>
-                  {avatar.avatarType === 'fictional' ? (
-                    <Sparkles size={12} color="#9C27B0" />
-                  ) : (
-                    <User size={12} color="#2196F3" />
+                  {/* Avatar Type Badge */}
+                  <View style={styles.typeBadgeRow}>
+                    <View style={[
+                      styles.typeBadge,
+                      avatar.avatar_type === 'fictional' ? styles.typeBadgeFictional : styles.typeBadgeReal,
+                    ]}>
+                      {avatar.avatar_type === 'fictional' ? (
+                        <Sparkles size={12} color="#9C27B0" />
+                      ) : (
+                        <User size={12} color="#2196F3" />
+                      )}
+                      <Text style={[
+                        styles.typeBadgeText,
+                        avatar.avatar_type === 'fictional' ? styles.typeBadgeTextFictional : styles.typeBadgeTextReal,
+                      ]}>
+                        {avatar.avatar_type === 'fictional' ? '가상 인물' : '실제 인물'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Interests */}
+                  <View style={styles.interestsRow}>
+                    {(avatar.interests ?? []).slice(0, 4).map((interest, i) => (
+                      <Tag key={i} label={interest} variant="outline" />
+                    ))}
+                  </View>
+
+                  {/* Action buttons */}
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={styles.actionBtn}
+                      onPress={() => handleEditAvatar(avatar)}
+                    >
+                      <Edit size={16} color="#6C3BFF" />
+                      <Text style={styles.actionBtnText}>수정</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.actionBtnDanger]}
+                      onPress={() => handleDeleteAvatar(avatar)}
+                    >
+                      <Trash2 size={16} color="#E53935" />
+                      <Text style={[styles.actionBtnText, styles.actionBtnTextDanger]}>삭제</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Card>
+              ))}
+
+              {/* Empty state */}
+              {filteredAvatars.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Icon name="search" size={48} color="#B0B0C5" />
+                  <Text style={styles.emptyTitle}>
+                    {search ? '검색 결과가 없어요' : '아직 만든 아바타가 없어요'}
+                  </Text>
+                  <Text style={styles.emptySubtitle}>
+                    {search ? '다른 검색어를 입력해보세요' : '새 아바타를 만들어보세요!'}
+                  </Text>
+                  {!search && (
+                    <TouchableOpacity style={styles.emptyButton} onPress={() => setShowCreateModal(true)}>
+                      <Plus size={18} color="#FFFFFF" />
+                      <Text style={styles.emptyButtonText}>아바타 만들기</Text>
+                    </TouchableOpacity>
                   )}
-                  <Text style={[
-                    styles.typeBadgeText,
-                    avatar.avatarType === 'fictional' ? styles.typeBadgeTextFictional : styles.typeBadgeTextReal
-                  ]}>
-                    {avatar.avatarType === 'fictional' ? '가상 인물' : '실제 인물'}
-                  </Text>
                 </View>
-              </View>
-
-              {/* Interests */}
-              <View style={styles.interestsRow}>
-                {avatar.interests.slice(0, 4).map((interest, i) => (
-                  <Tag key={i} label={interest} variant="outline" />
-                ))}
-              </View>
-
-              {/* Action buttons */}
-              <View style={styles.actionButtons}>
-                <TouchableOpacity 
-                  style={styles.actionBtn}
-                  onPress={() => handleEditAvatar(avatar)}
-                >
-                  <Edit size={16} color="#6C3BFF" />
-                  <Text style={styles.actionBtnText}>수정</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.actionBtn, styles.actionBtnDanger]}
-                  onPress={() => handleDeleteAvatar(avatar)}
-                >
-                  <Trash2 size={16} color="#E53935" />
-                  <Text style={[styles.actionBtnText, styles.actionBtnTextDanger]}>삭제</Text>
-                </TouchableOpacity>
-              </View>
-            </Card>
-          ))}
-
-          {/* Empty state */}
-          {filteredAvatars.length === 0 && (
-            <View style={styles.emptyState}>
-              <Icon name="search" size={48} color="#B0B0C5" />
-              <Text style={styles.emptyTitle}>
-                {search ? '검색 결과가 없어요' : '아직 만든 아바타가 없어요'}
-              </Text>
-              <Text style={styles.emptySubtitle}>
-                {search ? '다른 검색어를 입력해보세요' : '새 아바타를 만들어보세요!'}
-              </Text>
-              {!search && (
-                <TouchableOpacity style={styles.emptyButton} onPress={() => setShowCreateModal(true)}>
-                  <Plus size={18} color="#FFFFFF" />
-                  <Text style={styles.emptyButtonText}>아바타 만들기</Text>
-                </TouchableOpacity>
               )}
-            </View>
+            </>
           )}
         </View>
       </ScrollView>
@@ -308,10 +278,9 @@ export default function AvatarScreen() {
                 <X size={24} color="#6C6C80" />
               </TouchableOpacity>
             </View>
-            
+
             <Text style={styles.modalSubtitle}>어떻게 만들까요?</Text>
 
-            {/* Option 1: From Scratch */}
             <TouchableOpacity style={styles.createOption} onPress={handleCreateFromScratch}>
               <View style={[styles.createOptionIcon, { backgroundColor: '#F0EDFF' }]}>
                 <Wand2 size={28} color="#6C3BFF" />
@@ -325,7 +294,6 @@ export default function AvatarScreen() {
               <ChevronRight size={20} color="#B0B0C5" />
             </TouchableOpacity>
 
-            {/* Option 2: Random Create */}
             <TouchableOpacity style={styles.createOption} onPress={handleCreateRandom}>
               <View style={[styles.createOptionIcon, { backgroundColor: '#FFF0E0' }]}>
                 <Shuffle size={28} color="#F4A261" />
@@ -348,255 +316,84 @@ export default function AvatarScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 32 },
-
   searchBar: { marginBottom: 12 },
-
-  // Filter
-  filterRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
+  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   filterTab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E2EC',
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E2EC',
   },
-  filterTabActive: {
-    backgroundColor: '#6C3BFF',
-    borderColor: '#6C3BFF',
-  },
-  filterText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6C6C80',
-  },
-  filterTextActive: {
-    color: '#FFFFFF',
-  },
-
+  filterTabActive: { backgroundColor: '#6C3BFF', borderColor: '#6C3BFF' },
+  filterText: { fontSize: 12, fontWeight: '600', color: '#6C6C80' },
+  filterTextActive: { color: '#FFFFFF' },
   createButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0EDFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
-    borderWidth: 2,
-    borderColor: '#6C3BFF',
-    borderStyle: 'dashed',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0EDFF',
+    borderRadius: 16, padding: 16, marginBottom: 20,
+    borderWidth: 2, borderColor: '#6C3BFF', borderStyle: 'dashed',
   },
   createIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
+    width: 48, height: 48, borderRadius: 24, backgroundColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center', marginRight: 14,
   },
-  createTextContainer: {
-    flex: 1,
-  },
-  createTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginBottom: 2,
-  },
-  createSubtitle: {
-    fontSize: 12,
-    color: '#6C6C80',
-  },
-
+  createTextContainer: { flex: 1 },
+  createTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 2 },
+  createSubtitle: { fontSize: 12, color: '#6C6C80' },
   avatarList: { gap: 14 },
   avatarCard: { position: 'relative' },
-  avatarRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 14,
-  },
-  avatarIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  avatarRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
+  avatarIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
   avatarInfo: { flex: 1 },
-  avatarNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 2,
-  },
+  avatarNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
   avatarName: { fontSize: 17, fontWeight: '700', color: '#1A1A2E' },
   avatarMeta: { fontSize: 12, color: '#B0B0C5', marginBottom: 4 },
   avatarDesc: { fontSize: 13, color: '#6C6C80' },
-
-  // Type Badge
-  typeBadgeRow: {
-    marginTop: 12,
-  },
+  typeBadgeRow: { marginTop: 12 },
   typeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start',
   },
-  typeBadgeFictional: {
-    backgroundColor: '#F3E5F5',
-  },
-  typeBadgeReal: {
-    backgroundColor: '#E3F2FD',
-  },
-  typeBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  typeBadgeTextFictional: {
-    color: '#9C27B0',
-  },
-  typeBadgeTextReal: {
-    color: '#2196F3',
-  },
-
+  typeBadgeFictional: { backgroundColor: '#F3E5F5' },
+  typeBadgeReal: { backgroundColor: '#E3F2FD' },
+  typeBadgeText: { fontSize: 11, fontWeight: '600' },
+  typeBadgeTextFictional: { color: '#9C27B0' },
+  typeBadgeTextReal: { color: '#2196F3' },
   interestsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F5',
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+    marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5',
   },
-
   actionButtons: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F5',
+    flexDirection: 'row', gap: 10, marginTop: 12,
+    paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F0F0F5',
   },
   actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#F0EDFF',
-    borderRadius: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#F0EDFF', borderRadius: 8,
   },
-  actionBtnDanger: {
-    backgroundColor: '#FFEBEE',
-  },
-  actionBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6C3BFF',
-  },
-  actionBtnTextDanger: {
-    color: '#E53935',
-  },
-
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1A1A2E',
-    marginTop: 16,
-    marginBottom: 4,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    color: '#6C6C80',
-    marginBottom: 20,
-  },
+  actionBtnDanger: { backgroundColor: '#FFEBEE' },
+  actionBtnText: { fontSize: 13, fontWeight: '600', color: '#6C3BFF' },
+  actionBtnTextDanger: { color: '#E53935' },
+  emptyState: { alignItems: 'center', paddingVertical: 40 },
+  emptyTitle: { fontSize: 16, fontWeight: '600', color: '#1A1A2E', marginTop: 16, marginBottom: 4 },
+  emptySubtitle: { fontSize: 13, color: '#6C6C80', marginBottom: 20 },
   emptyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#6C3BFF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#6C3BFF', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12,
   },
-  emptyButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
+  emptyButtonText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
+    backgroundColor: '#FFFFFF', borderTopLeftRadius: 24,
+    borderTopRightRadius: 24, padding: 24, paddingBottom: 40,
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1A1A2E',
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#6C6C80',
-    marginBottom: 24,
-  },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E' },
+  modalSubtitle: { fontSize: 14, color: '#6C6C80', marginBottom: 24 },
   createOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F7F7FB',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#F7F7FB', borderRadius: 16, padding: 16, marginBottom: 12,
   },
-  createOptionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  createOptionText: {
-    flex: 1,
-  },
-  createOptionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginBottom: 4,
-  },
-  createOptionDesc: {
-    fontSize: 12,
-    color: '#6C6C80',
-    lineHeight: 18,
-  },
+  createOptionIcon: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+  createOptionText: { flex: 1 },
+  createOptionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },
+  createOptionDesc: { fontSize: 12, color: '#6C6C80', lineHeight: 18 },
 });

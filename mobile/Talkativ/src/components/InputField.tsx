@@ -10,6 +10,7 @@ interface InputFieldProps {
   numberOfLines?: number;
   secureTextEntry?: boolean;
   keyboardType?: 'default' | 'email-address' | 'numeric' | 'phone-pad';
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'; // ← ADDED
   style?: ViewStyle;
   error?: string;
 }
@@ -23,6 +24,7 @@ export const InputField: React.FC<InputFieldProps> = ({
   numberOfLines = 1,
   secureTextEntry = false,
   keyboardType = 'default',
+  autoCapitalize = 'sentences',  // ← ADDED (default matches TextInput default)
   style,
   error,
 }) => {
@@ -43,6 +45,7 @@ export const InputField: React.FC<InputFieldProps> = ({
         numberOfLines={numberOfLines}
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}  // ← ADDED
         textAlignVertical={multiline ? 'top' : 'center'}
       />
       {error && <Text style={styles.errorText}>{error}</Text>}

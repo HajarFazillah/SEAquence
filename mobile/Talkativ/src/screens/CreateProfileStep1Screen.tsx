@@ -3,9 +3,9 @@ import {
   View, Text, StyleSheet, SafeAreaView,
   ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { User, Users, UserCircle } from 'lucide-react-native';
-import { Header, Card, Button, InputField } from '../components';
+import { Header, Button, InputField } from '../components';
 
 const GENDERS = [
   { id: 'male', label: '남성', labelEn: 'Male', icon: User },
@@ -21,6 +21,8 @@ const KOREAN_LEVELS = [
 
 export default function CreateProfileStep1Screen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();                    // ← FIXED: added useRoute
+  const { email, password } = route.params || {};   // ← now works correctly
 
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
@@ -31,6 +33,8 @@ export default function CreateProfileStep1Screen() {
 
   const handleNext = () => {
     navigation.navigate('CreateProfileStep2', {
+      email,           // ← FIXED: passing email forward
+      password,        // ← FIXED: passing password forward
       name: name.trim(),
       age: age.trim(),
       gender,
@@ -42,12 +46,12 @@ export default function CreateProfileStep1Screen() {
     <SafeAreaView style={styles.safe}>
       <Header title="프로필 만들기" subtitle="1/2" />
 
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView 
-          contentContainerStyle={styles.content} 
+        <ScrollView
+          contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -56,7 +60,6 @@ export default function CreateProfileStep1Screen() {
             AI가 당신에게 맞는 대화를 준비하는 데 도움이 됩니다
           </Text>
 
-          {/* Name */}
           <InputField
             label="이름 / 닉네임 *"
             value={name}
@@ -64,7 +67,6 @@ export default function CreateProfileStep1Screen() {
             placeholder="어떻게 불러드릴까요?"
           />
 
-          {/* Age */}
           <InputField
             label="나이 *"
             value={age}
@@ -73,78 +75,48 @@ export default function CreateProfileStep1Screen() {
             keyboardType="numeric"
           />
 
-          {/* Gender */}
           <Text style={styles.fieldLabel}>성별 *</Text>
           <View style={styles.genderRow}>
             {GENDERS.map((g) => (
               <TouchableOpacity
                 key={g.id}
-                style={[
-                  styles.genderCard,
-                  gender === g.id && styles.genderCardActive,
-                ]}
+                style={[styles.genderCard, gender === g.id && styles.genderCardActive]}
                 onPress={() => setGender(g.id)}
               >
-                <g.icon 
-                  size={24} 
-                  color={gender === g.id ? '#FFFFFF' : '#6C6C80'} 
-                />
-                <Text style={[
-                  styles.genderLabel,
-                  gender === g.id && styles.genderLabelActive,
-                ]}>
+                <g.icon size={24} color={gender === g.id ? '#FFFFFF' : '#6C6C80'} />
+                <Text style={[styles.genderLabel, gender === g.id && styles.genderLabelActive]}>
                   {g.label}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          {/* Korean Level */}
           <Text style={styles.fieldLabel}>한국어 수준 *</Text>
           <View style={styles.levelList}>
             {KOREAN_LEVELS.map((level) => (
               <TouchableOpacity
                 key={level.id}
-                style={[
-                  styles.levelCard,
-                  koreanLevel === level.id && styles.levelCardActive,
-                ]}
+                style={[styles.levelCard, koreanLevel === level.id && styles.levelCardActive]}
                 onPress={() => setKoreanLevel(level.id)}
               >
                 <View style={styles.levelHeader}>
-                  <Text style={[
-                    styles.levelLabel,
-                    koreanLevel === level.id && styles.levelLabelActive,
-                  ]}>
+                  <Text style={[styles.levelLabel, koreanLevel === level.id && styles.levelLabelActive]}>
                     {level.label}
                   </Text>
-                  <Text style={[
-                    styles.levelLabelEn,
-                    koreanLevel === level.id && styles.levelLabelEnActive,
-                  ]}>
+                  <Text style={[styles.levelLabelEn, koreanLevel === level.id && styles.levelLabelEnActive]}>
                     {level.labelEn}
                   </Text>
                 </View>
-                <Text style={[
-                  styles.levelDesc,
-                  koreanLevel === level.id && styles.levelDescActive,
-                ]}>
+                <Text style={[styles.levelDesc, koreanLevel === level.id && styles.levelDescActive]}>
                   {level.desc}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
-
         </ScrollView>
 
-        {/* Next Button */}
         <View style={styles.footer}>
-          <Button
-            title="다음"
-            onPress={handleNext}
-            disabled={!isValid}
-            showArrow
-          />
+          <Button title="다음" onPress={handleNext} disabled={!isValid} showArrow />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -154,109 +126,28 @@ export default function CreateProfileStep1Screen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 100 },
-
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#6C6C80',
-    marginBottom: 28,
-    lineHeight: 20,
-  },
-
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1A1A2E',
-    marginBottom: 12,
-    marginTop: 8,
-  },
-
-  // Gender
-  genderRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
+  title: { fontSize: 22, fontWeight: '700', color: '#1A1A2E', marginBottom: 8 },
+  subtitle: { fontSize: 14, color: '#6C6C80', marginBottom: 28, lineHeight: 20 },
+  fieldLabel: { fontSize: 13, fontWeight: '600', color: '#1A1A2E', marginBottom: 12, marginTop: 8 },
+  genderRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   genderCard: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: '#E2E2EC',
-    gap: 8,
+    flex: 1, alignItems: 'center', paddingVertical: 16,
+    backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 2, borderColor: '#E2E2EC', gap: 8,
   },
-  genderCardActive: {
-    backgroundColor: '#6C3BFF',
-    borderColor: '#6C3BFF',
-  },
-  genderLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6C6C80',
-  },
-  genderLabelActive: {
-    color: '#FFFFFF',
-  },
-
-  // Korean Level
-  levelList: {
-    gap: 12,
-  },
+  genderCardActive: { backgroundColor: '#6C3BFF', borderColor: '#6C3BFF' },
+  genderLabel: { fontSize: 14, fontWeight: '600', color: '#6C6C80' },
+  genderLabelActive: { color: '#FFFFFF' },
+  levelList: { gap: 12 },
   levelCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: '#E2E2EC',
+    backgroundColor: '#FFFFFF', borderRadius: 14, padding: 16, borderWidth: 2, borderColor: '#E2E2EC',
   },
-  levelCardActive: {
-    borderColor: '#6C3BFF',
-    backgroundColor: '#F8F6FF',
-  },
-  levelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
-  },
-  levelLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A2E',
-  },
-  levelLabelActive: {
-    color: '#6C3BFF',
-  },
-  levelLabelEn: {
-    fontSize: 13,
-    color: '#B0B0C5',
-  },
-  levelLabelEnActive: {
-    color: '#6C3BFF',
-  },
-  levelDesc: {
-    fontSize: 13,
-    color: '#6C6C80',
-    lineHeight: 18,
-  },
-  levelDescActive: {
-    color: '#6C3BFF',
-  },
-
-  // Footer
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: '#F7F7FB',
-  },
+  levelCardActive: { borderColor: '#6C3BFF', backgroundColor: '#F8F6FF' },
+  levelHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  levelLabel: { fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
+  levelLabelActive: { color: '#6C3BFF' },
+  levelLabelEn: { fontSize: 13, color: '#B0B0C5' },
+  levelLabelEnActive: { color: '#6C3BFF' },
+  levelDesc: { fontSize: 13, color: '#6C6C80', lineHeight: 18 },
+  levelDescActive: { color: '#6C3BFF' },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#F7F7FB' },
 });

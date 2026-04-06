@@ -1,29 +1,43 @@
 import React, { useState } from 'react';
+import { login } from '@react-native-kakao/user';
 import {
   View, Text, StyleSheet, SafeAreaView,
   TouchableOpacity, KeyboardAvoidingView, Platform,
-  ScrollView, TextInput, Image
+  ScrollView, TextInput, Image, Alert
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { ChevronLeft, MessageSquare } from 'lucide-react-native';
+import { loginUser } from '../services/apiAuth';
 
 export const LoginScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleLogin = () => {
-    navigation.navigate('Main');
+  const handleLogin = async () => {
+    if (!email || !password) return;
+    try {
+      await loginUser(email, password);
+      navigation.navigate('Main');
+    } catch (error: any) {
+      Alert.alert('Login Failed', error.message);
+    }
   };
 
   const handleSignUp = () => {
-    navigation.navigate('Profiles');
+    navigation.navigate('SignUp');
   };
 
-  const handleKakaoLogin = () => {
-    // TODO: Implement Kakao OAuth
-    navigation.navigate('Main');
-  };
+const handleKakaoLogin = async () => {
+    try {
+      const result = await login();
+      console.log('Kakao login success:', result);
+      navigation.navigate('Main');
+    } catch (error: any) {
+      console.log('Kakao login failed:', error);
+      Alert.alert('Kakao Login Failed', error.message);
+    }
+};
 
   const handleGoogleLogin = () => {
     // TODO: Implement Google OAuth
@@ -36,7 +50,7 @@ export const LoginScreen: React.FC = () => {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -102,7 +116,7 @@ export const LoginScreen: React.FC = () => {
           </View>
 
           {/* Login Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.loginButton, (!email || !password) && styles.loginButtonDisabled]}
             onPress={handleLogin}
           >
@@ -130,7 +144,7 @@ export const LoginScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
-  container: { 
+  container: {
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingBottom: 40,
