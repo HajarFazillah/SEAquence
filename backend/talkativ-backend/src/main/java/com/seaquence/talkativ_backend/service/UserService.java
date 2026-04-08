@@ -124,13 +124,14 @@ public class UserService {
 
     // Convert entity to response DTO
     private UserResponse toResponse(User user) {
-        return new UserResponse(
-                user.getUserId(),
-                user.getUsername(),
-                user.getEmail(),
-                user.getNativeLang(),
-                user.getTargetLang(),
-                user.getKoreanLevel(),
-                user.getProvider());
-    }
+    return new UserResponse(
+            user.getUserId(),
+            user.getUsername(),
+            user.getEmail(),
+            user.getNativeLang(),
+            user.getTargetLang(),
+            user.getKoreanLevel(),
+            user.getProvider(),
+            user.getAvatarUrl());
+}
 }
