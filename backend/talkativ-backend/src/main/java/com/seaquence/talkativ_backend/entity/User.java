@@ -30,6 +30,9 @@ public class User {
     @Column(length = 10)
     private String provider = "local";
 
+    @Column(name = "avatar_url", length = 500)
+    private String avatarUrl;
+
     @Column(name = "native_lang", length = 10)
     private String nativeLang;
 
@@ -80,4 +83,7 @@ public class User {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
+
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
 }

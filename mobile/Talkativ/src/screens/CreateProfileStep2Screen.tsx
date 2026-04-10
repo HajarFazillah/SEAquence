@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+
 import {
   View, Text, StyleSheet, SafeAreaView,
   ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert,
@@ -6,7 +7,7 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Heart, ThumbsDown, Plus, Sparkles, MessageSquare } from 'lucide-react-native';
 import { Header, Card, Button, Tag } from '../components';
-import { registerUser } from '../services/apiAuth';
+import { registerUser, loginUser } from '../services/apiAuth';
 
 const INTEREST_OPTIONS = [
   'K-POP', '영화', '드라마', '음악', '독서', '여행', '카페', '음식',
@@ -68,9 +69,11 @@ export default function CreateProfileStep2Screen() {
   const isValid = interests.length > 0;
 
   // ← FIXED: now calls backend registerUser
-  const handleComplete = async () => {
+const handleComplete = async () => {
     try {
       await registerUser(name, email, password);
+      // Auto login after registration
+      await loginUser(email, password);
       navigation.navigate('Main');
     } catch (error: any) {
       Alert.alert('Registration Failed', error.message);

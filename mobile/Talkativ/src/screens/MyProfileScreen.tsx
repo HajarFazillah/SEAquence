@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, Dimensions,
   ScrollView, TouchableOpacity, Image, Switch,
@@ -10,9 +10,12 @@ import {
   Award, Clock, TrendingUp, MessageCircle, MessageSquare,
 } from 'lucide-react-native';
 import { Header, Card, Tag, ProgressBar } from '../components';
+import { getMyProfile, UserProfile } from '../services/apiUser';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2; // 20px padding each side + 12px gap
+
+// This will be replaced by real data
 
 // Mock user data
 const mockUser = {
@@ -53,6 +56,18 @@ export const MyProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  const [realUser, setRealUser] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    getMyProfile()
+      .then(data => setRealUser(data))
+      .catch(err => console.log('Profile fetch failed:', err));
+  }, []);
+
+  const displayName = realUser?.username ?? mockUser.name;
+  const displayEmail = realUser?.email ?? mockUser.email;
+  const displayLevel = realUser?.koreanLevel ?? mockUser.koreanLevel;
+  const displayAvatar = realUser?.avatarUrl ?? mockUser.avatarUrl;
 
   const handleEditProfile = () => {
     navigation.navigate('EditProfile');
@@ -89,7 +104,7 @@ export const MyProfileScreen: React.FC = () => {
     }
   };
 
-  const level = KOREAN_LEVELS.find(l => l.id === mockUser.koreanLevel);
+  const level = KOREAN_LEVELS.find(l => l.id === displayLevel);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -99,14 +114,14 @@ export const MyProfileScreen: React.FC = () => {
         <View style={styles.profileCard}>
           <View style={styles.profileCardContent}>
             <View style={styles.avatarContainer}>
-              <Image source={{ uri: mockUser.avatarUrl }} style={styles.avatar} />
+              <Image source={{ uri: displayAvatar }} style={styles.avatar} />
               <TouchableOpacity style={styles.editAvatarBtn} onPress={handleEditProfile}>
                 <Edit size={12} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.userName}>{mockUser.name}</Text>
-              <Text style={styles.userEmail}>{mockUser.age}세 · {mockUser.email}</Text>
+              <Text style={styles.userName}>{displayName}</Text>
+              <Text style={styles.userEmail}>{displayEmail}</Text>
               <View style={styles.levelBadge}>
                 <Text style={styles.levelText}>{level?.label} ({level?.labelEn})</Text>
               </View>
