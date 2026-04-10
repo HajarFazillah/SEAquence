@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Check } from 'lucide-react-native';
 import { Header, Card, Button, StatusBadge, SearchBar, Icon } from '../components';
@@ -53,7 +54,7 @@ export default function AvatarSelectionScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="아바타 선택" showBack showBell />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

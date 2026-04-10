@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, Dimensions,
+  View, Text, StyleSheet, Dimensions,
   ScrollView, TouchableOpacity, Image, Switch,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { 
   ChevronRight, Bell, Moon, Globe, 
@@ -107,7 +108,7 @@ export const MyProfileScreen: React.FC = () => {
   const level = KOREAN_LEVELS.find(l => l.id === displayLevel);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {/* Profile Header Card */}

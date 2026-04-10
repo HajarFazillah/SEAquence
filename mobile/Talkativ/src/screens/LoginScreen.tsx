@@ -1,24 +1,27 @@
 import React, { useState } from 'react';
 import { login, me } from '@react-native-kakao/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   TouchableOpacity, KeyboardAvoidingView, Platform,
   ScrollView, TextInput, Image, Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { ChevronLeft } from 'lucide-react-native';
 import { loginUser } from '../services/apiAuth';
+
 
 GoogleSignin.configure({
   webClientId: '482478499619-38qm0qviq4nooj10ibke90lmndk1lo1v.apps.googleusercontent.com',
 });
 
+
 export const LoginScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
 
   const handleLogin = async () => {
     if (!email || !password) return;
@@ -30,9 +33,11 @@ export const LoginScreen: React.FC = () => {
     }
   };
 
+
   const handleSignUp = () => {
     navigation.navigate('SignUp');
   };
+
 
   const handleKakaoLogin = async () => {
     try {
@@ -64,6 +69,7 @@ export const LoginScreen: React.FC = () => {
     }
   };
 
+
   const handleGoogleLogin = async () => {
     try {
       await GoogleSignin.hasPlayServices();
@@ -94,18 +100,11 @@ export const LoginScreen: React.FC = () => {
     }
   };
 
+
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-              <ChevronLeft size={24} color="#1A1A2E" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>로그인</Text>
-            <View style={styles.backBtn} />
-          </View>
 
           <Text style={styles.welcome}>Welcome to talkativ!</Text>
 
@@ -158,13 +157,11 @@ export const LoginScreen: React.FC = () => {
   );
 };
 
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
   container: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16 },
-  backBtn: { width: 40 },
-  headerTitle: { fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
-  welcome: { fontSize: 28, fontWeight: '700', color: '#1A1A2E', textAlign: 'center', marginTop: 20, marginBottom: 32 },
+  welcome: { fontSize: 28, fontWeight: '700', color: '#1A1A2E', textAlign: 'center', marginTop: 40, marginBottom: 32 },
   kakaoButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEE500', borderRadius: 30, paddingVertical: 16, marginBottom: 12, position: 'relative' },
   kakaoLogo: { width: 24, height: 24, position: 'absolute', left: 16 },
   kakaoText: { fontSize: 14, fontWeight: '700', color: '#000000', letterSpacing: 0.5 },
@@ -187,5 +184,6 @@ const styles = StyleSheet.create({
   signUpText: { fontSize: 12, color: '#B0B0C5', letterSpacing: 0.5 },
   signUpLink: { fontSize: 12, fontWeight: '600', color: '#6C3BFF', letterSpacing: 0.5 },
 });
+
 
 export default LoginScreen;

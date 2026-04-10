@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Mic } from 'lucide-react-native';
 import { Header, Card, Button, StatusBadge, Icon } from '../components';
@@ -58,7 +59,7 @@ export default function RealtimeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="실시간 대화" showBack={false} showBell />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

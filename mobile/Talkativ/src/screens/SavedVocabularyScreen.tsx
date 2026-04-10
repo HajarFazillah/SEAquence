@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity, TextInput,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { 
   Search, Bookmark, Volume2, Trash2, BookOpen, MessageCircle,
@@ -59,7 +60,7 @@ export default function SavedVocabularyScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header 
         title={type === 'words' ? '저장한 단어' : '저장한 표현'} 
       />

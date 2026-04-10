@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Heart, ThumbsDown, Plus, Sparkles, MessageSquare } from 'lucide-react-native';
 import { Header, Card, Button, Tag } from '../components';
@@ -81,7 +82,7 @@ const handleComplete = async () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="프로필 만들기" subtitle="2/2" />
 
       <KeyboardAvoidingView
