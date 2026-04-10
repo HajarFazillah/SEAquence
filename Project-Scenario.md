@@ -12,5 +12,5 @@
 |Pain Point| - 사회적 거리두기와 스트레스, 감염 경험 등으로 인해 인간 관계 단절이 심화되고 대화 자체가 두려워짐. <br> - 자신의 의도를 명확하게 전달하지 못할까 봐 부담을 느끼고, 중간에 말이 막히거나 내가 원하는 내용을 정확하게 표현하는 것이 어렵게 느껴짐. <br> - 대화 중 긴장으로 인해 상대와 어색해지고, 이로 인해 자존감이 심각하게 저하되기도 함. <br> - 대화를 피하다가 점차 자신감을 상실하고 사회적으로 고립되는 악순환에 빠짐. <br> - 불안이 심할 경우 공황 발작 같은 증상까지 경험하며, 일상적 대화 상황 자체가 큰 부담과 두려움으로 다가옴. |
 |사용할 소프트웨어 패키지의 명칭과 핵심기능/용도, 사용시나리오| - React / TypeScript: 프론트엔드, 반응형 UI 및 타입 안전한 개발 <br> - Spring Boot: 개인/상대방 프로필 관리, 생성된 대화 이력 저장, 관계 기반 데이터 관리 <br> - FastAPI: ML 기반 추천 대화 주제, 대화 재생/음성화 API 엔드포인트 <br> - scikit-learn: 프로필·관계·트렌드 데이터 기반 추천 시스템 ML 구현 <br> - HyperCLOVA X: 한국어 맥락 이해/문장 생성, 자연스러운 맞춤 대화 스크립트 생산 <br> - CLOVA Voice: 텍스트-음성 변환(TTS), 대화 내용 실감 음성 재생 <br> - WebSocket: 실시간 그룹 대화·스크립트 동기화 <br> - Amazon RDS / MySQL: 대화 이력 및 사용 정보 안전 저장, 신속 조회 <br> - Papago API: 실시간 번역, 다국어 대화 동시 지원 |
 |사용할 소프트웨어 패키지의 명칭과 URL| - React – https://react.dev <br> - TypeScript – https://www.typescriptlang.org/ <br> - Spring Boot – https://spring.io/projects/spring-boot <br> - FastAPI – https://fastapi.tiangolo.com/ko/ <br> - scikit-learn – https://scikit-learn.org/stable/index.html <br> - HyperCLOVA – https://clova.ai/ko/ <br> - CLOVA Voice – https://clova.ai/voice/ <br> - Amazon RDS – https://aws.amazon.com/rds/ <br> - MySQL – https://www.mysql.com/ <br> |
-|팀그라운드룰| [SEAquence's Team Ground Rules](https://github.com/HajarFazillah/SEAquence/blob/main/GroundRule.md) |
-|최종수정일| 2025-12-16 |
+|팀그라운드룰| [SEAquence's Team Ground Rules](https://github.com/HajarFazillah/SEAquence/blob/main/GroundRules.md) |
+|최종수정일| 2026-04-06 |

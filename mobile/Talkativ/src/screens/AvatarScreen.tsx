@@ -37,10 +37,10 @@ export default function AvatarScreen() {
 
   const filteredAvatars = avatars.filter((avatar) => {
     const matchesSearch =
-      (avatar.name_ko ?? '').includes(search) ||             
+      (avatar.name_ko ?? '').includes(search) ||
       (avatar.name_en ?? '').toLowerCase().includes(search.toLowerCase()) ||
       (avatar.relationship_description ?? '').includes(search);
-    const matchesFilter = filterType === 'all' || avatar.avatarType === filterType;
+    const matchesFilter = filterType === 'all' || avatar.avatar_type === filterType;
     return matchesSearch && matchesFilter;
   });
 
@@ -71,9 +71,9 @@ export default function AvatarScreen() {
       role: randomRoles[Math.floor(Math.random() * randomRoles.length)],
       interests: randomInterests[Math.floor(Math.random() * randomInterests.length)],
       personality_traits: ['친절한', '유쾌한'],
-      avatarBg: randomColors[Math.floor(Math.random() * randomColors.length)],
+      avatar_bg: randomColors[Math.floor(Math.random() * randomColors.length)],  // fixed
       difficulty: 'medium',
-      avatarType: 'fictional',
+      avatar_type: 'fictional',                                                    // fixed
     };
 
     navigation.navigate('CreateAvatar', {
@@ -178,7 +178,7 @@ export default function AvatarScreen() {
                   onPress={() => handleAvatarPress(avatar)}
                 >
                   <View style={styles.avatarRow}>
-                    <View style={[styles.avatarIcon, { backgroundColor: avatar.avatarBg }]}>
+                    <View style={[styles.avatarIcon, { backgroundColor: avatar.avatar_bg }]}>
                       <Icon name={avatar.icon || 'user'} size={28} color="#FFFFFF" />
                     </View>
                     <View style={styles.avatarInfo}>
@@ -197,18 +197,18 @@ export default function AvatarScreen() {
                   <View style={styles.typeBadgeRow}>
                     <View style={[
                       styles.typeBadge,
-                      avatar.avatarType === 'fictional' ? styles.typeBadgeFictional : styles.typeBadgeReal,
+                      avatar.avatar_type === 'fictional' ? styles.typeBadgeFictional : styles.typeBadgeReal,
                     ]}>
-                      {avatar.avatarType === 'fictional' ? (
+                      {avatar.avatar_type === 'fictional' ? (
                         <Sparkles size={12} color="#9C27B0" />
                       ) : (
                         <User size={12} color="#2196F3" />
                       )}
                       <Text style={[
                         styles.typeBadgeText,
-                        avatar.avatarType === 'fictional' ? styles.typeBadgeTextFictional : styles.typeBadgeTextReal,
+                        avatar.avatar_type === 'fictional' ? styles.typeBadgeTextFictional : styles.typeBadgeTextReal,
                       ]}>
-                        {avatar.avatarType === 'fictional' ? '가상 인물' : '실제 인물'}
+                        {avatar.avatar_type === 'fictional' ? '가상 인물' : '실제 인물'}
                       </Text>
                     </View>
                   </View>

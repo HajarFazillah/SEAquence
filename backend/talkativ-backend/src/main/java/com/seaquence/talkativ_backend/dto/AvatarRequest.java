@@ -9,11 +9,11 @@ public class AvatarRequest {
     @JsonProperty("name_en")                  private String nameEn;
     @JsonProperty("age")                      private String age;
     @JsonProperty("gender")                   private String gender;
-    @JsonProperty("avatarType")               private String avatarType;
-    @JsonProperty("avatarBg")                 private String avatarBg;
+    @JsonProperty("avatar_type")               private String avatarType;
+    @JsonProperty("avatar_bg")                 private String avatarBg;
     @JsonProperty("icon")                     private String icon;
     @JsonProperty("role")                     private String role;
-    @JsonProperty("customRole")               private String customRole;
+    @JsonProperty("custom_role")               private String customRole;
     @JsonProperty("relationship_description") private String relationshipDescription;
     @JsonProperty("difficulty")               private String difficulty;
     @JsonProperty("description")              private String description;
