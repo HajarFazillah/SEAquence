@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View, Text, StyleSheet, SafeAreaView,
-  ScrollView, ActivityIndicator,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator,} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Header, Card, Button, CompatibilityRing, StatusBadge, Tag, Icon } from '../components';
 import { SYSTEM_AVATARS } from '../constants';
@@ -82,7 +80,7 @@ export default function AvatarCompatibilityScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <Header title="아바타 궁합" showBack />
         <View style={styles.loading}>
           <ActivityIndicator size="large" color="#6C3BFF" />

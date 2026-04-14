@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { 
   Coffee, Briefcase, GraduationCap, ShoppingBag,
@@ -89,7 +90,7 @@ export default function CreateSituationScreen() {
   const isValid = name.trim().length > 0 && description.trim().length > 0;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="새 상황 만들기" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

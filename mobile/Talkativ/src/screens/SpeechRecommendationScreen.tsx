@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { MapPin, CheckCircle, XCircle, Lightbulb } from 'lucide-react-native';
 import { Header, Card, Button, SpeechLevelBadge, AvatarCircle, Icon } from '../components';
@@ -80,7 +81,7 @@ export default function SpeechRecommendationScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <Header title="추천 말투" />
         <View style={styles.loading}>
           <ActivityIndicator size="large" color="#6C3BFF" />
@@ -91,7 +92,7 @@ export default function SpeechRecommendationScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="추천 말투" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

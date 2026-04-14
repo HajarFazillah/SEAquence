@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity, Image, TextInput,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Camera, User, Sparkles } from 'lucide-react-native';
 import { Header, Card, Button, InputField } from '../components';
@@ -65,7 +66,7 @@ export default function EditProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="프로필 수정" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

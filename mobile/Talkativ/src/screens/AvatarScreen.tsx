@@ -1,8 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import {
-  View, Text, StyleSheet, SafeAreaView,
-  ScrollView, TouchableOpacity, Modal, Alert, ActivityIndicator,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert, ActivityIndicator,} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User } from 'lucide-react-native';
 import { Header, Card, SearchBar, StatusBadge, Tag, Icon } from '../components';
@@ -109,7 +107,7 @@ export default function AvatarScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="아바타" showBack={false} showBell />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

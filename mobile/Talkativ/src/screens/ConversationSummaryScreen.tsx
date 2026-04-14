@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { 
   BookOpen, AlertTriangle, CheckCircle, Bookmark,
@@ -141,7 +142,7 @@ export default function ConversationSummaryScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <Header title="대화 분석 중..." showBack={false} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6C3BFF" />
@@ -153,7 +154,7 @@ export default function ConversationSummaryScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="대화 요약" showBack={false} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

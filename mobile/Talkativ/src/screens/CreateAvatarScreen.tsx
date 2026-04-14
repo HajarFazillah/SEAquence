@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity, TextInput,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   ChevronLeft, Check, Plus, RefreshCw, Sparkles,
@@ -577,7 +578,7 @@ export default function CreateAvatarScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.headerBtn}>
           <ChevronLeft size={24} color="#1A1A2E" />

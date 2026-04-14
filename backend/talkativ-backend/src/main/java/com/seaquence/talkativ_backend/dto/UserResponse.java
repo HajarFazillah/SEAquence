@@ -8,10 +8,11 @@ public class UserResponse {
     private String targetLang;
     private String koreanLevel;
     private String provider;
+    private String avatarUrl;
 
     public UserResponse(String userId, String username, String email,
                         String nativeLang, String targetLang,
-                        String koreanLevel, String provider) {
+                        String koreanLevel, String provider, String avatarUrl) {
         this.userId = userId;
         this.username = username;
         this.email = email;
@@ -19,6 +20,7 @@ public class UserResponse {
         this.targetLang = targetLang;
         this.koreanLevel = koreanLevel;
         this.provider = provider;
+        this.avatarUrl = avatarUrl;
     }
 
     public String getUserId() { return userId; }
@@ -28,4 +30,5 @@ public class UserResponse {
     public String getTargetLang() { return targetLang; }
     public String getKoreanLevel() { return koreanLevel; }
     public String getProvider() { return provider; }
+    public String getAvatarUrl() { return avatarUrl; }
 }

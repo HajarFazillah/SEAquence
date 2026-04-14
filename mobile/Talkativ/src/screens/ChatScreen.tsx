@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  View, Text, StyleSheet, TouchableOpacity,
-  SafeAreaView, FlatList, TextInput, KeyboardAvoidingView,
-  Platform, ActivityIndicator, Animated,
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   ChevronLeft, X, Send, Lightbulb,
@@ -354,9 +353,8 @@ export default function ChatScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
-
-      {/* ── 헤더 ─────────────────────────────────────────────── */}
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <ChevronLeft size={24} color="#1A1A2E" />

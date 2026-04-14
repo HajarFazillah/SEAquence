@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
+
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Heart, ThumbsDown, Plus, Sparkles, MessageSquare } from 'lucide-react-native';
 import { Header, Card, Button, Tag } from '../components';
-import { registerUser } from '../services/apiAuth';
+import { registerUser, loginUser } from '../services/apiAuth';
 
 const INTEREST_OPTIONS = [
   'K-POP', '영화', '드라마', '음악', '독서', '여행', '카페', '음식',
@@ -68,9 +70,11 @@ export default function CreateProfileStep2Screen() {
   const isValid = interests.length > 0;
 
   // ← FIXED: now calls backend registerUser
-  const handleComplete = async () => {
+const handleComplete = async () => {
     try {
       await registerUser(name, email, password);
+      // Auto login after registration
+      await loginUser(email, password);
       navigation.navigate('Main');
     } catch (error: any) {
       Alert.alert('Registration Failed', error.message);
@@ -78,7 +82,7 @@ export default function CreateProfileStep2Screen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="프로필 만들기" subtitle="2/2" />
 
       <KeyboardAvoidingView

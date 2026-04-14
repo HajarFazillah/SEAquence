@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  View, Text, StyleSheet, SafeAreaView,
-  ScrollView, TouchableOpacity, Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert,} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   ChevronRight, Heart, MessageCircle,
@@ -67,7 +65,7 @@ const formalityToUser = (avatar?.formality_to_user || 'polite') as SpeechLevel;
 const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLevel;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header
         title="아바타 정보"
         rightElement={

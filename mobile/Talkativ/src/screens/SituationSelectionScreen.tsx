@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Check, Plus } from 'lucide-react-native';
 import { Header, Card, Button, Icon } from '../components';
@@ -46,7 +47,7 @@ export default function SituationSelectionScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="상황 선택" showBell />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

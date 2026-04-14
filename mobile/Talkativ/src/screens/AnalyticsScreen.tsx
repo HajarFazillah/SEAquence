@@ -1,12 +1,10 @@
 import React from 'react';
-import {
-  View, Text, StyleSheet, SafeAreaView,
-  ScrollView,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView,} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { 
   TrendingUp, CheckCircle, AlertCircle, 
-  BookOpen, MessageCircle, Target,
+  BookOpen, MessageCircle, Target
 } from 'lucide-react-native';
 import { Header, Card, Button, ProgressBar, Icon, Tag } from '../components';
 
@@ -44,7 +42,7 @@ export default function AnalyticsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="분석 결과" showBack={false} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
