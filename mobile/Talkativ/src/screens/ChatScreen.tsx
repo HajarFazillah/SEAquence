@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Card, SpeechLevelBadge, Icon } from '../components';
 
 // ─── AI 서버 주소 ────────────────────────────────────────────────
-const AI_SERVER = 'http://10.240.46.93:8000'; // EC2 배포 시 IP로 교체
+const AI_SERVER = 'http://10.0.2.2:8000'; // EC2 배포 시 IP로 교체
 
 // ─── 타입 ────────────────────────────────────────────────────────
 interface Correction {
@@ -82,11 +82,7 @@ const sendMessageToAI = async (
         interests:           avatar?.interests          || [],
         dislikes:            avatar?.dislikes           || [],
       },
-      situation: situation ? {
-        title:       situation?.name_ko     || situation?.title || '일상 대화',
-        description: situation?.description || null,
-        location:    situation?.location    || null,
-      } : null,
+      situation: situation?.name_ko || situation?.title || null,
       user_id,
     }),
   });
