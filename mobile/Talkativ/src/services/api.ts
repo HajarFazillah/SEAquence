@@ -1,6 +1,13 @@
 import { API_BASE_URL } from '../constants';
 
+// ── 서버 주소 ────────────────────────────────────────────────────────────────
+const SPRING_BASE_URL = API_BASE_URL;                    // Spring Boot :8080
+const AI_BASE_URL     = 'http://10.0.2.2:8000/api/v1';  // AI 서버 :8000
+
+// ============================================================================
 // Types
+// ============================================================================
+
 export interface Avatar {
   id: string;
   name_ko: string;
@@ -63,15 +70,18 @@ export interface ChatResponse {
   };
 }
 
-// API Functions
+// ============================================================================
+// API Service
+// ============================================================================
+
 class ApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = API_BASE_URL;
+    this.baseUrl = SPRING_BASE_URL;
   }
 
-  // Health check
+  // ── Health check ───────────────────────────────────────────────────────────
   async healthCheck(): Promise<boolean> {
     try {
       const response = await fetch(`${this.baseUrl.replace('/api/v1', '')}/health`);
@@ -81,7 +91,7 @@ class ApiService {
     }
   }
 
-  // Avatars
+  // ── Avatars (Spring Boot) ──────────────────────────────────────────────────
   async getAvatars(): Promise<Avatar[]> {
     const response = await fetch(`${this.baseUrl}/avatars`);
     if (!response.ok) throw new Error('Failed to fetch avatars');
@@ -95,7 +105,7 @@ class ApiService {
     return response.json();
   }
 
-  // Situations
+  // ── Situations (Spring Boot) ───────────────────────────────────────────────
   async getSituations(): Promise<Situation[]> {
     const response = await fetch(`${this.baseUrl}/situations`);
     if (!response.ok) throw new Error('Failed to fetch situations');
@@ -103,29 +113,56 @@ class ApiService {
     return data.situations;
   }
 
-  // Speech Level Recommendation
+  // ── Speech Level Recommendation (AI 서버) ──────────────────────────────────
   async getSpeechRecommendation(
-    avatarId: string,
+    avatarRole: string,
     situationId: string
   ): Promise<SpeechRecommendation> {
-    const params = new URLSearchParams({
-      avatar_id: avatarId,
-      situation_id: situationId,
-    });
     const response = await fetch(
-      `${this.baseUrl}/recommendation/speech-level?${params}`
+      `${AI_BASE_URL}/recommendation/speech-level?role=${avatarRole}`
     );
     if (!response.ok) throw new Error('Failed to fetch recommendation');
-    return response.json();
+
+    const data = await response.json();
+    const fromUser = data.from_user;
+    const toUser   = data.to_user;
+
+    // AI 서버 응답 → 프론트 형식으로 변환
+    return {
+      recommended_level: fromUser.level as 'formal' | 'polite' | 'informal',
+      recommended_level_info: {
+        name_ko:     fromUser.name_ko,
+        description: fromUser.description,
+        endings:     fromUser.endings.split(', '),
+      },
+      reason_ko: `${data.role_label}과의 대화에서는 ${fromUser.name_ko}를 사용하는 것이 적절합니다.`,
+      example_expressions: {
+        greetings: fromUser.examples.slice(0, 2),
+        questions: fromUser.examples.map((e: string) => `${e}?`).slice(0, 2),
+        responses: toUser.examples.slice(0, 2),
+      },
+      avoid_expressions: [
+        {
+          wrong:  toUser.examples[0] || '',
+          reason: `${data.role_label}에게 ${toUser.name_ko}는 부적절합니다.`,
+        },
+      ],
+      tips: [
+        `${data.role_label}과 대화할 때는 ${fromUser.name_ko}를 사용하세요.`,
+        `어미 ${fromUser.endings}를 사용하면 자연스러워요.`,
+        `예시: ${fromUser.examples.join(', ')}`,
+        `${data.role_label}은(는) 당신에게 ${toUser.name_ko}로 말할 거예요.`,
+      ],
+    };
   }
 
-  // Compatibility
+  // ── Compatibility (AI 서버) ────────────────────────────────────────────────
   async analyzeCompatibility(
     userLikes: string[],
     userDislikes: string[],
     avatarId: string
   ): Promise<CompatibilityResult> {
-    const response = await fetch(`${this.baseUrl}/compatibility/analyze`, {
+    const response = await fetch(`${AI_BASE_URL}/compatibility/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -141,7 +178,7 @@ class ApiService {
     userLikes: string[],
     userDislikes: string[]
   ): Promise<CompatibilityResult[]> {
-    const response = await fetch(`${this.baseUrl}/compatibility/batch`, {
+    const response = await fetch(`${AI_BASE_URL}/compatibility/batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -153,7 +190,7 @@ class ApiService {
     return data.results;
   }
 
-  // Chat
+  // ── Chat (Spring Boot) ─────────────────────────────────────────────────────
   async sendMessage(
     sessionId: string,
     userId: string,
@@ -166,8 +203,8 @@ class ApiService {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session_id: sessionId,
-        user_id: userId,
+        session_id:           sessionId,
+        user_id:              userId,
         message,
         avatar,
         situation,

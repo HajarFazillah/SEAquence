@@ -1,312 +1,555 @@
 """
-Chat Service
-Orchestrates conversation flow with avatars
+Chat Service - Handles avatar conversations with real-time correction
+Features:
+- Real-time grammar, speech level, and vocabulary correction
+- Inline corrections with explanations
+- Encouragement and positive reinforcement
+- Adaptive hints based on mistake patterns
+- Mood-based avatar response style
+- Hybrid speech level detection: CLOVA + rule-based verification
+- info-level corrections excluded from has_errors
 """
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
+from enum import Enum
+from app.schemas.avatar import AvatarBase, SpeechLevel, get_speech_levels_for_role, get_role_label
+from app.schemas.user import UserProfile, KoreanLevel
+from app.services.clova_service import clova_service, Message
+from app.services.prompt_builder import (
+    build_avatar_system_prompt,
+    build_speech_correction_prompt,
+    build_conversation_analysis_prompt,
+    build_bio_generation_prompt,
+    SPEECH_LEVEL_INFO,
+)
 
-import uuid
-import logging
-from datetime import datetime
-from typing import Dict, Any, List, Optional
+# ============================================================================
+# Enums & Models
+# ============================================================================
 
-from app.core.constants import AVATARS, get_safe_topics
-from app.services.clova_service import clova_service
-from app.services.politeness_service import politeness_service
+class CorrectionType(str, Enum):
+    SPEECH_LEVEL = "speech_level"
+    GRAMMAR      = "grammar"
+    SPELLING     = "spelling"
+    VOCABULARY   = "vocabulary"
+    EXPRESSION   = "expression"
+    HONORIFIC    = "honorific"
 
-logger = logging.getLogger(__name__)
+
+class CorrectionSeverity(str, Enum):
+    INFO    = "info"
+    WARNING = "warning"
+    ERROR   = "error"
 
 
-class ChatSession:
-    """Represents an active chat session."""
-    
-    def __init__(
-        self,
-        session_id: str,
-        user_id: str,
-        avatar_id: str,
-        topic: Optional[str] = None
-    ):
-        self.session_id = session_id
-        self.user_id = user_id
-        self.avatar_id = avatar_id
-        self.topic = topic
-        self.messages: List[Dict[str, Any]] = []
-        self.scores: List[int] = []
-        self.created_at = datetime.now()
-        self.updated_at = datetime.now()
-    
-    def add_message(
-        self,
-        role: str,
-        content: str,
-        feedback: Optional[Dict[str, Any]] = None
-    ):
-        """Add a message to the session."""
-        self.messages.append({
-            "role": role,
-            "content": content,
-            "feedback": feedback,
-            "timestamp": datetime.now().isoformat()
-        })
-        self.updated_at = datetime.now()
-        
-        if feedback and "score" in feedback:
-            self.scores.append(feedback["score"])
-    
-    def get_history(self, max_turns: int = 10) -> List[Dict[str, str]]:
-        """Get recent conversation history for LLM context."""
-        recent = self.messages[-(max_turns * 2):]
-        return [{"role": m["role"], "content": m["content"]} for m in recent]
-    
-    def get_summary(self) -> Dict[str, Any]:
-        """Get session summary."""
-        duration = (self.updated_at - self.created_at).seconds
-        avg_score = sum(self.scores) / len(self.scores) if self.scores else 0
-        
-        return {
-            "session_id": self.session_id,
-            "avatar_id": self.avatar_id,
-            "total_turns": len([m for m in self.messages if m["role"] == "user"]),
-            "duration_seconds": duration,
-            "average_score": round(avg_score, 1),
-            "started_at": self.created_at.isoformat(),
-            "ended_at": self.updated_at.isoformat(),
-        }
+class InlineCorrection(BaseModel):
+    original:    str                = Field(..., description="원래 표현")
+    corrected:   str                = Field(..., description="수정된 표현")
+    type:        CorrectionType     = Field(..., description="오류 유형")
+    severity:    CorrectionSeverity = Field(default=CorrectionSeverity.WARNING)
+    explanation: str                = Field(..., description="설명")
+    tip:         Optional[str]      = Field(None, description="학습 팁")
 
+
+class RealTimeCorrection(BaseModel):
+    original_message:  str
+    corrected_message: Optional[str] = None
+    has_errors:        bool = False
+    corrections:       List[InlineCorrection] = []
+
+    expected_speech_level: str
+    detected_speech_level: Optional[str] = None
+    speech_level_correct:  bool = True
+
+    accuracy_score: int           = 100
+    encouragement:  Optional[str] = None
+    streak_bonus:   bool          = False
+
+
+class ChatMessage(BaseModel):
+    role:      str
+    content:   str
+    timestamp: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    message:    str
+    correction: Optional[RealTimeCorrection] = None
+
+    mood_change:  int = 0
+    current_mood: int = 100
+    mood_emoji:   str = "😊"
+
+    suggestions:    List[str]    = []
+    hint:           Optional[str] = None
+    correct_streak: int           = 0
+
+
+class ConversationAnalysis(BaseModel):
+    scores:              Dict[str, int]
+    mistakes:            List[Dict[str, str]]
+    vocabulary_to_learn: List[Dict[str, str]]
+    phrases_to_learn:    List[Dict[str, str]]
+    overall_feedback:    str
+
+
+# ============================================================================
+# Correction prompt
+# ============================================================================
+
+def build_realtime_correction_prompt(
+    user_message:          str,
+    expected_speech_level: SpeechLevel,
+    avatar_role:           str,
+    user_level:            str = "intermediate",
+) -> str:
+    speech_info = SPEECH_LEVEL_INFO[expected_speech_level]
+    level_guidance = {
+        "beginner":     "초급 학습자입니다. 쉬운 설명과 기본적인 오류만 지적하세요.",
+        "intermediate": "중급 학습자입니다. 주요 오류와 자연스러운 표현을 알려주세요.",
+        "advanced":     "고급 학습자입니다. 미묘한 뉘앙스와 고급 표현도 피드백하세요.",
+    }
+
+    return f"""사용자의 한국어 메시지를 분석하여 실시간 교정 피드백을 제공하세요.
+
+## 대화 상황
+- 대화 상대: {avatar_role}
+- 사용해야 할 말투: **{speech_info['name_ko']}** ({speech_info['name_en']})
+- {speech_info['description']}
+- 올바른 예시: {', '.join(speech_info['examples'])}
+
+## 사용자 수준
+{level_guidance.get(user_level, level_guidance['intermediate'])}
+
+## 사용자 메시지
+"{user_message}"
+
+## 분석 항목
+1. **말투 (speech_level)**: {speech_info['name_ko']}를 사용했는지
+2. **문법 (grammar)**: 조사, 어미, 시제 등
+3. **맞춤법 (spelling)**: 띄어쓰기, 철자
+4. **어휘 (vocabulary)**: 적절한 단어 선택
+5. **표현 (expression)**: 자연스러운 한국어 표현
+6. **존칭 (honorific)**: 적절한 호칭 사용
+
+## 응답 형식 (JSON)
+{{
+    "has_errors": true/false,
+    "corrected_message": "전체 수정된 메시지 (오류 없으면 null)",
+    "detected_speech_level": "formal / polite / informal 중 하나",
+    "speech_level_correct": true/false,
+    "accuracy_score": 0-100,
+    "corrections": [
+        {{
+            "original": "틀린 부분",
+            "corrected": "올바른 표현",
+            "type": "speech_level/grammar/spelling/vocabulary/expression/honorific",
+            "severity": "info/warning/error",
+            "explanation": "왜 틀렸는지 한국어로 설명",
+            "tip": "기억하기 쉬운 팁 (선택사항)"
+        }}
+    ],
+    "encouragement": "긍정적인 피드백 메시지 (잘한 점 언급)"
+}}
+
+## 절대 규칙
+- detected_speech_level 은 반드시 formal / polite / informal 세 값 중 하나만 사용하세요
+- detected_speech_level 은 절대 null 이 되면 안 됩니다. 짧은 문장이어도 반드시 판단하세요
+- severity 기준: error = 명확한 실수 / warning = 어색함 / info = 더 좋은 표현 제안
+- 단순히 더 자연스러운 표현 제안은 info, 실제 문법/말투 오류는 error/warning 사용
+- 오류가 없으면 corrections는 빈 배열, has_errors는 false
+- 잘한 점이 있으면 반드시 encouragement에 언급"""
+
+
+def build_contextual_hint_prompt(
+    avatar:               AvatarBase,
+    conversation_history: List[ChatMessage],
+    user_level:           str,
+) -> str:
+    speech_levels = get_speech_levels_for_role(avatar.role)
+    speech_info   = SPEECH_LEVEL_INFO[speech_levels["from_user"]]
+    recent        = conversation_history[-4:] if conversation_history else []
+    context       = "\n".join([
+        f"{'사용자' if m.role == 'user' else avatar.name_ko}: {m.content}"
+        for m in recent
+    ])
+
+    return f"""대화 맥락을 보고 사용자에게 도움이 될 힌트를 제공하세요.
+
+## 아바타 정보
+- 이름: {avatar.name_ko}
+- 관계: {get_role_label(avatar.role, None)}
+- 관심사: {', '.join(avatar.interests[:3]) if avatar.interests else '다양한 주제'}
+
+## 사용해야 할 말투
+{speech_info['name_ko']}: {speech_info['description']}
+
+## 최근 대화
+{context if context else "(대화 시작)"}
+
+## 사용자 수준
+{user_level}
+
+다음 JSON 형식으로 응답하세요:
+{{
+    "hint": "지금 상황에서 사용할 수 있는 자연스러운 표현 1-2개",
+    "example_responses": ["응답 예시 1", "응답 예시 2", "응답 예시 3"],
+    "grammar_tip": "이 상황에서 유용한 문법 포인트 (선택사항)"
+}}"""
+
+
+# ============================================================================
+# 말투 레벨 정규화 맵
+# ============================================================================
+LEVEL_MAP = {
+    # 반말
+    "반말":             "informal", "informal":          "informal",
+    "비격식":           "informal", "casual":            "informal",
+    "편한말":           "informal", "편한 말":           "informal",
+
+    # 해요체
+    "해요체":           "polite",   "polite":            "polite",
+    "존댓말":           "polite",   "공손한 말투":       "polite",
+    "공손한말투":       "polite",   "공손":              "polite",
+    "공손한":           "polite",   "경어":              "polite",
+    "정중한 말투":      "polite",   "정중한말투":        "polite",
+    "정중":             "polite",   "높임말":            "polite",
+    "높임":             "polite",   "존대":              "polite",
+
+    # 합쇼체
+    "합쇼체":           "formal",   "formal":            "formal",
+    "격식체":           "formal",   "격식":              "formal",
+    "격식적":           "formal",   "공식적":            "formal",
+}
+
+# ── 규칙 기반 어미 목록 ─────────────────────────────────────────────────────
+_FORMAL_ENDINGS   = ["습니다", "습니까", "십니까", "겠습니다", "십시오", "으십시오"]
+_POLITE_ENDINGS   = ["어요", "아요", "이에요", "예요", "해요", "세요",
+                     "네요", "군요", "죠", "나요", "가요", "래요",
+                     "데요", "을게요", "ㄹ게요", "겠어요"]
+_INFORMAL_ENDINGS = ["이야", "야", "이어", "어", "아", "지", "니",
+                     "냐", "거야", "잖아", "이잖아", "구나", "군",
+                     "을게", "ㄹ게", "자", "해", "래", "네"]
+
+
+def verify_with_rules(text: str, clova_detected: str) -> str:
+    """
+    CLOVA 감지 결과를 어미 규칙으로 검증.
+    어미로 명확히 판단되면 규칙 결과 사용,
+    판단 불가하면 CLOVA 결과 신뢰.
+    """
+    text = text.strip()
+
+    for e in _FORMAL_ENDINGS:
+        if text.endswith(e):
+            return "formal"
+    for e in _POLITE_ENDINGS:
+        if text.endswith(e):
+            return "polite"
+    for e in _INFORMAL_ENDINGS:
+        if text.endswith(e):
+            return "informal"
+
+    # 판단 불가 → CLOVA 신뢰
+    return clova_detected
+
+
+# ============================================================================
+# Chat Service
+# ============================================================================
 
 class ChatService:
-    """
-    Service for managing chat conversations with avatars.
-    
-    Handles:
-    - Session management
-    - Message processing
-    - Avatar response generation
-    - Politeness feedback
-    """
-    
+
     def __init__(self):
-        # In-memory session storage (use Redis in production)
-        self._sessions: Dict[str, ChatSession] = {}
-    
-    async def start_session(
+        self.user_streaks: Dict[str, int] = {}
+        self.user_moods:   Dict[str, int] = {}
+
+    async def generate_response(
         self,
-        user_id: str,
-        avatar_id: str,
-        topic: Optional[str] = None,
-        korean_level: str = "intermediate"
-    ) -> Dict[str, Any]:
-        """
-        Start a new chat session.
-        
-        Args:
-            user_id: User identifier
-            avatar_id: Avatar to chat with
-            topic: Initial conversation topic
-            korean_level: User's Korean proficiency
-            
-        Returns:
-            Session info with greeting
-        """
-        # Validate avatar
-        avatar = AVATARS.get(avatar_id)
-        if not avatar:
-            avatar_id = "sujin_friend"
-            avatar = AVATARS[avatar_id]
-        
-        # Create session
-        session_id = str(uuid.uuid4())[:12]
-        session = ChatSession(
-            session_id=session_id,
-            user_id=user_id,
-            avatar_id=avatar_id,
-            topic=topic
+        avatar:               AvatarBase,
+        user_message:         str,
+        conversation_history: List[ChatMessage],
+        user_profile:         Optional[UserProfile] = None,
+        situation:            Optional[str]         = None,
+        user_id:              str                   = "default",
+        use_memory:           bool                  = True,
+    ) -> ChatResponse:
+
+        speech_levels  = get_speech_levels_for_role(avatar.role)
+        expected_level = speech_levels["from_user"]
+        user_level     = (
+            user_profile.korean_level.value
+            if user_profile and hasattr(user_profile.korean_level, "value")
+            else "intermediate"
         )
-        
-        self._sessions[session_id] = session
-        
-        # Get greeting
-        greeting = avatar.get("greeting", "안녕하세요!")
-        
-        # Add greeting to history
-        session.add_message("assistant", greeting)
-        
-        return {
-            "session_id": session_id,
-            "avatar_id": avatar_id,
-            "avatar_name_ko": avatar["name_ko"],
-            "avatar_name_en": avatar["name_en"],
-            "greeting": greeting,
-            "recommended_formality": avatar["formality"],
-            "difficulty": avatar["difficulty"],
-            "avatar_topics": avatar["topics"],
-            "created_at": session.created_at.isoformat()
-        }
-    
-    async def send_message(
-        self,
-        session_id: str,
-        message: str,
-        include_feedback: bool = True,
-        include_audio: bool = False
-    ) -> Dict[str, Any]:
-        """
-        Send a message and get avatar response.
-        
-        Args:
-            session_id: Chat session ID
-            message: User's message
-            include_feedback: Whether to include politeness feedback
-            include_audio: Whether to include TTS audio
-            
-        Returns:
-            Dict with user_message, avatar_response, feedback, audio
-        """
-        session = self._sessions.get(session_id)
-        if not session:
-            raise ValueError(f"Session not found: {session_id}")
-        
-        avatar = AVATARS.get(session.avatar_id)
-        
-        # Analyze politeness
-        feedback = None
-        if include_feedback:
-            analysis = politeness_service.analyze(
-                text=message,
-                target_role=avatar["role"],
-                target_age=avatar["age"]
-            )
-            feedback = {
-                "level": analysis["level"],
-                "level_ko": analysis["level_ko"],
-                "score": analysis["score"],
-                "is_appropriate": analysis["is_appropriate"],
-                "feedback_ko": analysis["feedback_ko"],
-                "feedback_en": analysis["feedback_en"]
-            }
-        
-        # Add user message to session
-        session.add_message("user", message, feedback)
-        
-        # Generate avatar response
-        history = session.get_history(max_turns=5)
-        
-        try:
-            avatar_response = await clova_service.generate_avatar_response(
-                user_message=message,
-                avatar_id=session.avatar_id,
-                conversation_history=history[:-1],  # Exclude current message
-                topic=session.topic
-            )
-        except Exception as e:
-            logger.error(f"Failed to generate response: {e}")
-            # Fallback response
-            avatar_response = self._get_fallback_response(avatar["formality"])
-        
-        # Add avatar response to session
-        session.add_message("assistant", avatar_response)
-        
-        result = {
-            "session_id": session_id,
-            "user_message": {
-                "content": message,
-                "feedback": feedback
-            },
-            "avatar_response": {
-                "content": avatar_response,
-                "avatar_name": avatar["name_ko"]
-            },
-            "turn_count": len([m for m in session.messages if m["role"] == "user"]),
-            "current_topic": session.topic
-        }
-        
-        # Add TTS audio if requested
-        if include_audio:
-            from app.services.speech_service import voice_service
-            audio_result = await voice_service.synthesize_for_avatar(
-                text=avatar_response,
-                avatar_id=session.avatar_id
-            )
-            if audio_result["status"] == "success":
-                result["avatar_response"]["audio"] = audio_result["audio"]
-                result["avatar_response"]["audio_format"] = audio_result["format"]
-        
-        return result
-    
-    async def end_session(self, session_id: str) -> Dict[str, Any]:
-        """
-        End a chat session and return summary.
-        
-        Args:
-            session_id: Session to end
-            
-        Returns:
-            Session summary with statistics
-        """
-        session = self._sessions.pop(session_id, None)
-        if not session:
-            raise ValueError(f"Session not found: {session_id}")
-        
-        summary = session.get_summary()
-        
-        # Calculate politeness breakdown
-        level_counts = {"informal": 0, "polite": 0, "very_polite": 0}
-        for msg in session.messages:
-            if msg["role"] == "user" and msg.get("feedback"):
-                level = msg["feedback"].get("level", "polite")
-                level_counts[level] = level_counts.get(level, 0) + 1
-        
-        summary["politeness_breakdown"] = level_counts
-        
-        # Generate improvement suggestions
-        summary["suggestions"] = self._generate_suggestions(
-            session.scores,
-            level_counts,
-            AVATARS[session.avatar_id]["formality"]
+
+        # 1. 실시간 교정 분석
+        correction = await self._analyze_realtime(
+            user_message=user_message,
+            expected_speech_level=expected_level,
+            avatar_role=get_role_label(avatar.role, None),
+            user_level=user_level,
         )
-        
-        return summary
-    
-    def get_session(self, session_id: str) -> Optional[ChatSession]:
-        """Get session by ID."""
-        return self._sessions.get(session_id)
-    
-    def _get_fallback_response(self, formality: str) -> str:
-        """Get fallback response based on formality level."""
-        fallbacks = {
-            "informal": "응? 다시 말해줘!",
-            "polite": "죄송해요, 잘 못 들었어요. 다시 말씀해 주시겠어요?",
-            "very_polite": "죄송합니다, 다시 한번 말씀해 주시겠습니까?",
-        }
-        return fallbacks.get(formality, "네?")
-    
-    def _generate_suggestions(
-        self,
-        scores: List[int],
-        level_counts: Dict[str, int],
-        recommended: str
-    ) -> List[str]:
-        """Generate improvement suggestions."""
+
+        # 2. 현재 기분 조회
+        mood_key     = f"{user_id}_{avatar.name_ko}"
+        current_mood = self.user_moods.get(mood_key, 80)
+
+        # 3. 시스템 프롬프트 구성
+        system_prompt = build_avatar_system_prompt(
+            avatar=avatar,
+            user_profile=user_profile,
+            situation=situation,
+            current_mood=current_mood,
+            is_level_correct=correction.speech_level_correct,
+        )
+
+        # 메모리 주입
+        if use_memory:
+            try:
+                from app.services.memory_service import memory_service
+                avatar_id      = getattr(avatar, "id", avatar.name_ko)
+                memory_section = memory_service.build_memory_prompt_section(user_id, avatar_id)
+                if memory_section:
+                    system_prompt += "\n" + memory_section
+            except Exception as e:
+                print(f"Memory integration error: {e}")
+
+        history = [
+            Message(role=msg.role, content=msg.content)
+            for msg in conversation_history[-10:]
+        ]
+
+        response = await clova_service.generate_with_system_prompt(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            conversation_history=history,
+            temperature=0.8,
+        )
+
+        # 4. 스트릭 업데이트
+        streak                  = self._update_streak(user_id, correction.has_errors)
+        correction.streak_bonus = streak >= 3
+
+        # 5. 기분 업데이트
+        mood_change = self._calculate_mood_change(correction)
+        new_mood    = self._update_mood(mood_key, mood_change)
+        mood_emoji  = self._get_mood_emoji(new_mood)
+
+        # 6. 힌트/제안
         suggestions = []
-        
-        avg_score = sum(scores) / len(scores) if scores else 0
-        
-        if avg_score < 50:
-            suggestions.append("말투 수준을 높여보세요")
-        
-        if recommended == "very_polite" and level_counts.get("informal", 0) > 0:
-            suggestions.append("격식체(-습니다)를 더 사용해보세요")
-        
-        if recommended == "polite" and level_counts.get("informal", 0) > level_counts.get("polite", 0):
-            suggestions.append("존댓말(-요)을 더 사용해보세요")
-        
-        if avg_score >= 70:
-            suggestions.append("잘하고 있어요! 계속 연습하세요")
-        
-        if not suggestions:
-            suggestions.append("다양한 상황에서 연습해보세요")
-        
-        return suggestions
+        hint        = None
+        if len(user_message) < 15 or correction.has_errors:
+            hint_result = await self._get_contextual_hint(
+                avatar=avatar,
+                conversation_history=conversation_history,
+                user_level=user_level,
+            )
+            suggestions = hint_result.get("example_responses", [])
+            hint        = hint_result.get("hint")
+
+        return ChatResponse(
+            message=response.content,
+            correction=correction,
+            mood_change=mood_change,
+            current_mood=new_mood,
+            mood_emoji=mood_emoji,
+            suggestions=suggestions,
+            hint=hint,
+            correct_streak=streak,
+        )
+
+    async def _analyze_realtime(
+        self,
+        user_message:          str,
+        expected_speech_level: SpeechLevel,
+        avatar_role:           str,
+        user_level:            str,
+    ) -> RealTimeCorrection:
+
+        prompt = build_realtime_correction_prompt(
+            user_message=user_message,
+            expected_speech_level=expected_speech_level,
+            avatar_role=avatar_role,
+            user_level=user_level,
+        )
+
+        result = await clova_service.analyze_json(prompt, temperature=0.2, max_tokens=1024)
+
+        if not result:
+            return RealTimeCorrection(
+                original_message=user_message,
+                expected_speech_level=SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"],
+                speech_level_correct=True,
+                accuracy_score=100,
+                encouragement="좋아요! 계속해서 대화해 보세요! 👍",
+            )
+
+        corrections = []
+        for c in result.get("corrections", []):
+            try:
+                corrections.append(InlineCorrection(
+                    original=c.get("original", ""),
+                    corrected=c.get("corrected", ""),
+                    type=CorrectionType(c.get("type", "grammar")),
+                    severity=CorrectionSeverity(c.get("severity", "warning")),
+                    explanation=c.get("explanation", ""),
+                    tip=c.get("tip"),
+                ))
+            except (ValueError, KeyError):
+                continue
+
+        # ── 하이브리드 발화 레벨 감지 ──────────────────────────────────────────
+        # 1단계: CLOVA 결과 정규화
+        clova_raw  = (result.get("detected_speech_level") or "").strip().lower()
+        clova_norm = LEVEL_MAP.get(clova_raw, clova_raw)
+
+        # 2단계: 규칙 기반 어미 검증 — CLOVA가 틀렸으면 보정
+        detected_norm = verify_with_rules(user_message, clova_norm)
+
+        # 3단계: 기대 레벨 정규화
+        expected_norm = LEVEL_MAP.get(
+            SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"].lower(),
+            expected_speech_level.value.lower(),
+        )
+
+        # 빈 detected = 판단 보류 (단답형)
+        is_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
+
+        # ── has_errors 재계산 — info 레벨은 오류로 카운트하지 않음 ─────────────
+        real_errors = [
+            c for c in corrections
+            if c.severity in (CorrectionSeverity.ERROR, CorrectionSeverity.WARNING)
+        ]
+        has_errors     = (len(real_errors) > 0) or not is_level_correct
+        accuracy_score = result.get("accuracy_score", 100)
+
+        # info 만 있는 경우 accuracy_score 조정 (100점 유지)
+        if not has_errors and corrections:
+            accuracy_score = max(accuracy_score, 90)
+
+        if not is_level_correct:
+            accuracy_score = min(accuracy_score, 55)
+            expected_name  = SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"]
+            example        = SPEECH_LEVEL_INFO[expected_speech_level]["examples"][0]
+            corrections.insert(0, InlineCorrection(
+                original=user_message,
+                corrected=result.get("corrected_message") or user_message,
+                type=CorrectionType.SPEECH_LEVEL,
+                severity=CorrectionSeverity.ERROR,
+                explanation=f"{expected_name}를 사용해야 합니다. (감지된 말투: {detected_norm})",
+                tip=f"예시: {example}",
+            ))
+
+        return RealTimeCorrection(
+            original_message=user_message,
+            corrected_message=result.get("corrected_message"),
+            has_errors=has_errors,
+            corrections=corrections,
+            expected_speech_level=SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"],
+            detected_speech_level=detected_norm or clova_raw,
+            speech_level_correct=is_level_correct,
+            accuracy_score=accuracy_score,
+            encouragement=result.get("encouragement"),
+        )
+
+    async def _get_contextual_hint(
+        self,
+        avatar:               AvatarBase,
+        conversation_history: List[ChatMessage],
+        user_level:           str,
+    ) -> Dict[str, Any]:
+
+        prompt = build_contextual_hint_prompt(
+            avatar=avatar,
+            conversation_history=conversation_history,
+            user_level=user_level,
+        )
+
+        result = await clova_service.analyze_json(prompt, temperature=0.5, max_tokens=300)
+
+        if not result:
+            speech_levels = get_speech_levels_for_role(avatar.role)
+            level         = speech_levels["from_user"]
+            if level == SpeechLevel.FORMAL:
+                return {"example_responses": ["네, 알겠습니다.", "감사합니다.", "그렇군요."]}
+            elif level == SpeechLevel.POLITE:
+                return {"example_responses": ["그렇군요!", "더 알려주세요.", "저도 그래요."]}
+            else:
+                return {"example_responses": ["그래?", "진짜?", "나도!"]}
+
+        return result
+
+    def _update_streak(self, user_id: str, has_errors: bool) -> int:
+        if has_errors:
+            self.user_streaks[user_id] = 0
+        else:
+            self.user_streaks[user_id] = self.user_streaks.get(user_id, 0) + 1
+        return self.user_streaks[user_id]
+
+    def _calculate_mood_change(self, correction: RealTimeCorrection) -> int:
+        if not correction.has_errors:
+            return 8 if correction.streak_bonus else 3
+
+        error_count   = sum(1 for c in correction.corrections
+                           if c.severity == CorrectionSeverity.ERROR)
+        warning_count = sum(1 for c in correction.corrections
+                           if c.severity == CorrectionSeverity.WARNING)
+
+        if error_count >= 2:     return -10
+        elif error_count == 1:   return -5
+        elif warning_count >= 2: return -3
+        else:                    return -1
+
+    def _update_mood(self, avatar_key: str, change: int) -> int:
+        current  = self.user_moods.get(avatar_key, 80)
+        new_mood = max(0, min(100, current + change))
+        self.user_moods[avatar_key] = new_mood
+        return new_mood
+
+    def _get_mood_emoji(self, mood: int) -> str:
+        if mood >= 90:   return "😄"
+        elif mood >= 70: return "😊"
+        elif mood >= 50: return "😐"
+        elif mood >= 30: return "😕"
+        else:            return "😢"
+
+    async def analyze_conversation(
+        self,
+        avatar:               AvatarBase,
+        conversation_history: List[ChatMessage],
+    ) -> ConversationAnalysis:
+        speech_levels  = get_speech_levels_for_role(avatar.role)
+        expected_level = speech_levels["from_user"]
+
+        prompt = build_conversation_analysis_prompt(
+            messages=[{"role": m.role, "content": m.content} for m in conversation_history],
+            avatar_name=avatar.name_ko,
+            expected_speech_level=expected_level,
+        )
+
+        result = await clova_service.analyze_json(prompt, temperature=0.3, max_tokens=2048)
+
+        if not result:
+            return ConversationAnalysis(
+                scores={"speech_accuracy": 80, "vocabulary": 75, "naturalness": 78},
+                mistakes=[],
+                vocabulary_to_learn=[],
+                phrases_to_learn=[],
+                overall_feedback="대화를 잘 진행하셨습니다!",
+            )
+
+        return ConversationAnalysis(**result)
+
+    async def generate_avatar_bio(self, avatar: AvatarBase) -> str:
+        prompt   = build_bio_generation_prompt(avatar)
+        response = await clova_service.chat(
+            [Message(role="user", content=prompt)],
+            temperature=0.7,
+            max_tokens=500,
+        )
+        return response.content
 
 
-# Singleton instance
+# Global service instance
 chat_service = ChatService()

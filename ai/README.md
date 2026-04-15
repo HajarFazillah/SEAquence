@@ -1,165 +1,151 @@
-﻿# Talkativ AI Server
+# Talkativ AI Server v4
 
-## Requirements
-
-- **Python 3.11** (recommended) or 3.12
-
-
-## Quick Start
-
-### 1. Go to the ai folder
-```bash
-cd ai
-```
-
-### 2. Create virtual environment
-```bash
-# Create venv
-python3.11 -m venv venv
-
-# Activate venv
-# Mac/Linux:
-source venv/bin/activate
-
-# Windows:
-.\venv\Scripts\activate
-```
-
-### 3. Install dependencies
-```bash
-pip install --upgrade pip
-pip install fastapi uvicorn python-multipart
-pip install pydantic pydantic-settings
-pip install httpx aiohttp python-dotenv
-pip install numpy scikit-learn
-pip install torch sentence-transformers
-```
-
-### 4. Create `.env` file
-
-### 5. Run server
-```bash
-python -m uvicorn app.main:app --reload --port 8000
-```
-
-### 6. Open API docs
-
-- Swagger UI: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
+Korean conversation coaching AI backend powered by CLOVA Studio (HyperCLOVA X).
 
 ---
 
 ## Project Structure
+
 ```
 ai/
 ├── app/
-│   ├── main.py              # FastAPI entry point
-│   ├── api/v1/              # API endpoints
-│   │   ├── router.py        # Route aggregator
-│   │   ├── avatars.py       # Avatar list
-│   │   ├── situations.py    # Situation list
-│   │   ├── recommendation.py # Speech level recommendation
-│   │   ├── compatibility.py # ML compatibility analysis
-│   │   ├── session_chat.py  # Chat session
-│   │   └── ...
+│   ├── main.py                        # FastAPI entry point
 │   ├── core/
-│   │   ├── config.py        # Settings
-│   │   ├── constants.py     # Avatars, roles
-│   │   └── situations.py    # 11 situations
-│   ├── ml/
-│   │   └── compatibility_service.py  # ML matching
+│   │   ├── config.py                  # Env vars / settings
+│   │   └── clova.py                   # CLOVA Studio API client
 │   ├── services/
-│   │   ├── clova_service.py # HyperCLOVA X API
-│   │   └── ...
-│   └── schemas/             # Pydantic models
-├── .env                     # API keys (DO NOT COMMIT)
-└── requirements.txt
+│   │   ├── speech_calculator.py       # 25-factor rule-based speech level engine
+│   │   ├── chat_service.py            # CLOVA chat with memory injection
+│   │   ├── memory_service.py          # Per-user/avatar conversation memory
+│   │   └── conversation_starters.py   # Smart opening line generator
+│   └── api/v1/
+│       ├── router.py                  # Combines all routers
+│       ├── chat.py                    # /chat endpoints
+│       ├── recommendation.py          # /recommendation endpoints
+│       ├── memory.py                  # /memory endpoints
+│       └── starters.py               # /starters endpoints
+├── requirements.txt
+├── .env.example
+└── README.md
 ```
 
 ---
 
-## 🔌 Main API Endpoints
+## Setup
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/api/v1/avatars` | GET | List all avatars |
-| `/api/v1/situations` | GET | List all situations |
-| `/api/v1/recommendation/speech-level` | GET | Get recommended speech level |
-| `/api/v1/compatibility/analyze` | POST | Analyze user-avatar compatibility |
-| `/api/v1/session/chat` | POST | Send chat message |
+```bash
+# 1. Go to the ai directory
+cd SEAquence/ai
+
+# 2. Create virtual environment (first time only)
+python3 -m venv ../venv
+
+# 3. Activate virtual environment
+source ../venv/bin/activate
+
+# 4. Install dependencies
+pip install -r requirements.txt
+
+# 5. Set up environment variables
+cp .env.example .env
+# Edit .env and add your CLOVA API key
+
+# 6. Run the server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
 ---
 
-## 🧪 Test Examples
+## API Endpoints
 
-### Health Check
+### Chat
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/chat/message` | Send message, get avatar reply |
+| POST | `/api/v1/chat/start` | Start a new session |
+| POST | `/api/v1/chat/topic` | Record a conversation topic |
+| POST | `/api/v1/chat/speech-level/recommend` | Get speech level recommendation |
+
+### Recommendation (25-factor calculator)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/recommendation/speech-level/calculate` | Full 25-factor calculation |
+| GET | `/api/v1/recommendation/speech-level` | Quick speech level lookup |
+| GET | `/api/v1/recommendation/roles` | List all avatar roles |
+| GET | `/api/v1/recommendation/closeness-options` | List closeness levels |
+| GET | `/api/v1/recommendation/context-options` | List context types |
+| GET | `/api/v1/recommendation/speech-levels` | List speech levels with descriptions |
+
+### Memory
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/memory/context` | Get user/avatar memory |
+| POST | `/api/v1/memory/update` | Update memory (summary, names) |
+| POST | `/api/v1/memory/topic` | Add a topic to memory |
+| DELETE | `/api/v1/memory/clear` | Clear all memory for a pair |
+
+### Starters
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/starters/quick` | Template-based starters (fast) |
+| POST | `/api/v1/starters/generate` | AI-powered starters via CLOVA |
+| GET | `/api/v1/starters/with-memory` | Starters using past conversation memory |
+| GET | `/api/v1/starters/greeting` | Simple greeting for current time |
+
+---
+
+## Quick Test
+
 ```bash
+# Health check
 curl http://localhost:8000/health
-```
 
-### Get Avatars
-```bash
-curl http://localhost:8000/api/v1/avatars
-```
-
-### Get Speech Recommendation
-```bash
-curl "http://localhost:8000/api/v1/recommendation/speech-level?avatar_id=professor_kim&situation_id=professor_office"
-```
-
-### Analyze Compatibility
-```bash
-curl -X POST "http://localhost:8000/api/v1/compatibility/analyze" \
+# Get speech level recommendation
+curl -X POST http://localhost:8000/api/v1/recommendation/speech-level/calculate \
   -H "Content-Type: application/json" \
   -d '{
-    "user": {
-      "likes": ["BTS", "카페", "여행"],
-      "dislikes": ["정치"]
-    },
-    "avatar_id": "sujin_friend"
+    "user_age": 22,
+    "avatar_age": 35,
+    "role": "professor",
+    "closeness": "acquaintance",
+    "context": "classroom"
+  }'
+
+# Get quick conversation starters
+curl "http://localhost:8000/api/v1/starters/quick?role=senior&avatar_name=민수&interests=게임,음악&speech_level=polite"
+
+# Send a chat message
+curl -X POST http://localhost:8000/api/v1/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_001",
+    "avatar_id": "avatar_001",
+    "avatar_name": "이민수",
+    "avatar_role": "senior",
+    "avatar_personality": ["친절함", "유머러스"],
+    "avatar_interests": ["게임", "음악"],
+    "speech_level": "polite",
+    "conversation_history": [],
+    "message": "안녕하세요! 오늘 어때요?"
   }'
 ```
 
 ---
 
-## Troubleshooting
+## Speech Level System (25 Factors)
 
-| Problem | Solution |
-|---------|----------|
-| `ModuleNotFoundError: No module named 'app'` | Make sure you're in the `ai/` folder |
-| `No module named uvicorn` | Run `pip install uvicorn` |
-| Port 8000 in use | Use `--port 8001` |
-| Python 3.13 errors | Use Python 3.11 instead |
+The speech level calculator uses **explicit rules** — every decision is explainable.
 
----
+| Category | Factors |
+|----------|---------|
+| Basic (기본) | Age gap, role, gender norms |
+| Relationship (관계) | Closeness, duration, first meeting |
+| Professional (직업) | Workplace, context, customer role |
+| Situational (상황) | Group size, serious topic, public place |
+| Cultural (문화) | Region, online context, generational gap, learner status |
 
-## For Backend Team
-
-The AI server is stateless. All user data should be stored in your Spring Boot backend.
-
-### API Call Flow
-```
-Mobile App → Spring Boot Backend → AI Server → HyperCLOVA X
-                    ↓
-                 Database
-```
-
-### Example: Chat Request from Backend
-```java
-// Spring Boot example
-String aiServerUrl = "http://AI_SERVER_IP:8000";
-
-// POST /api/v1/session/chat
-HttpResponse response = httpClient.post(
-    aiServerUrl + "/api/v1/session/chat",
-    Map.of(
-        "session_id", sessionId,
-        "user_id", userId,
-        "message", userMessage,
-        "avatar", avatarData,
-        "situation", situationData
-    )
-);
-```
-
+**Output levels:**
+- `formal` → 합쇼체/습니다체 (score ≥ 75)
+- `polite` → 해요체 (score 55–74)
+- `informal` → 해체 (score 35–54)
+- `banmal` → 반말 (score < 35)

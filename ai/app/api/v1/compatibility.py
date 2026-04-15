@@ -1,276 +1,506 @@
 """
 Compatibility API
-ML-based compatibility analysis between user and avatar
+
+POST /api/v1/compatibility/analyze - Calculate compatibility between user and avatar
+POST /api/v1/compatibility/analyze-semantic - AI-powered semantic similarity analysis
+
+Uses CLOVA X for semantic understanding of interests and topics.
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from app.ml.compatibility_service import analyze_compatibility, get_compatibility_analyzer
-from app.core.constants import AVATARS
+import math
 
-router = APIRouter(prefix="/compatibility", tags=["Compatibility"])
-
-
-# ===========================================
-# SCHEMAS
-# ===========================================
-
-class UserPreferences(BaseModel):
-    """User's likes, dislikes, and personality traits."""
-    likes: List[str] = Field(
-        default=[],
-        description="Things user likes (free-text keywords)",
-        example=["BTS", "스타벅스", "여행", "넷플릭스"]
-    )
-    dislikes: List[str] = Field(
-        default=[],
-        description="Things user dislikes",
-        example=["정치", "아침형 인간"]
-    )
-    personality_traits: List[str] = Field(
-        default=[],
-        description="User's personality traits",
-        example=["외향적", "유머러스"]
-    )
+from app.schemas.avatar import AvatarCreate
+from app.schemas.user import UserProfileCreate
+from app.services.clova_service import clova_service, Message
 
 
-class AvatarPreferences(BaseModel):
-    """Avatar's likes, dislikes, and personality traits."""
-    avatar_id: str
-    likes: List[str] = Field(default=[])
-    dislikes: List[str] = Field(default=[])
-    personality_traits: List[str] = Field(default=[])
+router = APIRouter(prefix="/compatibility", tags=["compatibility"])
 
+
+# ============================================================================
+# Schemas
+# ============================================================================
 
 class CompatibilityRequest(BaseModel):
-    """Request for compatibility analysis."""
-    user: UserPreferences
-    avatar_id: str = Field(description="Avatar ID to check compatibility with")
-    
-    # Optional: override avatar preferences (if not using defaults)
-    avatar_likes: Optional[List[str]] = None
-    avatar_dislikes: Optional[List[str]] = None
-    avatar_traits: Optional[List[str]] = None
+    """Request for compatibility analysis"""
+    user_profile: UserProfileCreate
+    avatar: AvatarCreate
 
 
-class CompatibilityMatch(BaseModel):
-    """A semantic match between user and avatar interests."""
-    item_a: str = Field(description="User's interest")
-    item_b: str = Field(description="Avatar's interest")
-    similarity: float = Field(description="Semantic similarity (0-1)")
-    is_exact: bool = Field(description="Whether it's an exact string match")
+class SemanticMatch(BaseModel):
+    """A semantically related pair of interests"""
+    user_interest: str
+    avatar_interest: str
+    similarity: int  # 0-100
+    reason: str
 
 
-class CompatibilityResponse(BaseModel):
-    """Response for compatibility analysis."""
-    avatar_id: str
-    avatar_name_ko: str
-    
-    score: float = Field(description="Compatibility score (0-100)")
-    chemistry_level: str = Field(description="Chemistry level: excellent/good/okay/low")
-    
-    common_interests: List[CompatibilityMatch]
-    suggested_topics: List[str] = Field(description="Topics to discuss")
-    avoid_topics: List[str] = Field(description="Topics to avoid")
-    
-    personality_match: float = Field(description="Personality compatibility (0-100)")
-    
-    summary_ko: str
-    summary_en: str
-    match_reasons: List[str]
-    
-    ml_available: bool = Field(description="Whether ML model was used")
+class CompatibilityResult(BaseModel):
+    """Compatibility analysis result"""
+    overall_score: float  # 0-100
+    interest_overlap: float
+    topic_safety: float  # How much avatar avoids user's disliked topics
+    difficulty_match: float
+    shared_interests: List[str]
+    semantic_matches: List[SemanticMatch] = []  # AI-found related interests
+    potential_conflicts: List[str]
+    suggested_topics: List[str] = []  # AI-suggested conversation topics
+    recommendation: str
 
 
 class BatchCompatibilityRequest(BaseModel):
-    """Request for checking compatibility with multiple avatars."""
-    user: UserPreferences
+    """Request for batch compatibility analysis"""
+    user_profile: UserProfileCreate
+    avatars: List[AvatarCreate]
 
 
 class AvatarCompatibility(BaseModel):
-    """Compatibility result for a single avatar."""
-    avatar_id: str
-    avatar_name_ko: str
-    avatar_role: str
-    score: float
-    chemistry_level: str
-    common_interests: List[CompatibilityMatch]
-    summary_ko: str
+    """Single avatar compatibility result"""
+    avatar_id: Optional[str]
+    avatar_name: str
+    overall_score: float
+    shared_interests: List[str]
+    semantic_matches: List[SemanticMatch] = []
+    recommendation: str
 
 
-class BatchCompatibilityResponse(BaseModel):
-    """Response for batch compatibility check."""
-    user_likes: List[str]
+class BatchCompatibilityResult(BaseModel):
+    """Batch compatibility results"""
     results: List[AvatarCompatibility]
-    ml_available: bool
+    best_match: Optional[str]
 
 
-# ===========================================
-# DEFAULT AVATAR PREFERENCES
-# ===========================================
+# ============================================================================
+# AI-Powered Semantic Analysis
+# ============================================================================
 
-# These can be stored in DB, but for now defined here
-AVATAR_PREFERENCES = {
-    "professor_kim": {
-        "likes": ["연구", "독서", "클래식 음악", "학문", "커피"],
-        "dislikes": ["게으름", "무단 결석", "표절", "지각"],
-        "traits": ["엄격함", "지적임", "배려심"]
-    },
-    "minsu_senior": {
-        "likes": ["여행", "맥주", "축구", "진로 상담", "캠핑"],
-        "dislikes": ["게으름", "무책임", "거짓말"],
-        "traits": ["배려심", "리더십", "유머러스"]
-    },
-    "sujin_friend": {
-        "likes": ["K-POP", "카페", "드라마", "쇼핑", "SNS", "여행"],
-        "dislikes": ["정치 얘기", "아침형 인간", "공부 얘기"],
-        "traits": ["외향적", "유머러스", "친절함"]
-    },
-    "manager_lee": {
-        "likes": ["효율성", "커피", "계획", "운동", "독서"],
-        "dislikes": ["지각", "변명", "무책임", "비효율"],
-        "traits": ["체계적", "공정함", "바쁨"]
-    },
-    "jiwon_junior": {
-        "likes": ["게임", "애니메이션", "라면", "유튜브", "만화"],
-        "dislikes": ["과제", "아침 수업", "발표"],
-        "traits": ["순수함", "호기심", "예의바름"]
+async def analyze_semantic_similarity(
+    user_interests: List[str],
+    avatar_interests: List[str],
+) -> Dict[str, Any]:
+    """
+    Use CLOVA X to find semantically similar interests.
+    
+    Examples:
+    - "음악" ↔ "K-POP" → related (85%)
+    - "여행" ↔ "해외 문화" → related (70%)
+    - "운동" ↔ "헬스" → related (90%)
+    """
+    if not user_interests or not avatar_interests:
+        return {"score": 50, "matches": [], "suggested_topics": []}
+    
+    prompt = f"""두 사람의 관심사를 비교하여 의미적으로 관련된 주제를 찾아주세요.
+
+사용자 관심사: {', '.join(user_interests)}
+아바타 관심사: {', '.join(avatar_interests)}
+
+다음 JSON 형식으로 응답하세요:
+{{
+    "overall_similarity": 0-100 사이의 점수,
+    "matches": [
+        {{
+            "user_interest": "사용자의 관심사",
+            "avatar_interest": "아바타의 관련된 관심사",
+            "similarity": 0-100 사이의 유사도,
+            "reason": "관련된 이유 (한 문장)"
+        }}
+    ],
+    "suggested_topics": ["두 사람이 함께 이야기하기 좋은 주제 3개"]
+}}
+
+예시:
+- "음악"과 "K-POP"은 관련됨 (similarity: 85, reason: "K-POP은 음악의 한 장르입니다")
+- "여행"과 "맛집"은 관련됨 (similarity: 70, reason: "여행 중 맛집 탐방을 함께 즐길 수 있습니다")
+- "운동"과 "헬스"는 매우 관련됨 (similarity: 95, reason: "헬스는 운동의 한 종류입니다")
+
+정확한 일치가 아니어도 의미적으로 관련된 것을 모두 찾아주세요.
+최소 유사도 50 이상인 것만 포함하세요."""
+
+    result = await clova_service.analyze_json(prompt, temperature=0.3, max_tokens=1024)
+    
+    if not result:
+        # Fallback to empty result
+        return {"score": 50, "matches": [], "suggested_topics": []}
+    
+    return {
+        "score": result.get("overall_similarity", 50),
+        "matches": result.get("matches", []),
+        "suggested_topics": result.get("suggested_topics", []),
     }
-}
 
 
-# ===========================================
-# API ENDPOINTS
-# ===========================================
-
-@router.post("/analyze", response_model=CompatibilityResponse)
-async def analyze_avatar_compatibility(request: CompatibilityRequest):
+async def analyze_topic_conflicts(
+    user_dislikes: List[str],
+    avatar_interests: List[str],
+) -> Dict[str, Any]:
     """
-    Analyze compatibility between user and a specific avatar.
+    Use CLOVA X to find potential topic conflicts semantically.
     
-    Uses ML-based semantic matching to find common interests,
-    even when words are different but meanings are similar.
-    
-    Example:
-    - User likes "BTS" → Matches with avatar's "K-POP" (similarity: 0.89)
-    - User likes "스타벅스" → Matches with avatar's "카페" (similarity: 0.87)
+    Examples:
+    - User dislikes "취업 스트레스" but avatar likes "커리어" → potential conflict
+    - User dislikes "정치" but avatar likes "시사" → related conflict
     """
+    if not user_dislikes or not avatar_interests:
+        return {"safety_score": 100, "conflicts": []}
     
-    # Get avatar info
-    avatar = AVATARS.get(request.avatar_id)
-    if not avatar:
-        raise HTTPException(status_code=404, detail=f"Avatar not found: {request.avatar_id}")
+    prompt = f"""사용자가 피하고 싶은 주제와 아바타의 관심사 사이에 충돌이 있는지 분석해주세요.
+
+사용자가 피하는 주제: {', '.join(user_dislikes)}
+아바타 관심사: {', '.join(avatar_interests)}
+
+다음 JSON 형식으로 응답하세요:
+{{
+    "safety_score": 0-100 (100은 완전히 안전, 0은 많은 충돌),
+    "conflicts": [
+        {{
+            "user_dislike": "사용자가 피하는 주제",
+            "avatar_interest": "관련된 아바타 관심사",
+            "severity": "high/medium/low",
+            "reason": "충돌 이유"
+        }}
+    ],
+    "advice": "대화 시 주의할 점"
+}}
+
+예시:
+- "취업 스트레스"를 피하는데 아바타가 "커리어"를 좋아함 → medium severity
+- "정치"를 피하는데 아바타가 "시사"를 좋아함 → high severity
+- "종교"를 피하는데 아바타가 "철학"을 좋아함 → low severity"""
+
+    result = await clova_service.analyze_json(prompt, temperature=0.3, max_tokens=512)
     
-    # Get avatar preferences (from request or defaults)
-    default_prefs = AVATAR_PREFERENCES.get(request.avatar_id, {})
+    if not result:
+        return {"safety_score": 100, "conflicts": [], "advice": ""}
     
-    avatar_likes = request.avatar_likes or default_prefs.get("likes", [])
-    avatar_dislikes = request.avatar_dislikes or default_prefs.get("dislikes", [])
-    avatar_traits = request.avatar_traits or default_prefs.get("traits", [])
-    
-    # Analyze compatibility
-    result = analyze_compatibility(
-        user_likes=request.user.likes,
-        user_dislikes=request.user.dislikes,
-        avatar_likes=avatar_likes,
-        avatar_dislikes=avatar_dislikes,
-        user_traits=request.user.personality_traits,
-        avatar_traits=avatar_traits
+    return result
+
+
+async def generate_compatibility_recommendation(
+    avatar_name: str,
+    overall_score: float,
+    semantic_matches: List[Dict],
+    conflicts: List[Dict],
+    suggested_topics: List[str],
+) -> str:
+    """
+    Generate a natural, helpful recommendation using AI.
+    """
+    prompt = f"""다음 정보를 바탕으로 사용자에게 이 아바타와의 대화를 추천하는 짧은 문장을 작성하세요.
+
+아바타: {avatar_name}
+전체 점수: {overall_score}/100
+공통 관심사: {[m.get('user_interest', '') for m in semantic_matches[:3]]}
+주의할 주제: {[c.get('user_dislike', '') for c in conflicts[:2]]}
+추천 대화 주제: {suggested_topics[:3]}
+
+자연스럽고 긍정적인 톤으로 2-3문장으로 작성하세요.
+점수가 낮더라도 긍정적인 면을 찾아주세요."""
+
+    response = await clova_service.chat(
+        [Message(role="user", content=prompt)],
+        temperature=0.7,
+        max_tokens=150,
     )
     
-    return CompatibilityResponse(
-        avatar_id=request.avatar_id,
-        avatar_name_ko=avatar.get("name_ko", ""),
-        score=result["score"],
-        chemistry_level=result["chemistry_level"],
-        common_interests=[CompatibilityMatch(**m) for m in result["common_interests"]],
-        suggested_topics=result["suggested_topics"],
-        avoid_topics=result["avoid_topics"],
-        personality_match=result["personality_match"],
-        summary_ko=result["summary_ko"],
-        summary_en=result["summary_en"],
-        match_reasons=result["match_reasons"],
-        ml_available=result["ml_available"]
+    return response.content if response.content else f"{avatar_name}님과 대화해보세요!"
+
+
+# ============================================================================
+# Rule-Based Calculations (Fallback)
+# ============================================================================
+
+def calculate_interest_overlap_simple(
+    user_interests: List[str], 
+    avatar_interests: List[str]
+) -> tuple[float, List[str]]:
+    """Simple exact-match overlap calculation (fallback)"""
+    if not user_interests or not avatar_interests:
+        return 50.0, []
+    
+    user_set = set(i.lower().strip() for i in user_interests)
+    avatar_set = set(i.lower().strip() for i in avatar_interests)
+    
+    shared = user_set.intersection(avatar_set)
+    total = user_set.union(avatar_set)
+    
+    if not total:
+        return 50.0, []
+    
+    overlap = len(shared) / len(total) * 100
+    shared_list = [i for i in user_interests if i.lower().strip() in shared]
+    
+    return overlap, shared_list
+
+
+def calculate_topic_safety_simple(
+    user_dislikes: List[str], 
+    avatar_interests: List[str]
+) -> tuple[float, List[str]]:
+    """Simple exact-match safety calculation (fallback)"""
+    if not user_dislikes:
+        return 100.0, []
+    
+    if not avatar_interests:
+        return 100.0, []
+    
+    user_dislike_set = set(d.lower().strip() for d in user_dislikes)
+    avatar_interest_set = set(i.lower().strip() for i in avatar_interests)
+    
+    conflicts = user_dislike_set.intersection(avatar_interest_set)
+    conflict_list = [d for d in user_dislikes if d.lower().strip() in conflicts]
+    
+    if not conflicts:
+        return 100.0, []
+    
+    safety = max(0, 100 - (len(conflicts) / len(user_dislikes) * 100))
+    return safety, conflict_list
+
+
+def calculate_difficulty_match(user_level: str, avatar_difficulty: str) -> float:
+    """Calculate difficulty match score"""
+    level_map = {"beginner": 1, "intermediate": 2, "advanced": 3}
+    diff_map = {"easy": 1, "medium": 2, "hard": 3}
+    
+    user_val = level_map.get(str(user_level).lower(), 2)
+    avatar_val = diff_map.get(str(avatar_difficulty).lower(), 2)
+    
+    diff = abs(user_val - avatar_val)
+    
+    if diff == 0:
+        return 100.0
+    elif diff == 1:
+        return 70.0
+    else:
+        return 40.0
+
+
+# ============================================================================
+# API Endpoints
+# ============================================================================
+
+@router.post("/analyze", response_model=CompatibilityResult)
+async def analyze_compatibility(request: CompatibilityRequest):
+    """
+    Calculate compatibility with AI-powered semantic similarity.
+    
+    Uses CLOVA X to:
+    1. Find semantically related interests (e.g., "음악" ↔ "K-POP")
+    2. Detect potential topic conflicts
+    3. Suggest conversation topics
+    4. Generate personalized recommendations
+    """
+    user = request.user_profile
+    avatar = request.avatar
+    
+    # 1. Semantic interest analysis (AI)
+    semantic_result = await analyze_semantic_similarity(
+        user.interests or [],
+        avatar.interests or [],
+    )
+    
+    semantic_score = semantic_result.get("score", 50)
+    semantic_matches = [
+        SemanticMatch(
+            user_interest=m.get("user_interest", ""),
+            avatar_interest=m.get("avatar_interest", ""),
+            similarity=m.get("similarity", 0),
+            reason=m.get("reason", ""),
+        )
+        for m in semantic_result.get("matches", [])
+    ]
+    suggested_topics = semantic_result.get("suggested_topics", [])
+    
+    # 2. Also get exact matches
+    exact_score, exact_shared = calculate_interest_overlap_simple(
+        user.interests or [],
+        avatar.interests or [],
+    )
+    
+    # Combine exact + semantic (weighted: 30% exact, 70% semantic)
+    combined_interest_score = (exact_score * 0.3) + (semantic_score * 0.7)
+    
+    # 3. Topic safety analysis (AI)
+    conflict_result = await analyze_topic_conflicts(
+        user.dislikes or [],
+        avatar.interests or [],
+    )
+    
+    ai_safety_score = conflict_result.get("safety_score", 100)
+    ai_conflicts = conflict_result.get("conflicts", [])
+    
+    # Also get exact conflicts
+    exact_safety, exact_conflicts = calculate_topic_safety_simple(
+        user.dislikes or [],
+        avatar.interests or [],
+    )
+    
+    # Combine (30% exact, 70% AI)
+    combined_safety_score = (exact_safety * 0.3) + (ai_safety_score * 0.7)
+    
+    # Get conflict list (merge exact + AI)
+    all_conflicts = list(set(exact_conflicts + [c.get("user_dislike", "") for c in ai_conflicts]))
+    
+    # 4. Difficulty match (rule-based)
+    difficulty_score = calculate_difficulty_match(
+        user.korean_level.value if hasattr(user.korean_level, 'value') else str(user.korean_level),
+        avatar.difficulty.value if hasattr(avatar.difficulty, 'value') else str(avatar.difficulty),
+    )
+    
+    # 5. Calculate overall score
+    # Weights: Interest 40%, Safety 30%, Difficulty 30%
+    overall = (combined_interest_score * 0.4) + (combined_safety_score * 0.3) + (difficulty_score * 0.3)
+    
+    # 6. Generate AI recommendation
+    recommendation = await generate_compatibility_recommendation(
+        avatar_name=avatar.name_ko,
+        overall_score=overall,
+        semantic_matches=[m.dict() for m in semantic_matches],
+        conflicts=ai_conflicts,
+        suggested_topics=suggested_topics,
+    )
+    
+    return CompatibilityResult(
+        overall_score=round(overall, 1),
+        interest_overlap=round(combined_interest_score, 1),
+        topic_safety=round(combined_safety_score, 1),
+        difficulty_match=round(difficulty_score, 1),
+        shared_interests=exact_shared,
+        semantic_matches=semantic_matches,
+        potential_conflicts=all_conflicts,
+        suggested_topics=suggested_topics,
+        recommendation=recommendation,
     )
 
 
-@router.post("/batch", response_model=BatchCompatibilityResponse)
-async def analyze_all_avatars_compatibility(request: BatchCompatibilityRequest):
+@router.post("/analyze-simple", response_model=CompatibilityResult)
+async def analyze_compatibility_simple(request: CompatibilityRequest):
     """
-    Analyze compatibility with all system avatars.
+    Simple rule-based compatibility (no AI, faster).
     
-    Returns a ranked list of avatars sorted by compatibility score.
-    Useful for showing "recommended avatars" to the user.
+    Use this for quick checks or when AI is unavailable.
     """
+    user = request.user_profile
+    avatar = request.avatar
     
+    # Calculate metrics (simple exact-match)
+    interest_score, shared = calculate_interest_overlap_simple(
+        user.interests or [],
+        avatar.interests or [],
+    )
+    
+    safety_score, conflicts = calculate_topic_safety_simple(
+        user.dislikes or [],
+        avatar.interests or [],
+    )
+    
+    difficulty_score = calculate_difficulty_match(
+        user.korean_level.value if hasattr(user.korean_level, 'value') else str(user.korean_level),
+        avatar.difficulty.value if hasattr(avatar.difficulty, 'value') else str(avatar.difficulty),
+    )
+    
+    # Overall score
+    overall = (interest_score * 0.4 + safety_score * 0.3 + difficulty_score * 0.3)
+    
+    # Simple recommendation
+    if overall >= 80:
+        rec = f"{avatar.name_ko}님과 대화하기 매우 좋습니다! 관심사가 많이 겹치고 난이도도 적당합니다."
+    elif overall >= 60:
+        rec = f"{avatar.name_ko}님과 대화해보세요. 몇 가지 공통 관심사가 있습니다."
+    else:
+        rec = f"{avatar.name_ko}님과 대화하면 새로운 주제를 배울 수 있습니다."
+    
+    return CompatibilityResult(
+        overall_score=round(overall, 1),
+        interest_overlap=round(interest_score, 1),
+        topic_safety=round(safety_score, 1),
+        difficulty_match=round(difficulty_score, 1),
+        shared_interests=shared,
+        semantic_matches=[],
+        potential_conflicts=conflicts,
+        suggested_topics=[],
+        recommendation=rec,
+    )
+
+
+@router.post("/batch", response_model=BatchCompatibilityResult)
+async def analyze_batch_compatibility(request: BatchCompatibilityRequest):
+    """
+    Calculate compatibility for multiple avatars with AI analysis.
+    
+    Returns sorted list with best match and semantic matches.
+    """
     results = []
-    analyzer = get_compatibility_analyzer()
     
-    for avatar_id, avatar in AVATARS.items():
-        # Get avatar preferences
-        prefs = AVATAR_PREFERENCES.get(avatar_id, {})
-        
-        # Analyze
-        result = analyze_compatibility(
-            user_likes=request.user.likes,
-            user_dislikes=request.user.dislikes,
-            avatar_likes=prefs.get("likes", []),
-            avatar_dislikes=prefs.get("dislikes", []),
-            user_traits=request.user.personality_traits,
-            avatar_traits=prefs.get("traits", [])
+    for avatar in request.avatars:
+        single_req = CompatibilityRequest(
+            user_profile=request.user_profile,
+            avatar=avatar,
         )
         
-        results.append(AvatarCompatibility(
-            avatar_id=avatar_id,
-            avatar_name_ko=avatar.get("name_ko", ""),
-            avatar_role=avatar.get("role", ""),
-            score=result["score"],
-            chemistry_level=result["chemistry_level"],
-            common_interests=[CompatibilityMatch(**m) for m in result["common_interests"][:3]],
-            summary_ko=result["summary_ko"]
-        ))
+        try:
+            result = await analyze_compatibility(single_req)
+            
+            results.append(AvatarCompatibility(
+                avatar_id=getattr(avatar, 'id', None),
+                avatar_name=avatar.name_ko,
+                overall_score=result.overall_score,
+                shared_interests=result.shared_interests,
+                semantic_matches=result.semantic_matches,
+                recommendation=result.recommendation,
+            ))
+        except Exception as e:
+            print(f"Error analyzing {avatar.name_ko}: {e}")
+            continue
     
-    # Sort by score (highest first)
-    results.sort(key=lambda x: x.score, reverse=True)
+    # Sort by score
+    results.sort(key=lambda x: x.overall_score, reverse=True)
     
-    return BatchCompatibilityResponse(
-        user_likes=request.user.likes,
+    best_match = results[0].avatar_name if results else None
+    
+    return BatchCompatibilityResult(
         results=results,
-        ml_available=analyzer.is_ml_available
+        best_match=best_match,
     )
 
 
-@router.get("/avatar/{avatar_id}/preferences")
-async def get_avatar_preferences(avatar_id: str):
+@router.post("/batch-simple", response_model=BatchCompatibilityResult)
+async def analyze_batch_compatibility_simple(request: BatchCompatibilityRequest):
     """
-    Get an avatar's predefined preferences (likes, dislikes, traits).
+    Calculate compatibility for multiple avatars (simple, no AI).
+    
+    Faster but less accurate than /batch.
     """
+    results = []
     
-    avatar = AVATARS.get(avatar_id)
-    if not avatar:
-        raise HTTPException(status_code=404, detail=f"Avatar not found: {avatar_id}")
+    for avatar in request.avatars:
+        single_req = CompatibilityRequest(
+            user_profile=request.user_profile,
+            avatar=avatar,
+        )
+        
+        try:
+            result = await analyze_compatibility_simple(single_req)
+            
+            results.append(AvatarCompatibility(
+                avatar_id=getattr(avatar, 'id', None),
+                avatar_name=avatar.name_ko,
+                overall_score=result.overall_score,
+                shared_interests=result.shared_interests,
+                semantic_matches=[],
+                recommendation=result.recommendation,
+            ))
+        except Exception:
+            continue
     
-    prefs = AVATAR_PREFERENCES.get(avatar_id, {})
+    # Sort by score
+    results.sort(key=lambda x: x.overall_score, reverse=True)
     
-    return {
-        "avatar_id": avatar_id,
-        "avatar_name_ko": avatar.get("name_ko", ""),
-        "likes": prefs.get("likes", []),
-        "dislikes": prefs.get("dislikes", []),
-        "personality_traits": prefs.get("traits", [])
-    }
-
-
-@router.get("/status")
-async def get_compatibility_status():
-    """
-    Check if ML model is loaded and ready.
-    """
-    analyzer = get_compatibility_analyzer()
+    best_match = results[0].avatar_name if results else None
     
-    return {
-        "ml_available": analyzer.is_ml_available,
-        "model": "jhgan/ko-sroberta-multitask" if analyzer.is_ml_available else "fallback",
-        "cache_size": len(analyzer.embedding_cache)
-    }
+    return BatchCompatibilityResult(
+        results=results,
+        best_match=best_match,
+    )

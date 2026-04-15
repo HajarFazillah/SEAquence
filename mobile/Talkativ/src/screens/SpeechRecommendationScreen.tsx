@@ -20,14 +20,56 @@ interface AvoidExpression {
   reason: string;
 }
 
+// ── 말투 레벨별 정보 ──────────────────────────────────────────────────────────
+const LEVEL_INFO = {
+  formal: {
+    name:     '합쇼체',
+    endings:  '-습니다, -습니까',
+    examples: ['안녕하십니까', '감사합니다', '좋습니다', '말씀해 주십시오'],
+    avoid:    ['야, 뭐해?', '알겠어', '그래'],
+    tips: [
+      '어미 -습니다, -습니까를 사용하세요.',
+      '격식 있는 어휘를 선택하세요: 나→저, 밥→식사, 이름→성함',
+      '존칭을 항상 사용하세요: 선생님, 교수님',
+    ],
+  },
+  polite: {
+    name:     '해요체',
+    endings:  '-어요, -아요',
+    examples: ['안녕하세요', '감사해요', '좋아요', '어디 가세요?'],
+    avoid:    ['야, 뭐해?', '알겠어', '그래'],
+    tips: [
+      '어미 -어요, -아요를 사용하세요.',
+      '격식 어휘를 사용하세요: 나→저, 밥→식사',
+      '자연스럽고 부드럽게 말하세요.',
+    ],
+  },
+  informal: {
+    name:     '반말',
+    endings:  '-어, -아, -야',
+    examples: ['안녕', '고마워', '좋아', '어디 가?'],
+    avoid:    ['안녕하세요', '감사합니다', '~습니다'],
+    tips: [
+      '어미 -어, -아, -야를 사용하세요.',
+      '친근하게 자연스럽게 말하세요.',
+      '너무 격식 있는 표현은 어색할 수 있어요.',
+    ],
+  },
+};
+
 export default function SpeechRecommendationScreen() {
   const navigation = useNavigation<any>();
-  const route = useRoute<any>();
+  const route      = useRoute<any>();
   const { avatar, situation } = route.params || {};
 
   const [loading, setLoading] = useState(true);
   const [recommendation, setRecommendation] = useState<{
     recommended_level: 'formal' | 'polite' | 'informal';
+    recommended_level_info: {
+      name_ko: string;
+      description: string;
+      endings: string[];
+    };
     reason_ko: string;
     example_expressions: ExampleExpression;
     avoid_expressions: AvoidExpression[];
@@ -41,30 +83,76 @@ export default function SpeechRecommendationScreen() {
   const loadRecommendation = async () => {
     try {
       setLoading(true);
+
+      // ── 우선순위 1: avatar에 formality 정보가 이미 있으면 바로 사용 ──────────
+      const formalityKey = (
+        avatar?.formality_from_user ||
+        avatar?.recommendedLevel ||
+        null
+      ) as 'formal' | 'polite' | 'informal' | null;
+
+      if (formalityKey && LEVEL_INFO[formalityKey]) {
+        const info = LEVEL_INFO[formalityKey];
+        setRecommendation({
+          recommended_level: formalityKey,
+          recommended_level_info: {
+            name_ko:     info.name,
+            description: `${info.name}를 사용하세요. 어미: ${info.endings}`,
+            endings:     info.endings.split(', '),
+          },
+          reason_ko: `${avatar?.name_ko || '상대방'}과의 대화에서는 ${info.name}를 사용하는 것이 적절합니다.`,
+          example_expressions: {
+            greetings: info.examples.slice(0, 2),
+            questions: [`${info.examples[0]}?`, `${info.examples[1]}?`],
+            responses: info.examples.slice(2, 4),
+          },
+          avoid_expressions: info.avoid.slice(0, 3).map(w => ({
+            wrong:  w,
+            reason: `${info.name} 대화에서는 어색한 표현입니다.`,
+          })),
+          tips: info.tips,
+        });
+        return;
+      }
+
+      // ── 우선순위 2: AI 서버 호출 ─────────────────────────────────────────────
+      const avatarRole = avatar?.role || 'friend';
       const data = await apiService.getSpeechRecommendation(
-        avatar?.id || 'sujin_friend',
+        avatarRole,
         situation?.id || 'cafe_chat'
       );
       setRecommendation(data);
+
     } catch (error) {
       console.error('Failed to load recommendation:', error);
-      // Use fallback data
+
+      // ── 폴백: role 기반 추론 ────────────────────────────────────────────────
+      const fallbackLevel: 'formal' | 'polite' | 'informal' =
+        ['professor', 'boss', 'ceo', 'client', 'doctor'].includes(avatar?.role)
+          ? 'formal'
+          : ['friend', 'close_friend', 'classmate', 'roommate', 'younger_sibling'].includes(avatar?.role)
+          ? 'informal'
+          : 'polite';
+
+      const info = LEVEL_INFO[fallbackLevel];
       setRecommendation({
-        recommended_level: avatar?.role === 'professor' || avatar?.role === 'boss' 
-          ? 'formal' 
-          : avatar?.role === 'friend' || avatar?.role === 'junior'
-            ? 'informal'
-            : 'polite',
+        recommended_level: fallbackLevel,
+        recommended_level_info: {
+          name_ko:     info.name,
+          description: `${info.name}를 사용하세요.`,
+          endings:     info.endings.split(', '),
+        },
         reason_ko: `${avatar?.name_ko || '상대방'}과의 대화에서 적절한 말투입니다.`,
         example_expressions: {
-          greetings: ['안녕하세요', '반갑습니다'],
-          questions: ['어떻게 지내세요?', '뭐 하세요?'],
-          responses: ['네, 알겠습니다', '좋아요'],
+          greetings: info.examples.slice(0, 2),
+          questions: [`${info.examples[0]}?`],
+          responses: info.examples.slice(0, 2),
         },
-        avoid_expressions: [
-          { wrong: '야, 뭐해?', reason: '너무 격식 없는 표현입니다.' },
-        ],
-        tips: ['자연스럽게 대화하세요', '상대방의 말투에 맞춰보세요'],
+        avoid_expressions: info.avoid.slice(0, 2).map(w => ({
+          wrong:  w,
+          reason: `${info.name} 대화에서는 어색한 표현입니다.`,
+        })),
+        tips: info.tips,
       });
     } finally {
       setLoading(false);
@@ -100,7 +188,7 @@ export default function SpeechRecommendationScreen() {
         {/* Context card */}
         <Card variant="elevated" style={styles.contextCard}>
           <View style={styles.contextRow}>
-            <View style={[styles.avatarIcon, { backgroundColor: avatar?.avatarBg || '#FFB6C1' }]}>
+            <View style={[styles.avatarIcon, { backgroundColor: avatar?.avatarBg || avatar?.avatar_bg || '#FFB6C1' }]}>
               <Icon name={avatar?.icon || 'user'} size={32} color="#FFFFFF" />
             </View>
             <View style={styles.contextInfo}>
@@ -118,12 +206,12 @@ export default function SpeechRecommendationScreen() {
 
         {/* Recommended speech level */}
         <Text style={styles.sectionTitle}>추천 말투</Text>
-        
+
         <Card variant="elevated" style={styles.recommendCard}>
           <View style={styles.recommendCenter}>
-            <SpeechLevelBadge 
-              level={recommendation?.recommended_level || 'polite'} 
-              size="large" 
+            <SpeechLevelBadge
+              level={recommendation?.recommended_level || 'polite'}
+              size="large"
             />
           </View>
           <Text style={styles.reasonText}>{recommendation?.reason_ko}</Text>
@@ -134,9 +222,8 @@ export default function SpeechRecommendationScreen() {
           <CheckCircle size={20} color="#4CAF50" />
           <Text style={styles.sectionTitle}>이렇게 말해보세요</Text>
         </View>
-        
+
         <Card variant="elevated" style={styles.exampleCard}>
-          {/* Greetings */}
           <View style={styles.exampleSection}>
             <Text style={styles.exampleLabel}>인사</Text>
             <View style={styles.exampleList}>
@@ -148,7 +235,6 @@ export default function SpeechRecommendationScreen() {
             </View>
           </View>
 
-          {/* Questions */}
           <View style={styles.exampleSection}>
             <Text style={styles.exampleLabel}>질문</Text>
             <View style={styles.exampleList}>
@@ -160,7 +246,6 @@ export default function SpeechRecommendationScreen() {
             </View>
           </View>
 
-          {/* Responses */}
           <View style={styles.exampleSection}>
             <Text style={styles.exampleLabel}>대답</Text>
             <View style={styles.exampleList}>
@@ -178,7 +263,7 @@ export default function SpeechRecommendationScreen() {
           <XCircle size={20} color="#E53935" />
           <Text style={styles.sectionTitle}>피해야 할 표현</Text>
         </View>
-        
+
         <Card variant="elevated" style={styles.avoidCard}>
           {recommendation?.avoid_expressions.slice(0, 3).map((item, i) => (
             <View key={i} style={styles.avoidItem}>
@@ -193,7 +278,7 @@ export default function SpeechRecommendationScreen() {
           <Lightbulb size={20} color="#F4A261" />
           <Text style={styles.sectionTitle}>팁</Text>
         </View>
-        
+
         <Card variant="elevated" style={styles.tipsCard}>
           {recommendation?.tips.slice(0, 4).map((tip, i) => (
             <View key={i} style={styles.tipItem}>
@@ -218,75 +303,43 @@ export default function SpeechRecommendationScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F7F7FB' },
-  content: { paddingHorizontal: 20, paddingBottom: 100 },
-
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  safe:        { flex: 1, backgroundColor: '#F7F7FB' },
+  content:     { paddingHorizontal: 20, paddingBottom: 100 },
+  loading:     { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { marginTop: 12, fontSize: 14, color: '#6C6C80' },
 
   contextCard: { marginBottom: 24 },
-  contextRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  avatarIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  contextRow:  { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  avatarIcon:  { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
   contextInfo: { flex: 1 },
   contextLabel: { fontSize: 11, color: '#B0B0C5', marginBottom: 4 },
-  contextName: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },
+  contextName:  { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },
   contextSituationRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  contextSituation: { fontSize: 13, color: '#6C6C80' },
+  contextSituation:    { fontSize: 13, color: '#6C6C80' },
 
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, marginTop: 8 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
+  sectionTitle:  { fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
 
-  recommendCard: { alignItems: 'center', marginBottom: 20 },
+  recommendCard:   { alignItems: 'center', marginBottom: 20 },
   recommendCenter: { marginBottom: 16 },
-  reasonText: { fontSize: 14, color: '#6C6C80', textAlign: 'center', lineHeight: 20 },
+  reasonText:      { fontSize: 14, color: '#6C6C80', textAlign: 'center', lineHeight: 20 },
 
-  exampleCard: { marginBottom: 20 },
+  exampleCard:    { marginBottom: 20 },
   exampleSection: { marginBottom: 16 },
-  exampleLabel: { fontSize: 12, fontWeight: '600', color: '#6C3BFF', marginBottom: 8 },
-  exampleList: { gap: 8 },
-  exampleItem: {
-    backgroundColor: '#F0EDFF',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  exampleText: { fontSize: 14, color: '#1A1A2E' },
+  exampleLabel:   { fontSize: 12, fontWeight: '600', color: '#6C3BFF', marginBottom: 8 },
+  exampleList:    { gap: 8 },
+  exampleItem:    { backgroundColor: '#F0EDFF', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
+  exampleText:    { fontSize: 14, color: '#1A1A2E' },
 
   avoidCard: { marginBottom: 20 },
   avoidItem: { marginBottom: 12 },
-  avoidWrong: {
-    fontSize: 14,
-    color: '#E53935',
-    fontWeight: '600',
-    marginBottom: 4,
-    textDecorationLine: 'line-through',
-  },
+  avoidWrong: { fontSize: 14, color: '#E53935', fontWeight: '600', marginBottom: 4, textDecorationLine: 'line-through' },
   avoidReason: { fontSize: 12, color: '#6C6C80' },
 
   tipsCard: { marginBottom: 20 },
-  tipItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
-  tipBullet: { 
-    width: 6, 
-    height: 6, 
-    borderRadius: 3, 
-    backgroundColor: '#6C3BFF', 
-    marginTop: 6,
-    marginRight: 10,
-  },
-  tipText: { flex: 1, fontSize: 14, color: '#1A1A2E', lineHeight: 20 },
+  tipItem:  { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
+  tipBullet: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#6C3BFF', marginTop: 6, marginRight: 10 },
+  tipText:   { flex: 1, fontSize: 14, color: '#1A1A2E', lineHeight: 20 },
 
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: '#F7F7FB',
-  },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#F7F7FB' },
 });

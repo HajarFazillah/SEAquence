@@ -14,14 +14,14 @@ from enum import Enum
 
 class AvatarEmotion(str, Enum):
     """Avatar emotional states based on conversation flow"""
-    HAPPY = "happy"              # User doing great
-    EXCITED = "excited"          # User achieved goal or improved
-    NEUTRAL = "neutral"          # Normal conversation
-    THINKING = "thinking"        # User made minor mistake
-    CONFUSED = "confused"        # User made formality mistake
-    CONCERNED = "concerned"      # User struggling
-    ENCOURAGING = "encouraging"  # Cheering user on
-    PROUD = "proud"              # User improved a lot
+    HAPPY = "happy"              # 😊 User doing great
+    EXCITED = "excited"          # 🤩 User achieved goal or improved
+    NEUTRAL = "neutral"          # 😐 Normal conversation
+    THINKING = "thinking"        # 🤔 User made minor mistake
+    CONFUSED = "confused"        # 😕 User made formality mistake
+    CONCERNED = "concerned"      # 😟 User struggling
+    ENCOURAGING = "encouraging"  # 💪 Cheering user on
+    PROUD = "proud"              # 🥰 User improved a lot
 
 
 class ConversationStatus(str, Enum):

@@ -1,152 +1,109 @@
 """
-Avatars API Endpoints
-Avatar information and management
+Avatars API
+GET  /api/v1/avatars/           - List system avatars
+GET  /api/v1/avatars/{id}       - Get avatar detail
+POST /api/v1/avatars/create     - Create custom avatar
+GET  /api/v1/avatars/user/{id}  - Get user's custom avatars
+GET  /api/v1/avatars/{avatar_id}/situations - Get avatar situations
 """
 
-from typing import Optional
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional, List
 
-from app.schemas.schemas import (
-    AvatarSummary,
-    AvatarDetail,
-    AvatarListResponse,
-)
-from app.core.constants import AVATARS, FORMALITY_INSTRUCTIONS
+from app.core.constants import AVATARS
+from app.core.situations import AVATAR_SITUATIONS, SITUATIONS
 
-router = APIRouter()
+router = APIRouter(prefix="/avatars", tags=["avatars"])
+
+# In-memory store for custom avatars
+_custom_avatars: dict = {}
 
 
-@router.get("", response_model=AvatarListResponse)
-async def list_avatars(
-    difficulty: Optional[str] = None,
-    role: Optional[str] = None
-):
-    """
-    List all available avatars.
-    
-    Filter by difficulty (easy/medium/hard) or role (friend/senior/professor).
-    """
+class CreateAvatarRequest(BaseModel):
+    user_id: str
+    name: str
+    name_ko: str
+    role: str = "friend"
+    age: Optional[int] = None
+    personality: str = "친절한"
+    formality: str = "polite"
+    interests: List[str] = []
+    topics: List[str] = []
+    greeting: str = "안녕하세요!"
+
+
+@router.get("/")
+async def list_avatars():
+    """List all system avatars."""
     avatars = []
-    
-    for avatar_id, data in AVATARS.items():
-        # Apply filters
-        if difficulty and data["difficulty"] != difficulty:
-            continue
-        if role and data["role"] != role:
-            continue
-        
-        avatars.append(AvatarSummary(
-            id=data["id"],
-            name_ko=data["name_ko"],
-            name_en=data["name_en"],
-            role=data["role"],
-            difficulty=data["difficulty"],
-            formality=data["formality"]
-        ))
-    
-    return AvatarListResponse(avatars=avatars, total=len(avatars))
+    for aid, info in AVATARS.items():
+        avatars.append({
+            "avatar_id": aid,
+            "name_ko": info["name_ko"],
+            "name_en": info["name_en"],
+            "role": info["role"],
+            "difficulty": info["difficulty"],
+            "formality": info["formality"],
+            "topics": info["topics"],
+            "greeting": info["greeting"],
+        })
+    return avatars
 
 
-@router.get("/{avatar_id}", response_model=AvatarDetail)
+@router.get("/{avatar_id}")
 async def get_avatar(avatar_id: str):
-    """
-    Get detailed information about a specific avatar.
-    """
-    if avatar_id not in AVATARS:
-        raise HTTPException(status_code=404, detail=f"Avatar not found: {avatar_id}")
-    
-    data = AVATARS[avatar_id]
-    return AvatarDetail(
-        id=data["id"],
-        name_ko=data["name_ko"],
-        name_en=data["name_en"],
-        role=data["role"],
-        age=data["age"],
-        gender=data["gender"],
-        personality=data["personality"],
-        topics=data["topics"],
-        difficulty=data["difficulty"],
-        formality=data["formality"],
-        greeting=data["greeting"]
-    )
+    """Get a specific avatar by ID."""
+    avatar = AVATARS.get(avatar_id) or _custom_avatars.get(avatar_id)
+    if not avatar:
+        raise HTTPException(status_code=404, detail=f"Avatar '{avatar_id}' not found")
+    return avatar
 
 
-@router.get("/{avatar_id}/formality")
-async def get_avatar_formality(avatar_id: str):
-    """
-    Get recommended formality level and tips for chatting with an avatar.
-    """
-    if avatar_id not in AVATARS:
-        raise HTTPException(status_code=404, detail=f"Avatar not found: {avatar_id}")
-    
-    data = AVATARS[avatar_id]
-    formality = data["formality"]
-    
-    tips_by_level = {
-        "informal": [
-            "반말을 사용하세요",
-            "편하게 대화해도 됩니다",
-            "친한 친구처럼 말하세요",
-            "예: '뭐해?', '같이 가자'"
-        ],
-        "polite": [
-            "존댓말(-요)을 사용하세요",
-            "예의 바르지만 친근하게 대화하세요",
-            "예: '뭐 해요?', '같이 가요'"
-        ],
-        "very_polite": [
-            "격식체(-습니다)를 사용하세요",
-            "최대한 공손하게 말하세요",
-            "높임말을 적극 사용하세요",
-            "예: '무엇을 하십니까?', '감사합니다'"
-        ]
-    }
-    
-    return {
+@router.post("/create")
+async def create_avatar(request: CreateAvatarRequest):
+    """Create a custom avatar."""
+    import uuid
+    avatar_id = f"custom_{uuid.uuid4().hex[:8]}"
+    avatar = {
         "avatar_id": avatar_id,
-        "avatar_name": data["name_ko"],
-        "role": data["role"],
-        "recommended_formality": formality,
-        "formality_ko": {"informal": "반말", "polite": "존댓말", "very_polite": "격식체"}[formality],
-        "tips": tips_by_level.get(formality, []),
-        "sample_endings": _get_sample_endings(formality)
+        "name_ko": request.name_ko,
+        "name_en": request.name,
+        "role": request.role,
+        "age": request.age,
+        "personality": request.personality,
+        "formality": request.formality,
+        "interests": request.interests,
+        "topics": request.topics,
+        "greeting": request.greeting,
+        "created_by": request.user_id,
+        "is_system": False,
     }
+    _custom_avatars[avatar_id] = avatar
+    # Track per user
+    user_key = f"user_{request.user_id}"
+    if user_key not in _custom_avatars:
+        _custom_avatars[user_key] = []
+    _custom_avatars[user_key].append(avatar_id)
+    return avatar
 
 
-@router.get("/{avatar_id}/topics")
-async def get_avatar_topics(avatar_id: str):
-    """
-    Get topics that an avatar can discuss.
-    """
-    if avatar_id not in AVATARS:
-        raise HTTPException(status_code=404, detail=f"Avatar not found: {avatar_id}")
-    
-    data = AVATARS[avatar_id]
-    return {
-        "avatar_id": avatar_id,
-        "avatar_name": data["name_ko"],
-        "topics": data["topics"],
-        "total_topics": len(data["topics"])
-    }
+@router.get("/user/{user_id}")
+async def get_user_avatars(user_id: str):
+    """Get all custom avatars created by a user."""
+    user_key = f"user_{user_id}"
+    avatar_ids = _custom_avatars.get(user_key, [])
+    avatars = [_custom_avatars[aid] for aid in avatar_ids if aid in _custom_avatars]
+    return {"user_id": user_id, "custom_avatars": avatars, "total": len(avatars)}
 
 
-def _get_sample_endings(formality: str) -> dict:
-    """Get sample sentence endings for formality level."""
-    endings = {
-        "informal": {
-            "statement": ["-어/아", "-지", "-야"],
-            "question": ["-어?", "-냐?", "-니?"],
-            "request": ["-어줘", "-해라"]
-        },
-        "polite": {
-            "statement": ["-요", "-어요/아요"],
-            "question": ["-요?", "-세요?"],
-            "request": ["-주세요", "-해 주세요"]
-        },
-        "very_polite": {
-            "statement": ["-습니다", "-ㅂ니다"],
-            "question": ["-습니까?", "-ㅂ니까?"],
-            "request": ["-주십시오", "-해 주시겠습니까?"]
-        }
-    }
-    return endings.get(formality, endings["polite"])
+@router.get("/{avatar_id}/situations")
+async def get_avatar_situations(avatar_id: str):
+    """Get situations available for an avatar."""
+    situations = AVATAR_SITUATIONS.get(avatar_id, [])
+    result = []
+    for s in situations:
+        sid = s.get("situation_id")
+        base = SITUATIONS.get(sid, {})
+        result.append({**base, **s})
+    return {"avatar_id": avatar_id, "situations": result, "total": len(result)}
