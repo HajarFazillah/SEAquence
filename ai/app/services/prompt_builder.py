@@ -300,6 +300,7 @@ def build_conversation_analysis_prompt(
 
 
 def build_bio_generation_prompt(avatar: AvatarBase) -> str:
+    """대화 가이드 생성 프롬프트 — 마크다운 기호 금지"""
     role_label    = get_role_label(avatar.role, avatar.custom_role if hasattr(avatar, "custom_role") else None)
     speech_levels = get_speech_levels_for_role(avatar.role)
 
@@ -313,8 +314,7 @@ def build_bio_generation_prompt(avatar: AvatarBase) -> str:
     if hasattr(avatar, "memo") and avatar.memo:
         additional_info.append(f"추가 메모: {avatar.memo}")
 
-    return f"""
-다음 정보를 바탕으로 이 아바타와 대화할 때 도움이 되는 가이드를 작성하세요.
+    return f"""다음 정보를 바탕으로 이 아바타와 대화할 때 도움이 되는 가이드를 작성하세요.
 
 아바타 정보:
 - 이름: {avatar.name_ko}
@@ -325,20 +325,17 @@ def build_bio_generation_prompt(avatar: AvatarBase) -> str:
 {"- " + chr(10) + "- ".join(additional_info) if additional_info else ""}
 
 추천 말투:
-- 아바타 → 사용자: {SPEECH_LEVEL_INFO[speech_levels['to_user']]['name_ko']}
-- 사용자 → 아바타: {SPEECH_LEVEL_INFO[speech_levels['from_user']]['name_ko']}
+- 아바타가 사용자에게: {SPEECH_LEVEL_INFO[speech_levels['to_user']]['name_ko']}
+- 사용자가 아바타에게: {SPEECH_LEVEL_INFO[speech_levels['from_user']]['name_ko']}
 
-다음 형식으로 짧은 대화 가이드를 작성하세요 (2-3 문단):
+다음 3가지 항목으로 짧은 대화 가이드를 작성하세요:
 1. 이 아바타의 성격과 특징
 2. 대화할 때 알아야 할 팁
 3. 피해야 할 주제나 주의사항
 
-## 중요
-- detected_speech_level 은 반드시 formal / polite / informal 세 값 중 하나만 사용하세요
-- detected_speech_level 은 절대 null 이 되면 안 됩니다. 짧은 문장이어도 반드시 판단하세요
-- 판단이 어려우면 어미를 보고 결정하세요: -요/-어요/-아요 = polite, -습니다 = formal, 그 외 = informal
-- 오류가 없으면 corrections는 빈 배열, has_errors는 false
-- 잘한 점이 있으면 반드시 encouragement에 언급
-- severity는 학습에 중요한 오류일수록 error
-- 자연스러운 대안이 있으면 info로 제안
+출력 규칙 (반드시 준수):
+- **, *, ##, _, ~ 같은 마크다운 기호를 절대 사용하지 마세요
+- 숫자와 점(1. 2. 3.)만 사용하여 항목을 구분하세요
+- 순수 텍스트로만 작성하세요
+- 각 항목은 2~3문장으로 간결하게 작성하세요
 """
