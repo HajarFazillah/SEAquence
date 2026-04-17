@@ -102,9 +102,6 @@ const sendMessageToAI = async (
   if (!res.ok) throw new Error(`AI server error: ${res.status}`);
   const data = await res.json();
 
-  // ── 디버그 로그 ───────────────────────────────────────────────
-  console.log('[ChatScreen] Raw correction:', JSON.stringify(data.correction, null, 2));
-
   const correction = data.correction;
   const speech_analysis: SpeechAnalysis | null = correction ? {
     detected_speech_level: correction.detected_speech_level || '',
@@ -117,7 +114,7 @@ const sendMessageToAI = async (
     encouragement:         correction.encouragement         || '',
   } : null;
 
-  console.log('[ChatScreen] natural_alternatives:', speech_analysis?.natural_alternatives);
+  console.log('[Chat] natural_alternatives:', speech_analysis?.natural_alternatives?.length, speech_analysis?.natural_alternatives);
 
   return {
     message:        data.message,
@@ -168,7 +165,6 @@ export default function ChatScreen() {
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
   const [correctStreak,    setCorrectStreak]    = useState(0);
-  // 기본값 true — 항상 펼침
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
 
   const moodAnim    = useRef(new Animated.Value(70)).current;
@@ -277,11 +273,11 @@ export default function ChatScreen() {
   const renderFeedbackCard = (item: Message) => {
     if (!item.feedback) return null;
 
-    const fb              = item.feedback;
-    const expanded        = expandedFeedback[item.id] ?? true; // 기본 펼침
-    const hasError        = fb.has_errors;
-    const alternatives    = fb.natural_alternatives || [];
-    const hasAlternatives = alternatives.length > 0;
+    const fb           = item.feedback;
+    const expanded     = expandedFeedback[item.id] ?? true;
+    const hasError     = fb.has_errors;
+    const alternatives = fb.natural_alternatives || [];
+    const hasAlts      = alternatives.length > 0;
 
     return (
       <TouchableOpacity
@@ -300,26 +296,40 @@ export default function ChatScreen() {
               : fb.expected_speech_level || '말투 분석'}
           </Text>
           <Text style={styles.feedbackScore}>{fb.accuracy_score}점</Text>
-          {hasAlternatives && !expanded && (
-            <View style={styles.altIndicator}>
-              <Lightbulb size={11} color="#6C3BFF" />
-              <Text style={styles.altIndicatorText}>대안</Text>
-            </View>
-          )}
           <Text style={styles.feedbackExpand}>{expanded ? '▲' : '▼'}</Text>
         </View>
 
-        {/* ── 펼쳐진 내용 ── */}
         {expanded && (
           <View style={styles.feedbackDetail}>
 
-            {/* 격려 메시지 */}
-            {fb.encouragement ? (
+            {/* ── 오류가 없을 때: 이렇게도 말할 수 있어요 우선 표시 ── */}
+            {!hasError && hasAlts && (
+              <View style={styles.alternativesSection}>
+                <View style={styles.alternativesHeader}>
+                  <Lightbulb size={14} color="#6C3BFF" />
+                  <Text style={styles.alternativesTitle}>이렇게도 말할 수 있어요</Text>
+                </View>
+                {alternatives.map((alt, i) => (
+                  <View key={i} style={[
+                    styles.alternativeItem,
+                    i < alternatives.length - 1 && styles.alternativeItemBorder,
+                  ]}>
+                    <Text style={styles.alternativeExpression}>"{alt.expression}"</Text>
+                    {alt.explanation ? (
+                      <Text style={styles.alternativeExplain}>{alt.explanation}</Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* 격려 메시지 — 대안 없을 때만 표시 */}
+            {(!hasAlts || hasError) && fb.encouragement ? (
               <Text style={styles.feedbackEncouragement}>{fb.encouragement}</Text>
             ) : null}
 
-            {/* 교정 목록 */}
-            {fb.corrections.length > 0 && (
+            {/* ── 오류 있을 때: 교정 목록 ── */}
+            {hasError && fb.corrections.length > 0 && (
               <View style={styles.correctionList}>
                 {fb.corrections.map((c, i) => (
                   <View key={i} style={[styles.correctionItem, { borderLeftColor: severityColor(c.severity) }]}>
@@ -335,15 +345,18 @@ export default function ChatScreen() {
               </View>
             )}
 
-            {/* 이렇게도 말할 수 있어요 */}
-            {hasAlternatives && (
-              <View style={styles.alternativesSection}>
+            {/* 오류 있을 때도 대안 표현 */}
+            {hasError && hasAlts && (
+              <View style={[styles.alternativesSection, { marginTop: 10 }]}>
                 <View style={styles.alternativesHeader}>
                   <Lightbulb size={14} color="#6C3BFF" />
                   <Text style={styles.alternativesTitle}>이렇게도 말할 수 있어요</Text>
                 </View>
                 {alternatives.map((alt, i) => (
-                  <View key={i} style={[styles.alternativeItem, i < alternatives.length - 1 && styles.alternativeItemBorder]}>
+                  <View key={i} style={[
+                    styles.alternativeItem,
+                    i < alternatives.length - 1 && styles.alternativeItemBorder,
+                  ]}>
                     <Text style={styles.alternativeExpression}>"{alt.expression}"</Text>
                     {alt.explanation ? (
                       <Text style={styles.alternativeExplain}>{alt.explanation}</Text>
@@ -386,7 +399,6 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <ChevronLeft size={24} color="#1A1A2E" />
@@ -405,7 +417,6 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 기분 바 */}
       <View style={styles.moodBarContainer}>
         <MoodIcon size={18} color={moodConfig.color} />
         <Text style={[styles.moodLabel, { color: moodConfig.color }]}>{moodConfig.label}</Text>
@@ -423,13 +434,11 @@ export default function ChatScreen() {
         )}
       </View>
 
-      {/* 추천 말투 배너 */}
       <View style={styles.levelBanner}>
         <Text style={styles.levelLabel}>추천 말투:</Text>
         <SpeechLevelBadge level={recommendedLevel} size="small" />
       </View>
 
-      {/* 제안 팝업 */}
       {showSuggestion && (
         <View style={styles.suggestionPopup}>
           <View style={styles.suggestionContent}>
@@ -544,18 +553,17 @@ const styles = StyleSheet.create({
   messageList:    { padding: 16, gap: 4 },
   messageWrapper: { marginBottom: 12 },
 
-  bubbleRow:     { flexDirection: 'row', alignItems: 'flex-end' },
-  bubbleRowAi:   { justifyContent: 'flex-start' },
-  bubbleRowUser: { justifyContent: 'flex-end' },
-  bubbleAvatar:  { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
-  bubble:        { maxWidth: '75%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
-  bubbleAi:      { backgroundColor: '#F5F5FA', borderBottomLeftRadius: 4 },
-  bubbleUser:    { backgroundColor: '#6C3BFF', borderBottomRightRadius: 4 },
-  bubbleWarning: { borderWidth: 1.5, borderColor: '#F4A261' },
-  bubbleText:    { fontSize: 14, color: '#1A1A2E', lineHeight: 20 },
+  bubbleRow:      { flexDirection: 'row', alignItems: 'flex-end' },
+  bubbleRowAi:    { justifyContent: 'flex-start' },
+  bubbleRowUser:  { justifyContent: 'flex-end' },
+  bubbleAvatar:   { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
+  bubble:         { maxWidth: '75%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
+  bubbleAi:       { backgroundColor: '#F5F5FA', borderBottomLeftRadius: 4 },
+  bubbleUser:     { backgroundColor: '#6C3BFF', borderBottomRightRadius: 4 },
+  bubbleWarning:  { borderWidth: 1.5, borderColor: '#F4A261' },
+  bubbleText:     { fontSize: 14, color: '#1A1A2E', lineHeight: 20 },
   bubbleTextUser: { color: '#FFFFFF' },
 
-  // ── 피드백 카드 ──────────────────────────────────────────────
   feedbackCard:      { marginTop: 4, marginLeft: 40, borderRadius: 12, padding: 10, borderWidth: 1 },
   feedbackCardOk:    { backgroundColor: '#F0FFF4', borderColor: '#A5D6A7' },
   feedbackCardError: { backgroundColor: '#FFF8F0', borderColor: '#FFCC80' },
@@ -563,14 +571,12 @@ const styles = StyleSheet.create({
   feedbackSummaryRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
   feedbackSummaryText: { flex: 1, fontSize: 12, fontWeight: '600' },
   feedbackScore:       { fontSize: 12, fontWeight: '700', color: '#6C3BFF' },
-  altIndicator:        { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#F0EDFF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
-  altIndicatorText:    { fontSize: 10, fontWeight: '600', color: '#6C3BFF' },
-  feedbackExpand:      { fontSize: 10, color: '#B0B0C5', marginLeft: 2 },
+  feedbackExpand:      { fontSize: 10, color: '#B0B0C5', marginLeft: 4 },
 
   feedbackDetail:        { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
-  feedbackEncouragement: { fontSize: 13, color: '#4CAF50', marginBottom: 10, lineHeight: 18 },
+  feedbackEncouragement: { fontSize: 13, color: '#4CAF50', lineHeight: 18 },
 
-  correctionList: { gap: 8, marginBottom: 12 },
+  correctionList: { gap: 8, marginBottom: 10 },
   correctionItem: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 4 },
   correctionRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 },
   correctionOriginal: { fontSize: 13, color: '#E53935', textDecorationLine: 'line-through' },
@@ -579,14 +585,13 @@ const styles = StyleSheet.create({
   correctionExplain:  { fontSize: 12, color: '#6C6C80', lineHeight: 18 },
   correctionTip:      { fontSize: 11, color: '#6C3BFF', marginTop: 2 },
 
-  // ── 이렇게도 말할 수 있어요 ───────────────────────────────────
-  alternativesSection:   { backgroundColor: '#F5F0FF', borderRadius: 10, padding: 12 },
+  alternativesSection:   { backgroundColor: '#F0ECFF', borderRadius: 10, padding: 12 },
   alternativesHeader:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   alternativesTitle:     { fontSize: 12, fontWeight: '700', color: '#6C3BFF' },
   alternativeItem:       { paddingBottom: 8 },
-  alternativeItemBorder: { borderBottomWidth: 1, borderBottomColor: '#E8E0FF', marginBottom: 8 },
-  alternativeExpression: { fontSize: 14, fontWeight: '700', color: '#4527A0', marginBottom: 2 },
-  alternativeExplain:    { fontSize: 11, color: '#7B7B9A', lineHeight: 16 },
+  alternativeItemBorder: { borderBottomWidth: 1, borderBottomColor: '#DDD6FF', marginBottom: 8 },
+  alternativeExpression: { fontSize: 15, fontWeight: '700', color: '#3D1F8D', marginBottom: 2 },
+  alternativeExplain:    { fontSize: 11, color: '#7B6FB5', lineHeight: 16 },
 
   loadingRow:    { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 16, paddingBottom: 8 },
   loadingBubble: { backgroundColor: '#F5F5FA', borderRadius: 18, paddingHorizontal: 20, paddingVertical: 12 },
