@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   ChevronLeft, X, Send, Smile, Meh, Frown, Angry, Heart,
-  HelpCircle, MessageCircle, CheckCircle, AlertCircle,
+  HelpCircle, MessageCircle, CheckCircle, AlertCircle, Lightbulb,
 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
@@ -26,6 +26,11 @@ interface Correction {
   type?:       string;
 }
 
+interface NaturalAlternative {
+  expression:  string;
+  explanation: string;
+}
+
 interface SpeechAnalysis {
   detected_speech_level: string;
   speech_level_correct:  boolean;
@@ -33,6 +38,7 @@ interface SpeechAnalysis {
   has_errors:            boolean;
   accuracy_score:        number;
   corrections:           Correction[];
+  natural_alternatives:  NaturalAlternative[];
   encouragement?:        string;
 }
 
@@ -96,6 +102,9 @@ const sendMessageToAI = async (
   if (!res.ok) throw new Error(`AI server error: ${res.status}`);
   const data = await res.json();
 
+  // ── 디버그 로그 ───────────────────────────────────────────────
+  console.log('[ChatScreen] Raw correction:', JSON.stringify(data.correction, null, 2));
+
   const correction = data.correction;
   const speech_analysis: SpeechAnalysis | null = correction ? {
     detected_speech_level: correction.detected_speech_level || '',
@@ -104,8 +113,11 @@ const sendMessageToAI = async (
     has_errors:            correction.has_errors            ?? false,
     accuracy_score:        correction.accuracy_score        ?? 100,
     corrections:           correction.corrections           || [],
+    natural_alternatives:  correction.natural_alternatives  || [],
     encouragement:         correction.encouragement         || '',
   } : null;
+
+  console.log('[ChatScreen] natural_alternatives:', speech_analysis?.natural_alternatives);
 
   return {
     message:        data.message,
@@ -156,6 +168,7 @@ export default function ChatScreen() {
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
   const [correctStreak,    setCorrectStreak]    = useState(0);
+  // 기본값 true — 항상 펼침
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
 
   const moodAnim    = useRef(new Animated.Value(70)).current;
@@ -182,7 +195,6 @@ export default function ChatScreen() {
     Animated.spring(moodAnim, { toValue: avatarMood, useNativeDriver: false, friction: 8 }).start();
   }, [avatarMood]);
 
-  // ── 메시지 전송 ───────────────────────────────────────────────
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
@@ -214,8 +226,10 @@ export default function ChatScreen() {
         return [...updated, aiMsg];
       });
 
-      if (data.speech_analysis?.has_errors)
+      // 피드백 있으면 항상 펼침
+      if (data.speech_analysis) {
         setExpandedFeedback(prev => ({ ...prev, [userMsg.id]: true }));
+      }
 
     } catch (error) {
       console.error('Chat error:', error);
@@ -229,56 +243,53 @@ export default function ChatScreen() {
     }
   };
 
-  // ── 세션 종료 — 피드백 데이터 함께 전달 ─────────────────────
   const handleEndChat = async () => {
     const duration    = Math.floor((Date.now() - startTime) / 1000);
     const durationStr = `${String(Math.floor(duration/60)).padStart(2,'0')}:${String(duration%60).padStart(2,'0')}`;
     const history     = buildHistoryFromMessages(messages);
 
-    // 채팅 중 수집된 교정 데이터 추출
     const sessionCorrections = messages
       .filter(m => m.sender === 'user' && m.feedback)
       .map(m => ({
-        message:         m.text,
-        accuracy_score:  m.feedback!.accuracy_score,
-        has_errors:      m.feedback!.has_errors,
-        corrections:     m.feedback!.corrections,
-        detected_level:  m.feedback!.detected_speech_level,
-        encouragement:   m.feedback!.encouragement,
+        message:        m.text,
+        accuracy_score: m.feedback!.accuracy_score,
+        has_errors:     m.feedback!.has_errors,
+        corrections:    m.feedback!.corrections,
+        detected_level: m.feedback!.detected_speech_level,
+        encouragement:  m.feedback!.encouragement,
       }));
 
     const avgScore = sessionCorrections.length > 0
-      ? Math.round(sessionCorrections.reduce((sum, c) => sum + c.accuracy_score, 0) / sessionCorrections.length)
+      ? Math.round(sessionCorrections.reduce((s, c) => s + c.accuracy_score, 0) / sessionCorrections.length)
       : 100;
 
     let sessionReport = null;
     try { sessionReport = await analyzeSessionWithAI(avatar, history); } catch {}
 
     navigation.navigate('ConversationSummary', {
-      avatar,
-      duration:            durationStr,
-      situation,
-      conversationHistory: history,
-      finalMood:           avatarMood,
-      sessionReport,
-      sessionCorrections,   // ← 채팅 중 수집된 교정 데이터
-      avgScore,             // ← 평균 정확도
+      avatar, duration: durationStr, situation,
+      conversationHistory: history, finalMood: avatarMood,
+      sessionReport, sessionCorrections, avgScore,
     });
   };
 
   // ── 피드백 카드 ───────────────────────────────────────────────
   const renderFeedbackCard = (item: Message) => {
     if (!item.feedback) return null;
-    const fb       = item.feedback;
-    const expanded = expandedFeedback[item.id];
-    const hasError = fb.has_errors;
+
+    const fb              = item.feedback;
+    const expanded        = expandedFeedback[item.id] ?? true; // 기본 펼침
+    const hasError        = fb.has_errors;
+    const alternatives    = fb.natural_alternatives || [];
+    const hasAlternatives = alternatives.length > 0;
 
     return (
       <TouchableOpacity
         style={[styles.feedbackCard, hasError ? styles.feedbackCardError : styles.feedbackCardOk]}
-        onPress={() => setExpandedFeedback(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+        onPress={() => setExpandedFeedback(prev => ({ ...prev, [item.id]: !expanded }))}
         activeOpacity={0.8}
       >
+        {/* ── 요약 행 ── */}
         <View style={styles.feedbackSummaryRow}>
           {hasError
             ? <AlertCircle size={14} color="#E53935" />
@@ -289,14 +300,25 @@ export default function ChatScreen() {
               : fb.expected_speech_level || '말투 분석'}
           </Text>
           <Text style={styles.feedbackScore}>{fb.accuracy_score}점</Text>
+          {hasAlternatives && !expanded && (
+            <View style={styles.altIndicator}>
+              <Lightbulb size={11} color="#6C3BFF" />
+              <Text style={styles.altIndicatorText}>대안</Text>
+            </View>
+          )}
           <Text style={styles.feedbackExpand}>{expanded ? '▲' : '▼'}</Text>
         </View>
 
+        {/* ── 펼쳐진 내용 ── */}
         {expanded && (
           <View style={styles.feedbackDetail}>
-            {fb.encouragement
-              ? <Text style={styles.feedbackEncouragement}>{fb.encouragement}</Text>
-              : null}
+
+            {/* 격려 메시지 */}
+            {fb.encouragement ? (
+              <Text style={styles.feedbackEncouragement}>{fb.encouragement}</Text>
+            ) : null}
+
+            {/* 교정 목록 */}
             {fb.corrections.length > 0 && (
               <View style={styles.correctionList}>
                 {fb.corrections.map((c, i) => (
@@ -312,6 +334,25 @@ export default function ChatScreen() {
                 ))}
               </View>
             )}
+
+            {/* 이렇게도 말할 수 있어요 */}
+            {hasAlternatives && (
+              <View style={styles.alternativesSection}>
+                <View style={styles.alternativesHeader}>
+                  <Lightbulb size={14} color="#6C3BFF" />
+                  <Text style={styles.alternativesTitle}>이렇게도 말할 수 있어요</Text>
+                </View>
+                {alternatives.map((alt, i) => (
+                  <View key={i} style={[styles.alternativeItem, i < alternatives.length - 1 && styles.alternativeItemBorder]}>
+                    <Text style={styles.alternativeExpression}>"{alt.expression}"</Text>
+                    {alt.explanation ? (
+                      <Text style={styles.alternativeExplain}>{alt.explanation}</Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            )}
+
           </View>
         )}
       </TouchableOpacity>
@@ -472,7 +513,7 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
 
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0F0F8' },
+  header:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0F0F8' },
   headerBtn:       { width: 40, alignItems: 'center' },
   headerCenter:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerAvatar:    { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
@@ -490,7 +531,7 @@ const styles = StyleSheet.create({
   levelBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F8', gap: 8 },
   levelLabel:  { fontSize: 12, color: '#6C6C80' },
 
-  suggestionPopup: { position: 'absolute', bottom: 100, left: 16, right: 16, zIndex: 100, backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, borderWidth: 1, borderColor: '#F0EDFF' },
+  suggestionPopup:   { position: 'absolute', bottom: 100, left: 16, right: 16, zIndex: 100, backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, borderWidth: 1, borderColor: '#F0EDFF' },
   suggestionContent: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
   suggestionIcon:    { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F0EDFF', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   suggestionLabel:   { fontSize: 12, color: '#6C6C80', marginBottom: 4 },
@@ -514,6 +555,7 @@ const styles = StyleSheet.create({
   bubbleText:    { fontSize: 14, color: '#1A1A2E', lineHeight: 20 },
   bubbleTextUser: { color: '#FFFFFF' },
 
+  // ── 피드백 카드 ──────────────────────────────────────────────
   feedbackCard:      { marginTop: 4, marginLeft: 40, borderRadius: 12, padding: 10, borderWidth: 1 },
   feedbackCardOk:    { backgroundColor: '#F0FFF4', borderColor: '#A5D6A7' },
   feedbackCardError: { backgroundColor: '#FFF8F0', borderColor: '#FFCC80' },
@@ -521,12 +563,14 @@ const styles = StyleSheet.create({
   feedbackSummaryRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
   feedbackSummaryText: { flex: 1, fontSize: 12, fontWeight: '600' },
   feedbackScore:       { fontSize: 12, fontWeight: '700', color: '#6C3BFF' },
-  feedbackExpand:      { fontSize: 10, color: '#B0B0C5', marginLeft: 4 },
+  altIndicator:        { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#F0EDFF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  altIndicatorText:    { fontSize: 10, fontWeight: '600', color: '#6C3BFF' },
+  feedbackExpand:      { fontSize: 10, color: '#B0B0C5', marginLeft: 2 },
 
-  feedbackDetail:       { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
-  feedbackEncouragement: { fontSize: 13, color: '#4CAF50', marginBottom: 8, lineHeight: 18 },
+  feedbackDetail:        { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
+  feedbackEncouragement: { fontSize: 13, color: '#4CAF50', marginBottom: 10, lineHeight: 18 },
 
-  correctionList: { gap: 8 },
+  correctionList: { gap: 8, marginBottom: 12 },
   correctionItem: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 4 },
   correctionRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 },
   correctionOriginal: { fontSize: 13, color: '#E53935', textDecorationLine: 'line-through' },
@@ -534,6 +578,15 @@ const styles = StyleSheet.create({
   correctionFixed:    { fontSize: 13, color: '#2E7D32', fontWeight: '600' },
   correctionExplain:  { fontSize: 12, color: '#6C6C80', lineHeight: 18 },
   correctionTip:      { fontSize: 11, color: '#6C3BFF', marginTop: 2 },
+
+  // ── 이렇게도 말할 수 있어요 ───────────────────────────────────
+  alternativesSection:   { backgroundColor: '#F5F0FF', borderRadius: 10, padding: 12 },
+  alternativesHeader:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  alternativesTitle:     { fontSize: 12, fontWeight: '700', color: '#6C3BFF' },
+  alternativeItem:       { paddingBottom: 8 },
+  alternativeItemBorder: { borderBottomWidth: 1, borderBottomColor: '#E8E0FF', marginBottom: 8 },
+  alternativeExpression: { fontSize: 14, fontWeight: '700', color: '#4527A0', marginBottom: 2 },
+  alternativeExplain:    { fontSize: 11, color: '#7B7B9A', lineHeight: 16 },
 
   loadingRow:    { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 16, paddingBottom: 8 },
   loadingBubble: { backgroundColor: '#F5F5FA', borderRadius: 18, paddingHorizontal: 20, paddingVertical: 12 },

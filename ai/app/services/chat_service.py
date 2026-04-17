@@ -3,6 +3,7 @@ Chat Service - Handles avatar conversations with real-time correction
 Features:
 - Real-time grammar, speech level, and vocabulary correction
 - Inline corrections with explanations
+- Natural alternative expressions (이렇게도 말할 수 있어요)
 - Encouragement and positive reinforcement
 - Adaptive hints based on mistake patterns
 - Mood-based avatar response style
@@ -53,11 +54,19 @@ class InlineCorrection(BaseModel):
     tip:         Optional[str]      = Field(None, description="학습 팁")
 
 
+class NaturalAlternative(BaseModel):
+    expression:  str = Field(..., description="더 자연스러운 표현")
+    explanation: str = Field(..., description="왜 더 자연스러운지")
+
+
 class RealTimeCorrection(BaseModel):
     original_message:  str
     corrected_message: Optional[str] = None
     has_errors:        bool = False
     corrections:       List[InlineCorrection] = []
+
+    # 더 자연스러운 표현 제안
+    natural_alternatives: List[NaturalAlternative] = []
 
     expected_speech_level: str
     detected_speech_level: Optional[str] = None
@@ -151,17 +160,28 @@ def build_realtime_correction_prompt(
             "tip": "기억하기 쉬운 팁 (선택사항)"
         }}
     ],
+    "natural_alternatives": [
+        {{
+            "expression": "이렇게도 말할 수 있어요 — 더 자연스러운 {speech_info['name_ko']} 표현",
+            "explanation": "왜 이 표현이 더 자연스러운지 짧게"
+        }}
+    ],
     "encouragement": "긍정적인 피드백 메시지 (잘한 점 언급)"
 }}
 
+## natural_alternatives 작성 규칙
+- 오류가 없어도 항상 1~2개 제안하세요 (더 세련된 표현, 다양한 표현)
+- 사용자 메시지와 같은 의미지만 더 자연스럽고 원어민스러운 표현으로
+- {speech_info['name_ko']} 말투를 유지하세요
+- 너무 어렵지 않고 실제로 쓸 수 있는 표현으로
+- 예시: "배고프지 않아요" → "배가 안 고파요", "딱히 배가 고프진 않아요"
+
 ## 절대 규칙
 - detected_speech_level 은 반드시 formal / polite / informal 세 값 중 하나만 사용하세요
-- detected_speech_level 은 절대 null 이 되면 안 됩니다. 짧은 문장이어도 반드시 판단하세요
-- corrected_message 는 반드시 {speech_info['name_ko']} 말투로 작성하세요 (어미: {speech_info['examples'][0]} 형태)
+- detected_speech_level 은 절대 null 이 되면 안 됩니다
+- corrected_message 는 반드시 {speech_info['name_ko']} 말투로 작성하세요
 - corrections의 "original" 필드는 반드시 사용자 메시지에 실제로 존재하는 단어/표현만 사용하세요
-- 사용자 메시지에 없는 단어를 original로 쓰는 것은 절대 금지입니다
 - severity 기준: error = 명확한 실수 / warning = 어색함 / info = 더 좋은 표현 제안
-- 단순히 더 자연스러운 표현 제안은 info, 실제 문법/말투 오류는 error/warning 사용
 - 오류가 없으면 corrections는 빈 배열, has_errors는 false
 - 잘한 점이 있으면 반드시 encouragement에 언급"""
 
@@ -236,42 +256,38 @@ _SHORT_RESPONSES = {
     "오케이", "ok", "OK", "ㅋㅋ", "ㅎㅎ", "맞아", "맞아요", "그렇구나",
 }
 
-# ── 반말 → 해요체 변환 테이블 (길이 내림차순으로 검색) ──────────────────────
 _INFORMAL_TO_POLITE = {
-    # 복합 어미 (먼저 체크)
-    "이야":   "이에요",    # 이거이야 → 이거이에요
-    "거야":   "거예요",    # 이거야 → 이거예요
-    "잖아":   "잖아요",    # 그렇잖아 → 그렇잖아요
-    "구나":   "군요",      # 그렇구나 → 그렇군요
-    "거든":   "거든요",    # 그렇거든 → 그렇거든요
-    "지만":   "지만요",    # 그렇지만 → 그렇지만요
-    "는데":   "는데요",    # 그런데 → 그런데요
+    "이야":   "이에요",
+    "거야":   "거예요",
+    "잖아":   "잖아요",
+    "구나":   "군요",
+    "거든":   "거든요",
+    "지만":   "지만요",
+    "는데":   "는데요",
     "ㄴ데":   "ㄴ데요",
-    "을게":   "을게요",    # 할게 → 할게요
+    "을게":   "을게요",
     "ㄹ게":   "ㄹ게요",
-    "을래":   "을래요",    # 할래 → 할래요
+    "을래":   "을래요",
     "ㄹ래":   "ㄹ래요",
-    "을까":   "을까요",    # 할까 → 할까요
+    "을까":   "을까요",
     "ㄹ까":   "ㄹ까요",
-    # 단순 어미
-    "싶음":   "싶어요",    # 먹고 싶음 → 먹고 싶어요
-    "없음":   "없어요",    # 배고픔 없음 → 없어요
-    "있음":   "있어요",    # 배고픔 있음 → 있어요
-    "함":     "해요",      # 공부함 → 공부해요
-    "임":     "이에요",    # 학생임 → 학생이에요
-    "음":     "어요",      # 싶음 → 싶어요 (일반)
-    "야":     "요",        # 배고파야 → 배고파요
-    "해":     "해요",      # 공부해 → 공부해요
-    "어":     "어요",      # 먹어 → 먹어요
-    "아":     "아요",      # 좋아 → 좋아요
-    "지":     "지요",      # 그렇지 → 그렇지요
-    "군":     "군요",      # 그렇군 → 그렇군요
-    "네":     "네요",      # 그렇네 → 그렇네요
-    "래":     "래요",      # 그래래 → 그래래요
-    "자":     "시죠",      # 가자 → 가시죠
+    "싶음":   "싶어요",
+    "없음":   "없어요",
+    "있음":   "있어요",
+    "함":     "해요",
+    "임":     "이에요",
+    "음":     "어요",
+    "야":     "요",
+    "해":     "해요",
+    "어":     "어요",
+    "아":     "아요",
+    "지":     "지요",
+    "군":     "군요",
+    "네":     "네요",
+    "래":     "래요",
+    "자":     "시죠",
 }
 
-# ── 반말 → 합쇼체 변환 테이블 ────────────────────────────────────────────────
 _INFORMAL_TO_FORMAL = {
     "이야":   "입니다",
     "거야":   "겁니다",
@@ -292,16 +308,11 @@ _INFORMAL_TO_FORMAL = {
 
 
 def simple_convert_to_level(text: str, target: str) -> Optional[str]:
-    """반말 → 해요체/합쇼체 단순 변환. 변환 불가 시 None."""
     text  = text.strip()
     table = _INFORMAL_TO_POLITE if target == "polite" else _INFORMAL_TO_FORMAL
-
-    # 길이 내림차순으로 검색 (긴 어미 먼저)
     for informal, formal in sorted(table.items(), key=lambda x: -len(x[0])):
         if text.endswith(informal):
-            converted = text[: -len(informal)] + formal
-            return converted
-
+            return text[: -len(informal)] + formal
     return None
 
 
@@ -470,13 +481,11 @@ class ChatService:
             try:
                 original  = (c.get("original",  "") or "").strip()
                 corrected = (c.get("corrected", "") or "").strip()
-
                 if not original or not corrected:  continue
                 if original == corrected:          continue
                 if original not in user_message:
                     print(f"[ChatService] ⚠️ Hallucination skip: '{original}' not in '{user_message}'")
                     continue
-
                 corrections.append(InlineCorrection(
                     original=original,
                     corrected=corrected,
@@ -488,11 +497,26 @@ class ChatService:
             except (ValueError, KeyError):
                 continue
 
+        # ── natural_alternatives 파싱 ─────────────────────────────────────────
+        natural_alternatives = []
+        for a in result.get("natural_alternatives", []):
+            try:
+                expression  = (a.get("expression",  "") or "").strip()
+                explanation = (a.get("explanation", "") or "").strip()
+                if not expression: continue
+                # 원문과 동일하면 스킵
+                if expression == user_message.strip(): continue
+                natural_alternatives.append(NaturalAlternative(
+                    expression=expression,
+                    explanation=explanation,
+                ))
+            except Exception:
+                continue
+
         # ── 하이브리드 발화 레벨 감지 ──────────────────────────────────────────
         clova_raw     = (result.get("detected_speech_level") or "").strip().lower()
         clova_norm    = LEVEL_MAP.get(clova_raw, clova_raw)
         detected_norm = verify_with_rules(user_message, clova_norm)
-
         is_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
 
         # ── has_errors — info 제외 ────────────────────────────────────────────
@@ -506,34 +530,26 @@ class ChatService:
         if not has_errors and corrections:
             accuracy_score = max(accuracy_score, 90)
 
-        # ── 말투 오류 시 — corrected 검증 후 최선의 교정 선택 ─────────────────
+        # ── 말투 오류 시 corrected 검증 ──────────────────────────────────────
         if not is_level_correct:
             accuracy_score = min(accuracy_score, 55)
             expected_name  = SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"]
             example        = SPEECH_LEVEL_INFO[expected_speech_level]["examples"][0]
 
-            # 1단계: CLOVA corrected_message 검증
             clova_corrected      = (result.get("corrected_message") or "").strip()
             clova_corrected_norm = verify_with_rules(clova_corrected, "") if clova_corrected else ""
 
             if clova_corrected and clova_corrected_norm == expected_norm:
-                # CLOVA가 올바른 말투로 교정 → 사용
                 best_corrected = clova_corrected
                 print(f"[ChatService] ✅ CLOVA corrected: '{best_corrected}'")
             else:
-                # 2단계: 규칙 기반 변환 시도
                 rule_corrected = simple_convert_to_level(user_message, expected_norm)
-                if rule_corrected:
-                    rule_norm = verify_with_rules(rule_corrected, "")
-                    if rule_norm == expected_norm:
-                        best_corrected = rule_corrected
-                        print(f"[ChatService] ✅ Rule corrected: '{best_corrected}'")
-                    else:
-                        best_corrected = example
-                        print(f"[ChatService] ⚠️ Rule failed, using example: '{best_corrected}'")
+                if rule_corrected and verify_with_rules(rule_corrected, "") == expected_norm:
+                    best_corrected = rule_corrected
+                    print(f"[ChatService] ✅ Rule corrected: '{best_corrected}'")
                 else:
                     best_corrected = example
-                    print(f"[ChatService] ⚠️ No rule match, using example: '{best_corrected}'")
+                    print(f"[ChatService] ⚠️ Using example: '{best_corrected}'")
 
             corrections.insert(0, InlineCorrection(
                 original=user_message,
@@ -549,6 +565,7 @@ class ChatService:
             corrected_message=result.get("corrected_message"),
             has_errors=has_errors,
             corrections=corrections,
+            natural_alternatives=natural_alternatives,
             expected_speech_level=SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"],
             detected_speech_level=detected_norm or clova_raw or expected_norm,
             speech_level_correct=is_level_correct,
