@@ -11,10 +11,9 @@ import {
 } from 'lucide-react-native';
 import { Header, Card, Button, ProgressBar, Tag, Icon } from '../components';
 
-// ── AI 서버 주소 ──────────────────────────────────────────────────────────────
 const AI_SERVER = 'http://10.0.2.2:8000';
 
-// ── 타입 정의 ─────────────────────────────────────────────────────────────────
+// ── 타입 ─────────────────────────────────────────────────────────
 interface MistakeItem {
   original:    string;
   correction:  string;
@@ -26,15 +25,10 @@ interface VocabularyItem {
   word:    string;
   meaning: string;
   example: string;
-  saved?:  boolean;
 }
 
 interface SummaryData {
-  scores: {
-    speechAccuracy: number;
-    vocabulary:     number;
-    naturalness:    number;
-  };
+  scores:            { speechAccuracy: number; vocabulary: number; naturalness: number; };
   mistakes:          MistakeItem[];
   vocabularyToLearn: VocabularyItem[];
   phrasesToLearn:    VocabularyItem[];
@@ -42,69 +36,107 @@ interface SummaryData {
   suggestions:       string[];
 }
 
-// ── 폴백 mock 데이터 ──────────────────────────────────────────────────────────
 const mockSummary: SummaryData = {
-  scores: {
-    speechAccuracy: 0.72,
-    vocabulary:     0.65,
-    naturalness:    0.78,
-  },
-  mistakes: [
-    {
-      original:    '나는 커피 마시고 싶어요',
-      correction:  '저는 커피를 마시고 싶어요',
-      explanation: '"나"보다 "저"가 더 공손합니다. 또한 목적격 조사 "를"이 필요합니다.',
-      type:        'politeness',
-    },
-    {
-      original:    '어제 학교 갔어요',
-      correction:  '어제 학교에 갔어요',
-      explanation: '장소를 나타내는 조사 "에"가 필요합니다.',
-      type:        'grammar',
-    },
-  ],
+  scores:            { speechAccuracy: 0.80, vocabulary: 0.72, naturalness: 0.78 },
+  mistakes:          [],
   vocabularyToLearn: [
     { word: '감사합니다', meaning: 'Thank you (formal)', example: '도와주셔서 감사합니다.' },
     { word: '실례합니다', meaning: 'Excuse me',          example: '실례합니다, 질문이 있어요.' },
-    { word: '괜찮아요',   meaning: "It's okay",          example: '걱정 마세요, 괜찮아요.' },
   ],
-  phrasesToLearn: [
-    { word: '어떻게 지내세요?',  meaning: 'How are you?',        example: '오랜만이에요! 어떻게 지내세요?' },
-    { word: '다음에 또 봬요',    meaning: 'See you next time',    example: '오늘 즐거웠어요. 다음에 또 봬요!' },
-    { word: '잘 부탁드립니다',   meaning: 'Nice to meet you',     example: '처음 뵙겠습니다. 잘 부탁드립니다.' },
+  phrasesToLearn:    [
+    { word: '어떻게 지내세요?', meaning: 'How are you?',     example: '오랜만이에요! 어떻게 지내세요?' },
+    { word: '다음에 또 봬요',   meaning: 'See you next time', example: '오늘 즐거웠어요. 다음에 또 봬요!' },
   ],
-  improvements: ['존댓말 사용이 많이 좋아졌어요!', '문장 구조가 자연스러워지고 있어요.'],
-  suggestions:  ['조사 사용을 더 연습해보세요 (은/는, 이/가, 을/를)', '격식체와 비격식체의 차이를 공부해보세요'],
+  improvements: ['대화를 잘 진행하셨습니다!'],
+  suggestions:  [],
 };
 
-// ── 유틸 ──────────────────────────────────────────────────────────────────────
 const toMistakeType = (t: string): MistakeItem['type'] => {
   if (t === 'speech_level' || t === 'honorific') return 'politeness';
-  if (t === 'grammar' || t === 'spelling' || t === 'particles') return 'grammar';
-  if (t === 'vocabulary' || t === 'word_choice') return 'vocabulary';
+  if (t === 'grammar'      || t === 'spelling')  return 'grammar';
+  if (t === 'vocabulary'   || t === 'word_choice') return 'vocabulary';
   return 'naturalness';
 };
-
 
 export default function ConversationSummaryScreen() {
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
-  const { avatar, duration, conversationHistory } = route.params || {};
+  const {
+    avatar,
+    duration,
+    conversationHistory,
+    sessionReport,
+    sessionCorrections,  // ← ChatScreen에서 전달된 교정 데이터
+    avgScore,            // ← ChatScreen에서 계산된 평균 점수
+  } = route.params || {};
 
-  const [loading, setLoading]             = useState(true);
-  const [summary, setSummary]             = useState<SummaryData>(mockSummary);
-  const [savedItems, setSavedItems]       = useState<Set<string>>(new Set());
+  const [loading,         setLoading]         = useState(true);
+  const [summary,         setSummary]         = useState<SummaryData>(mockSummary);
+  const [savedItems,      setSavedItems]      = useState<Set<string>>(new Set());
   const [expandedMistake, setExpandedMistake] = useState<number | null>(null);
 
   useEffect(() => {
-    analyzeConversation();
+    buildSummary();
   }, []);
 
-  // ── AI 서버 세션 분석 ────────────────────────────────────────────────────────
-  const analyzeConversation = async () => {
+  const buildSummary = async () => {
     try {
       setLoading(true);
 
+      // ── 우선순위 1: ChatScreen에서 수집된 실시간 교정 데이터 사용 ──
+      if (sessionCorrections && sessionCorrections.length > 0) {
+        const allCorrections = sessionCorrections.flatMap((s: any) => s.corrections || []);
+        const speechScore    = avgScore || 80;
+
+        // error/warning corrections만 mistakes로 표시
+        const mistakes = allCorrections
+          .filter((c: any) => c.severity === 'error' || c.severity === 'warning')
+          .slice(0, 6)
+          .map((c: any) => ({
+            original:    c.original    || '',
+            correction:  c.corrected   || '',
+            explanation: c.explanation || '',
+            type:        toMistakeType(c.type || ''),
+          }));
+
+        // 격려 메시지 수집
+        const encouragements = sessionCorrections
+          .filter((s: any) => s.encouragement && !s.has_errors)
+          .map((s: any) => s.encouragement)
+          .slice(0, 2);
+
+        // 팁 수집
+        const tips = allCorrections
+          .filter((c: any) => c.tip)
+          .map((c: any) => c.tip)
+          .slice(0, 3);
+
+        setSummary({
+          scores: {
+            speechAccuracy: speechScore / 100,
+            vocabulary:     (sessionReport?.scores?.vocabulary  || 75) / 100,
+            naturalness:    (sessionReport?.scores?.naturalness || 78) / 100,
+          },
+          mistakes,
+          vocabularyToLearn: (sessionReport?.vocabulary_to_learn || []).map((v: any) => ({
+            word:    v.word    || '',
+            meaning: v.meaning || '',
+            example: v.example || '',
+          })),
+          phrasesToLearn: (sessionReport?.phrases_to_learn || []).map((p: any) => ({
+            word:    p.phrase || p.word || '',
+            meaning: p.meaning || '',
+            example: p.example || '',
+          })),
+          improvements: encouragements.length > 0
+            ? encouragements
+            : [sessionReport?.overall_feedback || '대화를 잘 진행하셨습니다!'],
+          suggestions: tips,
+        });
+        return;
+      }
+
+      // ── 우선순위 2: AI 서버 분석 호출 ─────────────────────────────
       const res = await fetch(`${AI_SERVER}/api/v1/chat/analyze`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,10 +148,9 @@ export default function ConversationSummaryScreen() {
             personality_traits: avatar?.personality_traits || [],
             interests:          avatar?.interests          || [],
             dislikes:           avatar?.dislikes           || [],
-            greeting:           avatar?.greeting           || '',
           },
           conversation_history: (conversationHistory || []).map((m: any) => ({
-            role:    m.role    || m.sender === 'ai' ? 'assistant' : 'user',
+            role:    m.role || (m.sender === 'ai' ? 'assistant' : 'user'),
             content: m.content || m.text || '',
           })),
         }),
@@ -146,7 +177,7 @@ export default function ConversationSummaryScreen() {
           example: v.example || '',
         })),
         phrasesToLearn: (data.phrases_to_learn || []).map((p: any) => ({
-          word:    p.phrase  || p.word  || '',
+          word:    p.phrase || p.word || '',
           meaning: p.meaning || '',
           example: p.example || '',
         })),
@@ -160,16 +191,15 @@ export default function ConversationSummaryScreen() {
       });
 
     } catch (error) {
-      console.error('Analyze error — using mock:', error);
+      console.error('Summary error — using mock:', error);
       setSummary(mockSummary);
     } finally {
       setLoading(false);
     }
   };
 
-  // ── 저장 ─────────────────────────────────────────────────────────────────────
   const handleSaveItem = (item: string) => {
-    setSavedItems((prev) => {
+    setSavedItems(prev => {
       const next = new Set(prev);
       next.has(item) ? next.delete(item) : next.add(item);
       return next;
@@ -192,7 +222,6 @@ export default function ConversationSummaryScreen() {
     });
   };
 
-  // ── 유틸 ─────────────────────────────────────────────────────────────────────
   const getMistakeTypeColor = (type: string) => {
     switch (type) {
       case 'grammar':     return '#E53935';
@@ -213,28 +242,30 @@ export default function ConversationSummaryScreen() {
     }
   };
 
-  // ── 로딩 ─────────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <Header title="대화 분석 중..." showBack={false} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6C3BFF" />
-          <Text style={styles.loadingText}>AI가 대화를 분석하고 있어요...</Text>
+          <Text style={styles.loadingText}>
+            {sessionCorrections?.length > 0
+              ? '대화 결과를 정리하고 있어요...'
+              : 'AI가 대화를 분석하고 있어요...'}
+          </Text>
           <Text style={styles.loadingSubtext}>잠시만 기다려주세요</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // ── 화면 ─────────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="대화 요약" showBack={false} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* Score Card */}
+        {/* ── 점수 카드 ── */}
         <Card variant="elevated" style={styles.scoreCard}>
           <View style={styles.scoreHeader}>
             <View style={[styles.avatarIcon, { backgroundColor: avatar?.avatarBg || avatar?.avatar_bg || '#FFB6C1' }]}>
@@ -242,7 +273,11 @@ export default function ConversationSummaryScreen() {
             </View>
             <View style={styles.scoreHeaderText}>
               <Text style={styles.scoreTitle}>{avatar?.name_ko || '아바타'}와의 대화</Text>
-              <Text style={styles.scoreSubtitle}>대화 분석 결과</Text>
+              <Text style={styles.scoreSubtitle}>
+                {sessionCorrections?.length > 0
+                  ? `${sessionCorrections.length}개 메시지 분석됨`
+                  : '대화 분석 결과'}
+              </Text>
             </View>
           </View>
 
@@ -265,7 +300,7 @@ export default function ConversationSummaryScreen() {
           </View>
         </Card>
 
-        {/* Mistakes Section */}
+        {/* ── 틀린 부분 ── */}
         <View style={styles.sectionHeader}>
           <AlertTriangle size={20} color="#E53935" />
           <Text style={styles.sectionTitle}>틀린 부분</Text>
@@ -322,67 +357,65 @@ export default function ConversationSummaryScreen() {
           )}
         </View>
 
-        {/* Vocabulary to Learn */}
-        <View style={styles.sectionHeader}>
-          <BookOpen size={20} color="#6C3BFF" />
-          <Text style={styles.sectionTitle}>배울 단어</Text>
-          <TouchableOpacity style={styles.saveAllBtn} onPress={handleSaveAll}>
-            <Bookmark size={16} color="#6C3BFF" />
-            <Text style={styles.saveAllText}>모두 저장</Text>
-          </TouchableOpacity>
-        </View>
+        {/* ── 배울 단어 ── */}
+        {summary.vocabularyToLearn.length > 0 && (
+          <>
+            <View style={styles.sectionHeader}>
+              <BookOpen size={20} color="#6C3BFF" />
+              <Text style={styles.sectionTitle}>배울 단어</Text>
+              <TouchableOpacity style={styles.saveAllBtn} onPress={handleSaveAll}>
+                <Bookmark size={16} color="#6C3BFF" />
+                <Text style={styles.saveAllText}>모두 저장</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.vocabList}>
+              {summary.vocabularyToLearn.map((item, index) => (
+                <Card key={index} variant="elevated" style={styles.vocabCard}>
+                  <View style={styles.vocabHeader}>
+                    <Text style={styles.vocabWord}>{item.word}</Text>
+                    <TouchableOpacity onPress={() => handleSaveItem(item.word)}>
+                      <Bookmark size={20} color={savedItems.has(item.word) ? '#6C3BFF' : '#B0B0C5'} fill={savedItems.has(item.word) ? '#6C3BFF' : 'transparent'} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.vocabMeaning}>{item.meaning}</Text>
+                  <View style={styles.vocabExample}>
+                    <Text style={styles.vocabExampleLabel}>예문:</Text>
+                    <Text style={styles.vocabExampleText}>{item.example}</Text>
+                  </View>
+                </Card>
+              ))}
+            </View>
+          </>
+        )}
 
-        <View style={styles.vocabList}>
-          {summary.vocabularyToLearn.map((item, index) => (
-            <Card key={index} variant="elevated" style={styles.vocabCard}>
-              <View style={styles.vocabHeader}>
-                <Text style={styles.vocabWord}>{item.word}</Text>
-                <TouchableOpacity onPress={() => handleSaveItem(item.word)}>
-                  <Bookmark
-                    size={20}
-                    color={savedItems.has(item.word) ? '#6C3BFF' : '#B0B0C5'}
-                    fill={savedItems.has(item.word) ? '#6C3BFF' : 'transparent'}
-                  />
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.vocabMeaning}>{item.meaning}</Text>
-              <View style={styles.vocabExample}>
-                <Text style={styles.vocabExampleLabel}>예문:</Text>
-                <Text style={styles.vocabExampleText}>{item.example}</Text>
-              </View>
-            </Card>
-          ))}
-        </View>
+        {/* ── 배울 표현 ── */}
+        {summary.phrasesToLearn.length > 0 && (
+          <>
+            <View style={styles.sectionHeader}>
+              <MessageCircle size={20} color="#4CAF50" />
+              <Text style={styles.sectionTitle}>배울 표현</Text>
+            </View>
+            <View style={styles.vocabList}>
+              {summary.phrasesToLearn.map((item, index) => (
+                <Card key={index} variant="elevated" style={styles.vocabCard}>
+                  <View style={styles.vocabHeader}>
+                    <Text style={styles.vocabWord}>{item.word}</Text>
+                    <TouchableOpacity onPress={() => handleSaveItem(item.word)}>
+                      <Bookmark size={20} color={savedItems.has(item.word) ? '#6C3BFF' : '#B0B0C5'} fill={savedItems.has(item.word) ? '#6C3BFF' : 'transparent'} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.vocabMeaning}>{item.meaning}</Text>
+                  <View style={styles.vocabExample}>
+                    <Text style={styles.vocabExampleLabel}>예문:</Text>
+                    <Text style={styles.vocabExampleText}>{item.example}</Text>
+                  </View>
+                </Card>
+              ))}
+            </View>
+          </>
+        )}
 
-        {/* Phrases to Learn */}
-        <View style={styles.sectionHeader}>
-          <MessageCircle size={20} color="#4CAF50" />
-          <Text style={styles.sectionTitle}>배울 표현</Text>
-        </View>
-
-        <View style={styles.vocabList}>
-          {summary.phrasesToLearn.map((item, index) => (
-            <Card key={index} variant="elevated" style={styles.vocabCard}>
-              <View style={styles.vocabHeader}>
-                <Text style={styles.vocabWord}>{item.word}</Text>
-                <TouchableOpacity onPress={() => handleSaveItem(item.word)}>
-                  <Bookmark
-                    size={20}
-                    color={savedItems.has(item.word) ? '#6C3BFF' : '#B0B0C5'}
-                    fill={savedItems.has(item.word) ? '#6C3BFF' : 'transparent'}
-                  />
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.vocabMeaning}>{item.meaning}</Text>
-              <View style={styles.vocabExample}>
-                <Text style={styles.vocabExampleLabel}>예문:</Text>
-                <Text style={styles.vocabExampleText}>{item.example}</Text>
-              </View>
-            </Card>
-          ))}
-        </View>
-
-        {/* Improvements */}
+        {/* ── 잘한 점 ── */}
         <View style={styles.sectionHeader}>
           <CheckCircle size={20} color="#4CAF50" />
           <Text style={styles.sectionTitle}>잘한 점</Text>
@@ -396,7 +429,7 @@ export default function ConversationSummaryScreen() {
           ))}
         </Card>
 
-        {/* Suggestions */}
+        {/* ── 다음에 연습할 것 ── */}
         {summary.suggestions.length > 0 && (
           <>
             <View style={styles.sectionHeader}>
@@ -414,19 +447,16 @@ export default function ConversationSummaryScreen() {
           </>
         )}
 
-        {/* Saved Count */}
+        {/* ── 저장된 항목 ── */}
         {savedItems.size > 0 && (
           <View style={styles.savedBanner}>
             <Bookmark size={18} color="#6C3BFF" fill="#6C3BFF" />
-            <Text style={styles.savedBannerText}>
-              {savedItems.size}개 항목이 저장되었어요
-            </Text>
+            <Text style={styles.savedBannerText}>{savedItems.size}개 항목이 저장되었어요</Text>
           </View>
         )}
 
       </ScrollView>
 
-      {/* Footer */}
       <View style={styles.footer}>
         <Button
           title={`저장하고 계속하기 (${savedItems.size})`}
@@ -465,9 +495,9 @@ const styles = StyleSheet.create({
   saveAllBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#F0EDFF', borderRadius: 16 },
   saveAllText:   { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
 
-  mistakesList:    { gap: 12, marginBottom: 20 },
-  mistakeCard:     { borderColor: '#FFE0E0' },
-  mistakeHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  mistakesList:     { gap: 12, marginBottom: 20 },
+  mistakeCard:      { borderColor: '#FFE0E0' },
+  mistakeHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   mistakeTypeBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   mistakeTypeText:  { fontSize: 11, fontWeight: '600' },
   mistakeContent:   { gap: 8 },
@@ -475,7 +505,7 @@ const styles = StyleSheet.create({
   mistakeLabel:     { fontSize: 14, color: '#E53935', fontWeight: '700', marginRight: 8, width: 20 },
   correctionLabel:  { fontSize: 14, color: '#4CAF50', fontWeight: '700', marginRight: 8, width: 20 },
   mistakeOriginal:  { flex: 1, fontSize: 14, color: '#E53935', textDecorationLine: 'line-through' },
-  mistakeCorrection: { flex: 1, fontSize: 14, color: '#4CAF50', fontWeight: '600' },
+  mistakeCorrection:{ flex: 1, fontSize: 14, color: '#4CAF50', fontWeight: '600' },
   explanationBox:   { backgroundColor: '#F5F5FA', borderRadius: 8, padding: 12, marginTop: 12 },
   explanationText:  { fontSize: 13, color: '#1A1A2E', lineHeight: 20 },
 
@@ -492,10 +522,10 @@ const styles = StyleSheet.create({
   improvementItem:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   improvementText:  { flex: 1, fontSize: 14, color: '#1A1A2E' },
 
-  suggestionsCard:  { marginBottom: 20 },
-  suggestionItem:   { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  suggestionBullet: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#F4A261', marginTop: 6, marginRight: 10 },
-  suggestionText:   { flex: 1, fontSize: 14, color: '#1A1A2E', lineHeight: 20 },
+  suggestionsCard: { marginBottom: 20 },
+  suggestionItem:  { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  suggestionBullet:{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#F4A261', marginTop: 6, marginRight: 10 },
+  suggestionText:  { flex: 1, fontSize: 14, color: '#1A1A2E', lineHeight: 20 },
 
   savedBanner:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#F0EDFF', paddingVertical: 12, borderRadius: 12, marginBottom: 20 },
   savedBannerText: { fontSize: 14, fontWeight: '600', color: '#6C3BFF' },

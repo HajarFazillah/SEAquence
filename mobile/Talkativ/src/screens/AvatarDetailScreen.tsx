@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   Heart, MessageCircle, Edit, Trash2,
   Clock, TrendingUp, Sparkles, User as UserIcon,
+  CheckCircle, AlertTriangle,
 } from 'lucide-react-native';
 import { Header, Card, Button, Tag, StatusBadge, Icon } from '../components';
 import { SPEECH_LEVELS } from '../constants';
 import { deleteAvatar } from '../services/apiUser';
 
-// ── 마크다운 기호 제거 ────────────────────────────────────────────────────────
+const AI_SERVER = 'http://10.0.2.2:8000';
+
 const stripMarkdown = (text: string): string =>
   text
     .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -21,23 +23,19 @@ const stripMarkdown = (text: string): string =>
     .replace(/~~(.*?)~~/g, '$1')
     .trim();
 
-// ── 아바타 데이터로 대화 가이드 생성 (mock fallback) ─────────────────────────
 const buildMockBio = (avatar: any): string => {
-  const name       = avatar?.name_ko || '아바타';
-  const relation   = avatar?.relationship_description || '지인';
-  const traits     = (avatar?.personality_traits || ['친절한']).slice(0, 2).join(', ');
-  const interests  = (avatar?.interests || ['다양한 주제']).slice(0, 3).join(', ');
-  const toLabel    = avatar?.formality_to_user   === 'formal'   ? '합쇼체'
-                   : avatar?.formality_to_user   === 'informal' ? '반말' : '해요체';
-  const fromLabel  = avatar?.formality_from_user === 'formal'   ? '합쇼체'
-                   : avatar?.formality_from_user === 'informal' ? '반말' : '해요체';
-  const style      = avatar?.speaking_style || '자연스럽게 대화해도 좋습니다';
-  const dislikes   = (avatar?.dislikes || []).length > 0
-                   ? avatar.dislikes.join(', ') : '특별히 없음';
+  const name      = avatar?.name_ko || '아바타';
+  const traits    = (avatar?.personality_traits || ['친절한']).slice(0, 2).join(', ');
+  const interests = (avatar?.interests || ['다양한 주제']).slice(0, 3).join(', ');
+  const toLabel   = avatar?.formality_to_user   === 'formal'   ? '합쇼체'
+                  : avatar?.formality_to_user   === 'informal' ? '반말' : '해요체';
+  const fromLabel = avatar?.formality_from_user === 'formal'   ? '합쇼체'
+                  : avatar?.formality_from_user === 'informal' ? '반말' : '해요체';
+  const style     = avatar?.speaking_style || '자연스럽게 대화해도 좋습니다';
+  const dislikes  = (avatar?.dislikes || []).length > 0 ? avatar.dislikes.join(', ') : '특별히 없음';
 
   return (
-    `${name}는 ${relation} 관계입니다. ` +
-    `성격은 ${traits} 편이며, ${interests}에 관심이 많습니다.\n\n` +
+    `${name}는 성격이 ${traits} 편이며, ${interests}에 관심이 많습니다.\n\n` +
     `대화 팁:\n` +
     `• ${name}는 ${toLabel}로 말합니다\n` +
     `• 당신은 ${fromLabel}로 대화하세요\n` +
@@ -46,17 +44,75 @@ const buildMockBio = (avatar: any): string => {
   );
 };
 
+interface CompatibilityInfo {
+  overall_score:       number;
+  shared_interests:    string[];
+  potential_conflicts: string[];
+  recommendation:      string;
+}
+
 export default function AvatarDetailScreen() {
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
   const { avatar } = route.params || {};
 
-  const [isFavorite, setIsFavorite] = useState(false);
+  // ── 모든 hooks를 최상단에 선언 ─────────────────────────────────────────────
+  const [isFavorite,    setIsFavorite]    = useState(false);
+  const [compatibility, setCompatibility] = useState<CompatibilityInfo | null>(null);
+  const [compatLoading, setCompatLoading] = useState(false);
 
-  const stats = {
-    totalConversations: 8,
-    totalMinutes:       45,
-    avgScore:           82,
+  useEffect(() => {
+    if (!avatar) return;
+    loadCompatibility();
+  }, []);
+
+  // ── 궁합 분석 ──────────────────────────────────────────────────────────────
+  const loadCompatibility = async () => {
+    setCompatLoading(true);
+    try {
+      // 사용자 관심사 — 아바타와 겹칠 가능성 있는 일반 관심사 사용
+      const userLikes   = (avatar?.interests || []).slice(0, 3);
+      const userDislikes: string[] = [];
+
+      const res = await fetch(`${AI_SERVER}/api/v1/compatibility/analyze`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_profile: {
+            name:     '나',
+            likes:    userLikes,
+            dislikes: userDislikes,
+          },
+          avatar: {
+            id:                 String(avatar?.id || 'test'),
+            name_ko:            avatar?.name_ko            || '아바타',
+            role:               avatar?.role               || 'friend',
+            interests:          avatar?.interests          || [],
+            personality_traits: avatar?.personality_traits || [],
+            dislikes:           avatar?.dislikes           || [],
+          },
+        }),
+      });
+
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      setCompatibility({
+        overall_score:       Math.round(data.overall_score       || 0),
+        shared_interests:    data.shared_interests    || [],
+        potential_conflicts: data.potential_conflicts || [],
+        recommendation:      data.recommendation      || '',
+      });
+    } catch (error) {
+      console.error('Compatibility error:', error);
+      setCompatibility({
+        overall_score:       75,
+        shared_interests:    (avatar?.interests || []).slice(0, 2),
+        potential_conflicts: (avatar?.dislikes  || []).slice(0, 2),
+        recommendation:      `${avatar?.name_ko || '아바타'}와 즐거운 대화를 나눠보세요!`,
+      });
+    } finally {
+      setCompatLoading(false);
+    }
   };
 
   const handleStartChat = () => navigation.navigate('SituationSelection', { avatar });
@@ -80,14 +136,18 @@ export default function AvatarDetailScreen() {
     ]);
   };
 
-  type SpeechLevel = 'formal' | 'polite' | 'informal';
+  type SpeechLevel    = 'formal' | 'polite' | 'informal';
   const formalityToUser   = (avatar?.formality_to_user   || 'polite') as SpeechLevel;
   const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLevel;
 
-  // bio 있으면 저장값, 없으면 mock 자동 생성
-  const bioText = avatar?.bio
-    ? stripMarkdown(avatar.bio)
-    : buildMockBio(avatar);
+  const bioText     = avatar?.bio ? stripMarkdown(avatar.bio) : buildMockBio(avatar);
+  const genderLabel = avatar?.gender === 'male'   ? '남성'
+                    : avatar?.gender === 'female' ? '여성'
+                    : avatar?.gender === 'other'  ? '기타' : null;
+  const roleLabel   = avatar?.custom_role || avatar?.role || '';
+  const scoreColor  = (compatibility?.overall_score || 0) >= 80 ? '#4CAF50'
+                    : (compatibility?.overall_score || 0) >= 60 ? '#F4A261'
+                    : '#E53935';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -114,9 +174,7 @@ export default function AvatarDetailScreen() {
                 <Heart size={24} color={isFavorite ? '#E53935' : '#B0B0C5'} fill={isFavorite ? '#E53935' : 'transparent'} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.avatarNameEn}>
-              {avatar?.name_en || ''}{avatar?.age ? ` · ${avatar.age}세` : ''}
-            </Text>
+            {avatar?.name_en ? <Text style={styles.avatarNameEn}>{avatar.name_en}</Text> : null}
             <View style={styles.badgeRow}>
               <StatusBadge status={avatar?.difficulty || 'medium'} />
               <View style={[styles.typeBadge, avatar?.avatar_type === 'real' ? styles.typeBadgeReal : styles.typeBadgeFictional]}>
@@ -131,46 +189,123 @@ export default function AvatarDetailScreen() {
           </View>
         </View>
 
-        {/* ── 관계 설명 ── */}
-        <Card variant="elevated" style={styles.descCard}>
-          <Text style={styles.descText}>
-            {avatar?.relationship_description || '대화 연습을 위한 아바타입니다.'}
-          </Text>
+        {/* ── 기본 정보 ── */}
+        <Text style={styles.sectionTitle}>기본 정보</Text>
+        <Card variant="elevated" style={styles.infoCard}>
+          {avatar?.age ? (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>나이</Text>
+              <Text style={styles.infoValue}>{avatar.age}세</Text>
+            </View>
+          ) : null}
+          {genderLabel ? (
+            <View style={[styles.infoRow, avatar?.age ? styles.infoRowBorder : undefined]}>
+              <Text style={styles.infoLabel}>성별</Text>
+              <Text style={styles.infoValue}>{genderLabel}</Text>
+            </View>
+          ) : null}
+          {roleLabel ? (
+            <View style={[styles.infoRow, (avatar?.age || genderLabel) ? styles.infoRowBorder : undefined]}>
+              <Text style={styles.infoLabel}>아바타 관계</Text>
+              <Text style={styles.infoValue}>{roleLabel}</Text>
+            </View>
+          ) : null}
+          {avatar?.relationship_description ? (
+            <View style={[styles.infoRow, styles.infoRowBorder]}>
+              <Text style={styles.infoLabel}>관계 설명</Text>
+              <Text style={[styles.infoValue, styles.infoValueWrap]}>{avatar.relationship_description}</Text>
+            </View>
+          ) : null}
+        </Card>
+
+        {/* ── AI 궁합 분석 ── */}
+        <Text style={styles.sectionTitle}>AI 궁합 분석</Text>
+        <Card variant="elevated" style={styles.compatCard}>
+          {compatLoading ? (
+            <View style={styles.compatLoading}>
+              <ActivityIndicator size="small" color="#6C3BFF" />
+              <Text style={styles.compatLoadingText}>AI가 분석 중...</Text>
+            </View>
+          ) : compatibility ? (
+            <>
+              <View style={styles.compatScoreRow}>
+                <View style={[styles.compatScoreBadge, { backgroundColor: scoreColor + '20' }]}>
+                  <Text style={[styles.compatScoreNum, { color: scoreColor }]}>{compatibility.overall_score}</Text>
+                  <Text style={[styles.compatScoreLabel, { color: scoreColor }]}>점</Text>
+                </View>
+                <Text style={styles.compatRecommendation} numberOfLines={3}>
+                  {compatibility.recommendation}
+                </Text>
+              </View>
+
+              {compatibility.shared_interests.length > 0 && (
+                <View style={styles.compatSection}>
+                  <View style={styles.compatSectionHeader}>
+                    <CheckCircle size={15} color="#4CAF50" />
+                    <Text style={styles.compatSectionTitle}>공통 관심사</Text>
+                  </View>
+                  <View style={styles.tagGrid}>
+                    {compatibility.shared_interests.map((item, i) => (
+                      <View key={i} style={styles.sharedTag}>
+                        <Text style={styles.sharedTagText}>{item}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {compatibility.potential_conflicts.length > 0 && (
+                <View style={[styles.compatSection, { marginBottom: 0 }]}>
+                  <View style={styles.compatSectionHeader}>
+                    <AlertTriangle size={15} color="#F4A261" />
+                    <Text style={styles.compatSectionTitle}>피하기 좋은 주제</Text>
+                  </View>
+                  <View style={styles.tagGrid}>
+                    {compatibility.potential_conflicts.map((item, i) => (
+                      <View key={i} style={styles.conflictTag}>
+                        <Text style={styles.conflictTagText}>{item}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </>
+          ) : null}
         </Card>
 
         {/* ── AI 참고 메모 ── */}
-        {avatar?.memo && (
+        {avatar?.memo ? (
           <Card variant="outlined" style={styles.memoCard}>
             <Text style={styles.memoLabel}>AI 참고 메모</Text>
             <Text style={styles.memoText}>{avatar.memo}</Text>
           </Card>
-        )}
+        ) : null}
 
         {/* ── 아바타 관련 설명 ── */}
-        {avatar?.description && (
+        {avatar?.description ? (
           <Card variant="outlined" style={styles.memoCard}>
             <Text style={styles.memoLabel}>아바타 관련 설명</Text>
             <Text style={styles.memoText}>{avatar.description}</Text>
           </Card>
-        )}
+        ) : null}
 
         {/* ── Stats ── */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <MessageCircle size={20} color="#6C3BFF" />
-            <Text style={styles.statValue}>{stats.totalConversations}</Text>
+            <Text style={styles.statValue}>8</Text>
             <Text style={styles.statLabel}>대화</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Clock size={20} color="#4CAF50" />
-            <Text style={styles.statValue}>{stats.totalMinutes}분</Text>
+            <Text style={styles.statValue}>45분</Text>
             <Text style={styles.statLabel}>연습 시간</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <TrendingUp size={20} color="#F4A261" />
-            <Text style={styles.statValue}>{stats.avgScore}%</Text>
+            <Text style={styles.statValue}>82%</Text>
             <Text style={styles.statLabel}>평균 점수</Text>
           </View>
         </View>
@@ -252,7 +387,7 @@ export default function AvatarDetailScreen() {
           <Text style={styles.bioText}>{bioText}</Text>
         </Card>
 
-        {/* ── 삭제 버튼 ── */}
+        {/* ── 삭제 ── */}
         <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
           <Trash2 size={18} color="#E53935" />
           <Text style={styles.deleteButtonText}>아바타 삭제</Text>
@@ -276,7 +411,7 @@ const styles = StyleSheet.create({
   avatarInfo:   { alignItems: 'center' },
   nameRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
   avatarName:   { fontSize: 24, fontWeight: '700', color: '#1A1A2E' },
-  avatarNameEn: { fontSize: 14, color: '#6C6C80', marginBottom: 12 },
+  avatarNameEn: { fontSize: 14, color: '#6C6C80', marginBottom: 10 },
   badgeRow:     { flexDirection: 'row', gap: 8 },
 
   typeBadge:              { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
@@ -286,8 +421,29 @@ const styles = StyleSheet.create({
   typeBadgeTextFictional: { color: '#9C27B0' },
   typeBadgeTextReal:      { color: '#2196F3' },
 
-  descCard: { marginBottom: 16 },
-  descText: { fontSize: 14, color: '#6C6C80', lineHeight: 22, textAlign: 'center' },
+  infoCard:      { marginBottom: 20 },
+  infoRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 10 },
+  infoRowBorder: { borderTopWidth: 1, borderTopColor: '#F0F0F5' },
+  infoLabel:     { fontSize: 13, color: '#6C6C80', fontWeight: '500', flex: 1 },
+  infoValue:     { fontSize: 13, color: '#1A1A2E', fontWeight: '600', flex: 2, textAlign: 'right' },
+  infoValueWrap: { textAlign: 'right', lineHeight: 20 },
+
+  compatCard:           { marginBottom: 20 },
+  compatLoading:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16 },
+  compatLoadingText:    { fontSize: 13, color: '#6C6C80' },
+  compatScoreRow:       { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 },
+  compatScoreBadge:     { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+  compatScoreNum:       { fontSize: 22, fontWeight: '700' },
+  compatScoreLabel:     { fontSize: 11, fontWeight: '600', marginTop: -2 },
+  compatRecommendation: { flex: 1, fontSize: 13, color: '#1A1A2E', lineHeight: 20 },
+  compatSection:        { marginBottom: 14 },
+  compatSectionHeader:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  compatSectionTitle:   { fontSize: 13, fontWeight: '600', color: '#1A1A2E' },
+  sharedTag:            { backgroundColor: '#E8F5E9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  sharedTagText:        { fontSize: 12, fontWeight: '600', color: '#2E7D32' },
+  conflictTag:          { backgroundColor: '#FFF3E0', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  conflictTagText:      { fontSize: 12, fontWeight: '600', color: '#E65100' },
+  tagGrid:              { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 
   memoCard:  { marginBottom: 16, borderColor: '#E2E2EC' },
   memoLabel: { fontSize: 12, fontWeight: '600', color: '#6C3BFF', marginBottom: 6 },
@@ -309,7 +465,6 @@ const styles = StyleSheet.create({
   speechBadgeText: { fontSize: 14, fontWeight: '600' },
 
   tagCard: { marginBottom: 20 },
-  tagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 
   bioCard:     { marginBottom: 20 },
   bioHeader:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
