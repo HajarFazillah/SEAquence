@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, Dimensions,
+  View, Text, StyleSheet,
   ScrollView, TouchableOpacity, Image, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,11 +10,8 @@ import {
   HelpCircle, LogOut, Edit, Heart, BookOpen,
   Award, Clock, TrendingUp, MessageCircle, MessageSquare,
 } from 'lucide-react-native';
-import { Header, Card, Tag, ProgressBar } from '../components';
+import { Card, Tag, ProgressBar } from '../components';
 import { getMyProfile, UserProfile } from '../services/apiUser';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2; // 20px padding each side + 12px gap
 
 // This will be replaced by real data
 
