@@ -35,9 +35,12 @@ export const apiService = {
     return {
       response:        data.message,
       speech_analysis: data.correction ? {
-        detected_level:  data.correction.detected_level || 'unknown',
+        detected_level:  data.correction.detected_speech_level_label || data.correction.detected_speech_level || data.correction.detected_level || 'unknown',
+        detected_level_code: data.correction.detected_speech_level_code || data.correction.detected_level_code,
+        input_kind:      data.correction.input_kind || data.correction.inputKind,
+        verdict:         data.correction.verdict,
         is_appropriate:  !data.correction.has_errors,
-        feedback_ko:     data.correction.corrections?.[0]?.explanation || null,
+        feedback_ko:     data.correction.summary || data.correction.corrections?.[0]?.explanation || null,
         accuracy_score:  data.correction.accuracy_score,
         corrections:     data.correction.corrections || [],
       } : null,

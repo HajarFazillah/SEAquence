@@ -33,13 +33,19 @@ interface NaturalAlternative {
 
 interface SpeechAnalysis {
   detected_speech_level: string;
+  detected_speech_level_code?: string;
+  detected_speech_confidence?: number;
   speech_level_correct:  boolean;
   expected_speech_level: string;
+  expected_speech_level_code?: string;
+  input_kind?: string;
+  verdict?: string;
   has_errors:            boolean;
   accuracy_score:        number;
   corrections:           Correction[];
   natural_alternatives:  NaturalAlternative[];
   encouragement?:        string;
+  summary?:              string;
 }
 
 interface Message {
@@ -73,6 +79,48 @@ const buildHistoryFromMessages = (messages: Message[]): HistoryItem[] =>
     .map(m => ({ role: (m.sender === 'user' ? 'user' : 'assistant') as HistoryRole, content: m.text }))
     .filter(m => m.content.trim().length > 0);
 
+const LEVEL_LABELS: Record<string, string> = {
+  formal: '합쇼체',
+  polite: '해요체',
+  informal: '반말',
+};
+
+const normalizeSpeechLevelCode = (level: any, explicitCode?: string) => {
+  if (explicitCode) return explicitCode;
+  if (typeof level === 'object' && level?.code) return String(level.code);
+  if (typeof level === 'string') {
+    const normalized = level.trim().toLowerCase();
+    return LEVEL_LABELS[normalized] ? normalized : '';
+  }
+  return '';
+};
+
+const normalizeSpeechLevelLabel = (level: any, explicitLabel?: string) => {
+  if (explicitLabel) return explicitLabel;
+  if (typeof level === 'object') {
+    const label = level?.label_ko || level?.label || level?.name_ko;
+    if (label) return String(label);
+    if (level?.code) return LEVEL_LABELS[String(level.code).toLowerCase()] || String(level.code);
+  }
+  if (typeof level === 'string') {
+    const normalized = level.trim().toLowerCase();
+    return LEVEL_LABELS[normalized] || level;
+  }
+  return '';
+};
+
+const normalizeConfidence = (level: any, explicitConfidence?: number) => {
+  if (typeof explicitConfidence === 'number') return explicitConfidence;
+  if (typeof level === 'object' && typeof level?.confidence === 'number') return level.confidence;
+  return undefined;
+};
+
+const normalizeScore = (score: any) => {
+  const parsed = Number(score);
+  if (!Number.isFinite(parsed)) return 80;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+};
+
 const sendMessageToAI = async (
   text:      string,
   history:   HistoryItem[],
@@ -103,15 +151,38 @@ const sendMessageToAI = async (
   const data = await res.json();
 
   const correction = data.correction;
+  const detectedRaw = correction?.detected_speech_level || correction?.detected_level;
+  const expectedRaw = correction?.expected_speech_level || correction?.expected_level;
   const speech_analysis: SpeechAnalysis | null = correction ? {
-    detected_speech_level: correction.detected_speech_level || '',
-    speech_level_correct:  correction.speech_level_correct  ?? true,
-    expected_speech_level: correction.expected_speech_level || '',
-    has_errors:            correction.has_errors            ?? false,
-    accuracy_score:        correction.accuracy_score        ?? 100,
-    corrections:           correction.corrections           || [],
-    natural_alternatives:  correction.natural_alternatives  || [],
-    encouragement:         correction.encouragement         || '',
+    detected_speech_level: normalizeSpeechLevelLabel(
+      detectedRaw,
+      correction.detected_speech_level_label || correction.detected_level_label,
+    ),
+    detected_speech_level_code: normalizeSpeechLevelCode(
+      detectedRaw,
+      correction.detected_speech_level_code || correction.detected_level_code,
+    ),
+    detected_speech_confidence: normalizeConfidence(
+      detectedRaw,
+      correction.detected_speech_level_confidence || correction.detected_confidence,
+    ),
+    speech_level_correct: correction.speech_level_correct ?? true,
+    expected_speech_level: normalizeSpeechLevelLabel(
+      expectedRaw,
+      correction.expected_speech_level_label || correction.expected_level_label,
+    ),
+    expected_speech_level_code: normalizeSpeechLevelCode(
+      expectedRaw,
+      correction.expected_speech_level_code || correction.expected_level_code,
+    ),
+    input_kind: correction.input_kind || correction.inputKind,
+    verdict: correction.verdict,
+    has_errors: correction.has_errors ?? false,
+    accuracy_score: normalizeScore(correction.accuracy_score),
+    corrections: correction.corrections || [],
+    natural_alternatives: correction.natural_alternatives || [],
+    encouragement: correction.encouragement || '',
+    summary: correction.summary || correction.overall_feedback || '',
   } : null;
 
   console.log('[Chat] natural_alternatives:', speech_analysis?.natural_alternatives?.length, speech_analysis?.natural_alternatives);
@@ -138,6 +209,30 @@ const analyzeSessionWithAI = async (avatar: any, history: HistoryItem[]) => {
 
 const severityColor = (s: string) =>
   s === 'error' ? '#E53935' : s === 'warning' ? '#F4A261' : '#6C3BFF';
+
+const feedbackTitle = (fb: SpeechAnalysis) => {
+  const detected = normalizeSpeechLevelLabel(fb.detected_speech_level);
+  const expected = normalizeSpeechLevelLabel(fb.expected_speech_level);
+
+  if (fb.verdict === 'practice_expression') return `${detected || expected || '말투'} 연습 표현`;
+  if (fb.verdict === 'fragment') return '표현 조각';
+  if (fb.verdict === 'wrong_speech_level') return detected ? `${detected} 사용됨` : '말투 수정 필요';
+  if (fb.verdict === 'needs_revision') return '수정이 필요한 표현';
+  if (fb.verdict === 'unclear') return '말투를 판단하기 어려워요';
+
+  if (fb.input_kind === 'meta_practice') return `${detected || expected || '말투'} 연습 표현`;
+  if (fb.input_kind === 'fragment') return '표현 조각';
+  if (fb.input_kind === 'non_korean') return '한국어 표현 아님';
+
+  if (!detected) return fb.expected_speech_level || '말투 분석';
+  if (detected.includes('연습 표현') || detected.includes('표현 분석')) {
+    return detected;
+  }
+  if (fb.detected_speech_confidence && fb.detected_speech_confidence < 0.75) {
+    return `${detected}에 가까워요`;
+  }
+  return `${detected} 감지`;
+};
 
 export default function ChatScreen() {
   const navigation = useNavigation<any>();
@@ -291,9 +386,7 @@ export default function ChatScreen() {
             ? <AlertCircle size={14} color="#E53935" />
             : <CheckCircle size={14} color="#4CAF50" />}
           <Text style={[styles.feedbackSummaryText, { color: hasError ? '#E53935' : '#4CAF50' }]}>
-            {fb.detected_speech_level
-              ? `${fb.detected_speech_level} 감지`
-              : fb.expected_speech_level || '말투 분석'}
+            {feedbackTitle(fb)}
           </Text>
           <Text style={styles.feedbackScore}>{fb.accuracy_score}점</Text>
           <Text style={styles.feedbackExpand}>{expanded ? '▲' : '▼'}</Text>
@@ -301,6 +394,9 @@ export default function ChatScreen() {
 
         {expanded && (
           <View style={styles.feedbackDetail}>
+            {fb.summary ? (
+              <Text style={styles.feedbackSummaryNote}>{fb.summary}</Text>
+            ) : null}
 
             {/* ── 오류가 없을 때: 이렇게도 말할 수 있어요 우선 표시 ── */}
             {!hasError && hasAlts && (
@@ -574,6 +670,7 @@ const styles = StyleSheet.create({
   feedbackExpand:      { fontSize: 10, color: '#B0B0C5', marginLeft: 4 },
 
   feedbackDetail:        { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
+  feedbackSummaryNote:   { fontSize: 12, color: '#4B4B63', lineHeight: 18, marginBottom: 10 },
   feedbackEncouragement: { fontSize: 13, color: '#4CAF50', lineHeight: 18 },
 
   correctionList: { gap: 8, marginBottom: 10 },
