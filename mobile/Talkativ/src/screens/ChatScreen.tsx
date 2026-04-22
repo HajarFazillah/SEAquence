@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   ChevronLeft, X, Send, Smile, Meh, Frown, Angry, Heart,
-  HelpCircle, MessageCircle, CheckCircle, AlertCircle, Lightbulb,
+  CheckCircle, AlertCircle, Lightbulb,
 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
@@ -61,17 +61,6 @@ const getMoodConfig = (mood: number) => {
   if (mood >= 40) return { icon: Meh,    color: '#F4A261', label: '그저 그래요'  };
   if (mood >= 20) return { icon: Frown,  color: '#FF9800', label: '조금 힘들어요' };
   return           { icon: Angry,  color: '#E53935', label: '화나요!'       };
-};
-
-const getSuggestionTopics = (avatar: any) => {
-  const interests = avatar?.interests || ['일상', '취미', '음식'];
-  return [
-    `${avatar?.name_ko || '상대방'}에게 오늘 뭐 했는지 물어보세요`,
-    `좋아하는 ${interests[0] || '취미'}에 대해 이야기해보세요`,
-    `주말 계획에 대해 물어보세요`,
-    `요즘 관심사에 대해 이야기해보세요`,
-    `${interests[1] || '음식'} 추천을 부탁해보세요`,
-  ];
 };
 
 const buildHistoryFromMessages = (messages: Message[]): HistoryItem[] =>
@@ -254,16 +243,12 @@ export default function ChatScreen() {
   const [input,            setInput]            = useState('');
   const [loading,          setLoading]          = useState(false);
   const [avatarMood,       setAvatarMood]       = useState(70);
-  const [showSuggestion,   setShowSuggestion]   = useState(false);
-  const [suggestionIndex,  setSuggestionIndex]  = useState(0);
-  const [lastMessageTime,  setLastMessageTime]  = useState(Date.now());
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
   const [correctStreak,    setCorrectStreak]    = useState(0);
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
 
   const moodAnim    = useRef(new Animated.Value(70)).current;
-  const suggestions = getSuggestionTopics(avatar);
 
   useEffect(() => {
     AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); });
@@ -275,16 +260,8 @@ export default function ChatScreen() {
   }, [messages]);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (Date.now() - lastMessageTime > 30000 && !showSuggestion && !loading)
-        setShowSuggestion(true);
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [lastMessageTime, showSuggestion, loading]);
-
-  useEffect(() => {
     Animated.spring(moodAnim, { toValue: avatarMood, useNativeDriver: false, friction: 8 }).start();
-  }, [avatarMood]);
+  }, [avatarMood, moodAnim]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -295,8 +272,6 @@ export default function ChatScreen() {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
-    setLastMessageTime(Date.now());
-    setShowSuggestion(false);
 
     try {
       const history: HistoryItem[] = [
@@ -535,34 +510,6 @@ export default function ChatScreen() {
         <SpeechLevelBadge level={recommendedLevel} size="small" />
       </View>
 
-      {showSuggestion && (
-        <View style={styles.suggestionPopup}>
-          <View style={styles.suggestionContent}>
-            <View style={styles.suggestionIcon}>
-              <HelpCircle size={20} color="#6C3BFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.suggestionLabel}>무슨 말을 해야 할지 모르겠나요?</Text>
-              <Text style={styles.suggestionText}>{suggestions[suggestionIndex]}</Text>
-            </View>
-            <TouchableOpacity onPress={() => setShowSuggestion(false)}>
-              <X size={16} color="#B0B0C5" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.suggestionActions}>
-            <TouchableOpacity style={styles.suggestionBtn}
-              onPress={() => setSuggestionIndex(prev => (prev + 1) % suggestions.length)}>
-              <Text style={styles.suggestionBtnText}>다른 제안</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.suggestionBtn, styles.suggestionBtnPrimary]}
-              onPress={() => setShowSuggestion(false)}>
-              <MessageCircle size={14} color="#FFFFFF" />
-              <Text style={[styles.suggestionBtnText, { color: '#FFFFFF' }]}>알겠어요</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <FlatList
           ref={flatListRef}
@@ -582,13 +529,6 @@ export default function ChatScreen() {
               <ActivityIndicator size="small" color="#6C3BFF" />
             </View>
           </View>
-        )}
-
-        {!showSuggestion && (
-          <TouchableOpacity style={styles.helpButton} onPress={() => setShowSuggestion(true)}>
-            <HelpCircle size={18} color="#6C3BFF" />
-            <Text style={styles.helpButtonText}>도움말</Text>
-          </TouchableOpacity>
         )}
 
         <View style={styles.inputBar}>
@@ -636,16 +576,6 @@ const styles = StyleSheet.create({
   levelBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F8', gap: 8 },
   levelLabel:  { fontSize: 12, color: '#6C6C80' },
 
-  suggestionPopup:   { position: 'absolute', bottom: 100, left: 16, right: 16, zIndex: 100, backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, borderWidth: 1, borderColor: '#F0EDFF' },
-  suggestionContent: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
-  suggestionIcon:    { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F0EDFF', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  suggestionLabel:   { fontSize: 12, color: '#6C6C80', marginBottom: 4 },
-  suggestionText:    { fontSize: 14, fontWeight: '600', color: '#1A1A2E', lineHeight: 20 },
-  suggestionActions: { flexDirection: 'row', gap: 10 },
-  suggestionBtn:     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F5FA' },
-  suggestionBtnPrimary: { backgroundColor: '#6C3BFF' },
-  suggestionBtnText: { fontSize: 13, fontWeight: '600', color: '#6C6C80' },
-
   messageList:    { padding: 16, gap: 4 },
   messageWrapper: { marginBottom: 12 },
 
@@ -692,9 +622,6 @@ const styles = StyleSheet.create({
 
   loadingRow:    { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 16, paddingBottom: 8 },
   loadingBubble: { backgroundColor: '#F5F5FA', borderRadius: 18, paddingHorizontal: 20, paddingVertical: 12 },
-
-  helpButton:     { position: 'absolute', right: 16, bottom: 80, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F0EDFF', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 },
-  helpButtonText: { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
 
   inputBar:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#F0F0F8', backgroundColor: '#FFFFFF', gap: 10 },
   input:           { flex: 1, backgroundColor: '#F5F5FA', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: '#1A1A2E' },

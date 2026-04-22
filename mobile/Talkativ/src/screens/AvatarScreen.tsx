@@ -6,11 +6,204 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User } from 'lucide-react-native';
-import { Header, Card, SearchBar, StatusBadge, Tag, Icon, CompatibilityRing } from '../components';
+import { Header, Card, SearchBar, StatusBadge, Tag, Icon, CompatibilityRing, IconName } from '../components';
 import { AVATAR_COLORS } from '../constants';
 import { getMyAvatars, deleteAvatar, UserAvatar } from '../services/apiUser';
 
 const AI_SERVER = 'http://10.0.2.2:8000';
+
+type RandomGender = 'male' | 'female' | 'other';
+type RandomAvatarType = 'fictional' | 'real';
+type RandomDifficulty = 'easy' | 'medium' | 'hard';
+
+const RANDOM_NAMES: Array<{ ko: string; en: string; gender: RandomGender | 'neutral' }> = [
+  { ko: '김하린', en: 'Harin Kim', gender: 'female' },
+  { ko: '박서연', en: 'Seoyeon Park', gender: 'female' },
+  { ko: '이하윤', en: 'Hayoon Lee', gender: 'female' },
+  { ko: '최지우', en: 'Jiu Choi', gender: 'female' },
+  { ko: '정유나', en: 'Yuna Jung', gender: 'female' },
+  { ko: '강채원', en: 'Chaewon Kang', gender: 'female' },
+  { ko: '윤수아', en: 'Sua Yoon', gender: 'female' },
+  { ko: '장예린', en: 'Yerin Jang', gender: 'female' },
+  { ko: '오다은', en: 'Daeun Oh', gender: 'female' },
+  { ko: '한소윤', en: 'Soyoon Han', gender: 'female' },
+  { ko: '김민준', en: 'Minjun Kim', gender: 'male' },
+  { ko: '이서준', en: 'Seojun Lee', gender: 'male' },
+  { ko: '박도윤', en: 'Doyoon Park', gender: 'male' },
+  { ko: '최지호', en: 'Jiho Choi', gender: 'male' },
+  { ko: '정하준', en: 'Hajun Jung', gender: 'male' },
+  { ko: '강현우', en: 'Hyunwoo Kang', gender: 'male' },
+  { ko: '윤태민', en: 'Taemin Yoon', gender: 'male' },
+  { ko: '장건우', en: 'Geonwoo Jang', gender: 'male' },
+  { ko: '오시우', en: 'Siwoo Oh', gender: 'male' },
+  { ko: '한유준', en: 'Yujun Han', gender: 'male' },
+  { ko: '김지원', en: 'Jiwon Kim', gender: 'neutral' },
+  { ko: '이현서', en: 'Hyunseo Lee', gender: 'neutral' },
+  { ko: '박하늘', en: 'Haneul Park', gender: 'neutral' },
+  { ko: '최가온', en: 'Gaon Choi', gender: 'neutral' },
+  { ko: '정도하', en: 'Doha Jung', gender: 'neutral' },
+  { ko: '강윤재', en: 'Yunjae Kang', gender: 'neutral' },
+  { ko: '윤민서', en: 'Minseo Yoon', gender: 'neutral' },
+  { ko: '장서우', en: 'Seowoo Jang', gender: 'neutral' },
+  { ko: '오유진', en: 'Yujin Oh', gender: 'neutral' },
+  { ko: '한지안', en: 'Jian Han', gender: 'neutral' },
+];
+
+const RANDOM_ROLES = [
+  { id: 'friend', label: '친구' },
+  { id: 'close_friend', label: '절친' },
+  { id: 'classmate', label: '동기' },
+  { id: 'roommate', label: '룸메이트' },
+  { id: 'club_member', label: '동아리 멤버' },
+  { id: 'younger_sibling', label: '동생' },
+  { id: 'older_brother', label: '형/오빠' },
+  { id: 'older_sister', label: '누나/언니' },
+  { id: 'cousin', label: '사촌' },
+  { id: 'parent', label: '부모님' },
+  { id: 'grandparent', label: '조부모님' },
+  { id: 'junior', label: '후배' },
+  { id: 'senior', label: '선배' },
+  { id: 'professor', label: '교수님' },
+  { id: 'teacher', label: '선생님' },
+  { id: 'tutor', label: '튜터/과외선생' },
+  { id: 'colleague', label: '동료' },
+  { id: 'teammate', label: '팀원' },
+  { id: 'team_leader', label: '팀장' },
+  { id: 'boss', label: '상사/부장' },
+  { id: 'ceo', label: '대표/사장님' },
+  { id: 'intern', label: '인턴' },
+  { id: 'client', label: '고객/클라이언트' },
+  { id: 'staff', label: '직원/점원' },
+  { id: 'stranger', label: '처음 만난 사람' },
+  { id: 'neighbor', label: '이웃' },
+  { id: 'doctor', label: '의사' },
+  { id: 'delivery', label: '배달원' },
+  { id: 'taxi_driver', label: '택시기사' },
+];
+
+const ROLE_AGE_RANGES: Record<string, [number, number]> = {
+  younger_sibling: [12, 24],
+  older_brother: [22, 42],
+  older_sister: [22, 42],
+  parent: [42, 68],
+  grandparent: [64, 86],
+  junior: [17, 28],
+  senior: [21, 36],
+  professor: [35, 70],
+  teacher: [28, 62],
+  tutor: [22, 38],
+  team_leader: [30, 52],
+  boss: [38, 62],
+  ceo: [40, 70],
+  intern: [20, 29],
+  client: [28, 64],
+  doctor: [30, 68],
+  delivery: [22, 58],
+  taxi_driver: [35, 70],
+};
+
+const RANDOM_GENDERS: RandomGender[] = ['male', 'female', 'other'];
+const RANDOM_AVATAR_TYPES: RandomAvatarType[] = ['fictional', 'real'];
+const RANDOM_DIFFICULTIES: RandomDifficulty[] = ['easy', 'medium', 'hard'];
+const RANDOM_AVATAR_ICONS: IconName[] = [
+  'user', 'users', 'smile', 'userCircle', 'crown', 'baby',
+  'graduationCap', 'briefcase', 'building', 'heart', 'star',
+  'sparkles', 'music', 'gamepad', 'dumbbell', 'palette', 'camera',
+];
+
+const RANDOM_PERSONALITY_TRAITS = [
+  '친절한', '유쾌한', '차분한', '활발한', '내성적인', '외향적인',
+  '진지한', '유머러스', '다정한', '쿨한', '열정적인', '느긋한',
+  '꼼꼼한', '긍정적인', '현실적인', '감성적인', '이성적인', '눈치가 빠른',
+  '장난기 있는', '책임감 있는', '호기심 많은', '솔직한',
+];
+
+const RANDOM_INTERESTS = [
+  'K-POP', '영화', '드라마', '음악', '독서', '여행', '카페', '음식',
+  '운동', '게임', '패션', '사진', '요리', '미술', '역사', '과학',
+  '비즈니스', '기술', '경제', '스포츠', '자기계발', '애니메이션',
+  '반려동물', '산책', '웹툰', '공연', '언어 공부', '맛집 탐방',
+];
+
+const RANDOM_DISLIKES = [
+  '정치', '종교', '논쟁', '스포츠', '연예인 가십', '학업 스트레스',
+  '취업 압박', '결혼/연애 압박', '외모 이야기', '돈 이야기',
+  '무례한 말투', '지나친 농담',
+];
+
+const RANDOM_SPEAKING_STYLES = [
+  '짧고 자연스럽게 말하는 편',
+  '상대방 말을 잘 듣고 차분하게 답하는 편',
+  '가벼운 농담을 섞지만 선을 넘지 않는 편',
+  '따뜻하고 다정하게 리액션하는 편',
+  '현실적인 조언을 또렷하게 해주는 편',
+  '편안한 친구처럼 일상적인 표현을 자주 쓰는 편',
+  '조금 신중하고 예의 바르게 말하는 편',
+  '호기심이 많아서 질문을 자연스럽게 이어가는 편',
+];
+
+const RANDOM_RELATIONSHIP_NOTES = [
+  '처음에는 조금 어색하지만 금방 편해질 수 있는 사이입니다.',
+  '가벼운 일상 이야기에서 시작하면 자연스럽게 대화가 이어집니다.',
+  '서로의 관심사를 천천히 알아가는 분위기가 잘 어울립니다.',
+  '예의를 지키면서도 너무 딱딱하지 않게 대화하는 관계입니다.',
+  '작은 근황이나 취미 이야기를 편하게 나누기 좋은 사이입니다.',
+];
+
+const RANDOM_MEMOS = [
+  '사용자가 한국어 표현을 자연스럽게 연습할 수 있도록 짧은 질문을 가끔 던집니다.',
+  '너무 과장된 반응보다 실제 사람처럼 담백하고 구체적으로 답합니다.',
+  '사용자가 실수하면 대화를 끊지 않고 자연스럽게 고쳐 줍니다.',
+  '답변은 친근하지만 과하게 들뜨지 않게 유지합니다.',
+  '한국어 학습에 도움이 되도록 쉬운 대안 표현을 함께 떠올립니다.',
+];
+
+const randomItem = <T,>(items: T[]): T =>
+  items[Math.floor(Math.random() * items.length)];
+
+const randomInt = (min: number, max: number) =>
+  Math.floor(Math.random() * (max - min + 1)) + min;
+
+const randomItems = <T,>(items: T[], min: number, max: number): T[] => {
+  const count = randomInt(min, max);
+  const shuffled = [...items].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+};
+
+const buildRandomAvatarTemplate = () => {
+  const gender = randomItem(RANDOM_GENDERS);
+  const names = RANDOM_NAMES.filter(item => gender === 'other' || item.gender === gender || item.gender === 'neutral');
+  const name = randomItem(names.length > 0 ? names : RANDOM_NAMES);
+  const role = randomItem(RANDOM_ROLES);
+  const ageRange = ROLE_AGE_RANGES[role.id] || [18, 45];
+  const personality_traits = randomItems(RANDOM_PERSONALITY_TRAITS, 2, 4);
+  const interests = randomItems(RANDOM_INTERESTS, 3, 5);
+  const dislikes = randomItems(RANDOM_DISLIKES, 0, 2);
+  const speaking_style = randomItem(RANDOM_SPEAKING_STYLES);
+  const relationshipNote = randomItem(RANDOM_RELATIONSHIP_NOTES);
+
+  return {
+    name_ko: name.ko,
+    name_en: name.en,
+    age: String(randomInt(ageRange[0], ageRange[1])),
+    gender,
+    avatar_type: randomItem(RANDOM_AVATAR_TYPES),
+    role: role.id,
+    custom_role: '',
+    relationship_description: `${role.label} 관계입니다. ${relationshipNote}`,
+    description:
+      `${name.ko}은(는) ${personality_traits.join(', ')} 성격입니다. ` +
+      `${interests.slice(0, 3).join(', ')} 이야기를 좋아하고, ${speaking_style}.`,
+    personality_traits,
+    speaking_style,
+    interests,
+    dislikes,
+    avatar_bg: randomItem(Object.values(AVATAR_COLORS)),
+    icon: randomItem(RANDOM_AVATAR_ICONS),
+    difficulty: randomItem(RANDOM_DIFFICULTIES),
+    memo: randomItem(RANDOM_MEMOS),
+  };
+};
 
 export default function AvatarScreen() {
   const navigation = useNavigation<any>();
@@ -107,28 +300,10 @@ export default function AvatarScreen() {
 
   const handleCreateRandom = () => {
     setShowCreateModal(false);
-    const randomNames     = ['박서연', '김민준', '이하윤', '정서준', '최지우'];
-    const randomRoles     = ['junior', 'friend', 'senior', 'colleague', 'classmate'];
-    const randomInterests = [
-      ['영화', '음악', '카페'],
-      ['게임', '운동', 'K-POP'],
-      ['독서', '요리', '여행'],
-    ];
-    const randomColors = Object.values(AVATAR_COLORS);
 
     navigation.navigate('CreateAvatar', {
       mode: 'random',
-      template: {
-        name_ko:            randomNames[Math.floor(Math.random() * randomNames.length)],
-        name_en:            '',
-        age:                String(Math.floor(Math.random() * 20) + 20),
-        role:               randomRoles[Math.floor(Math.random() * randomRoles.length)],
-        interests:          randomInterests[Math.floor(Math.random() * randomInterests.length)],
-        personality_traits: ['친절한', '유쾌한'],
-        avatar_bg:          randomColors[Math.floor(Math.random() * randomColors.length)],
-        difficulty:         'medium',
-        avatar_type:        'fictional',
-      },
+      template: buildRandomAvatarTemplate(),
     });
   };
 
