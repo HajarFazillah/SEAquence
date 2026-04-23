@@ -11,14 +11,11 @@ import {
   Award, Clock, TrendingUp, MessageCircle, MessageSquare,
 } from 'lucide-react-native';
 import { Header, Card, Tag, ProgressBar } from '../components';
-import { getMyProfile, UserProfile } from '../services/apiUser';
+import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2; // 20px padding each side + 12px gap
+const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2;
 
-// This will be replaced by real data
-
-// Mock user data
 const mockUser = {
   id: 'user_1',
   name: 'Nunnalin',
@@ -31,12 +28,6 @@ const mockUser = {
   dislikes: ['정치', '스포츠'],
   memo: '저는 사회적 불안이 있어서 천천히 대화하고 싶어요. 실수해도 친절하게 대해주세요.',
   joinedAt: '2026-01-15',
-  stats: {
-    wordsLearned: 156,
-    phrasesLearned: 48,
-    currentStreak: 7,
-    totalMinutes: 180,
-  },
 };
 
 const KOREAN_LEVELS = [
@@ -58,17 +49,34 @@ export const MyProfileScreen: React.FC = () => {
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
   const [realUser, setRealUser] = useState<UserProfile | null>(null);
+  const [stats, setStats] = useState<UserStats>({
+    completedSessions: 0,
+    learnedExpressions: 0,
+    practiceMinutes: 0,
+    progressPercent: 0,
+  });
 
   useEffect(() => {
     getMyProfile()
       .then(data => setRealUser(data))
       .catch(err => console.log('Profile fetch failed:', err));
+
+    getUserStats()
+      .then(data => setStats(data))
+      .catch(err => console.log('Stats fetch failed:', err));
   }, []);
 
   const displayName = realUser?.username ?? mockUser.name;
   const displayEmail = realUser?.email ?? mockUser.email;
   const displayLevel = realUser?.koreanLevel ?? mockUser.koreanLevel;
   const displayAvatar = realUser?.avatarUrl ?? mockUser.avatarUrl;
+  const displayMemo = realUser?.memo ?? mockUser.memo;
+  const displayInterests = realUser?.interests && realUser.interests.length > 0 
+    ? realUser.interests 
+    : mockUser.interests;
+  const displayDislikes = realUser?.dislikes && realUser.dislikes.length > 0
+    ? realUser.dislikes
+    : mockUser.dislikes;
 
   const handleEditProfile = () => {
     navigation.navigate('EditProfile');
@@ -76,8 +84,8 @@ export const MyProfileScreen: React.FC = () => {
 
   const handleEditInterests = () => {
     navigation.navigate('EditInterests', { 
-      interests: mockUser.interests,
-      dislikes: mockUser.dislikes,
+      interests: displayInterests,
+      dislikes: displayDislikes,
     });
   };
 
@@ -131,7 +139,7 @@ export const MyProfileScreen: React.FC = () => {
         </View>
 
         {/* Memo Section */}
-        {mockUser.memo && (
+        {displayMemo && (
           <Card variant="elevated" style={styles.memoCard}>
             <View style={styles.memoHeader}>
               <MessageSquare size={18} color="#6C3BFF" />
@@ -140,7 +148,7 @@ export const MyProfileScreen: React.FC = () => {
                 <Edit size={14} color="#6C3BFF" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.memoText}>{mockUser.memo}</Text>
+            <Text style={styles.memoText}>{displayMemo}</Text>
           </Card>
         )}
 
@@ -158,7 +166,7 @@ export const MyProfileScreen: React.FC = () => {
               <BookOpen size={22} color="#6C3BFF" />
             </View>
             <View style={styles.statTextContainer}>
-              <Text style={styles.statValue}>{mockUser.stats.wordsLearned}</Text>
+              <Text style={styles.statValue}>{stats.learnedExpressions}</Text>
               <Text style={styles.statLabel}>배운 단어</Text>
             </View>
             <View style={styles.viewMoreBadge}>
@@ -176,7 +184,7 @@ export const MyProfileScreen: React.FC = () => {
               <MessageCircle size={22} color="#4CAF50" />
             </View>
             <View style={styles.statTextContainer}>
-              <Text style={styles.statValue}>{mockUser.stats.phrasesLearned}</Text>
+              <Text style={styles.statValue}>{stats.completedSessions}</Text>
               <Text style={styles.statLabel}>배운 표현</Text>
             </View>
             <View style={[styles.viewMoreBadge, { backgroundColor: '#E8F5E9' }]}>
@@ -193,7 +201,7 @@ export const MyProfileScreen: React.FC = () => {
               <Award size={22} color="#F4A261" />
             </View>
             <View style={styles.statTextContainer}>
-              <Text style={styles.statValue}>{mockUser.stats.currentStreak}일</Text>
+              <Text style={styles.statValue}>{stats.completedSessions}일</Text>
               <Text style={styles.statLabel}>연속 학습</Text>
             </View>
           </View>
@@ -203,7 +211,7 @@ export const MyProfileScreen: React.FC = () => {
               <Clock size={22} color="#E53935" />
             </View>
             <View style={styles.statTextContainer}>
-              <Text style={styles.statValue}>{mockUser.stats.totalMinutes}분</Text>
+              <Text style={styles.statValue}>{stats.practiceMinutes}분</Text>
               <Text style={styles.statLabel}>연습 시간</Text>
             </View>
           </View>
@@ -222,7 +230,7 @@ export const MyProfileScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
           <View style={styles.tagContainer}>
-            {mockUser.interests.map((interest, i) => (
+            {displayInterests.map((interest, i) => (
               <Tag key={i} label={interest} selected />
             ))}
           </View>
@@ -231,7 +239,7 @@ export const MyProfileScreen: React.FC = () => {
           
           <Text style={styles.sectionSubtitle}>피하고 싶은 주제</Text>
           <View style={styles.tagContainer}>
-            {mockUser.dislikes.map((dislike, i) => (
+            {displayDislikes.map((dislike, i) => (
               <Tag key={i} label={dislike} variant="outline" />
             ))}
           </View>
@@ -249,9 +257,11 @@ export const MyProfileScreen: React.FC = () => {
           <View style={styles.progressItem}>
             <View style={styles.progressHeader}>
               <Text style={styles.progressText}>말투 정확도</Text>
-              <Text style={[styles.progressPercent, { color: '#6C3BFF' }]}>78%</Text>
+              <Text style={[styles.progressPercent, { color: '#6C3BFF' }]}>
+                {stats.progressPercent}%
+              </Text>
             </View>
-            <ProgressBar progress={0.78} color="#6C3BFF" />
+            <ProgressBar progress={stats.progressPercent / 100} color="#6C3BFF" />
           </View>
           
           <View style={styles.progressItem}>
@@ -332,7 +342,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
 
-  // Profile Card
   profileCard: {
     backgroundColor: '#6C3BFF',
     borderRadius: 20,
@@ -396,7 +405,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Memo Card
   memoCard: {
     marginBottom: 20,
   },
@@ -421,7 +429,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // Section Title
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -429,7 +436,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  // Stats
   statsRow: {
     flexDirection: 'row',
     gap: 12,
@@ -487,7 +493,6 @@ const styles = StyleSheet.create({
     color: '#6C3BFF',
   },
 
-  // Section Card
   sectionCard: {
     marginBottom: 16,
   },
@@ -538,7 +543,6 @@ const styles = StyleSheet.create({
     marginVertical: 16,
   },
 
-  // Progress
   progressItem: {
     marginBottom: 16,
   },
@@ -556,7 +560,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Menu
   menuCard: {
     padding: 0,
     overflow: 'hidden',
