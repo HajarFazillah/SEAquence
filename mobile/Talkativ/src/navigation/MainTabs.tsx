@@ -4,7 +4,7 @@ import { Home, Moon, Mic, User } from 'lucide-react-native';
 import { HomeScreen } from '../screens/HomeScreen';
 import AvatarScreen from '../screens/AvatarScreen';
 import RealtimeScreen from '../screens/RealtimeScreen';
-import { MyProfileScreen } from '../screens/MyProfileScreen';
+import MyProfileScreen from '../screens/MyProfileScreen';
 
 const Tab = createBottomTabNavigator();
 

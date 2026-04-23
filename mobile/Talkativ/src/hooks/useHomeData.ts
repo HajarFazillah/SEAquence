@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getMyProfile, getMyStats, UserProfile, UserStats } from '../services/apiUser';
+import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
 import { getActiveSessions, ActiveSession } from '../services/apiSession';
 
 export const useHomeData = () => {
@@ -15,7 +15,7 @@ export const useHomeData = () => {
         setLoading(true);
         const [profileResult, statsResult, sessionsResult] = await Promise.allSettled([
           getMyProfile(),
-          getMyStats(),
+          getUserStats(),
           getActiveSessions(),
         ]);
 
