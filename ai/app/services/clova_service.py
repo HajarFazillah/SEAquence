@@ -6,6 +6,7 @@ Uses Bearer token authentication with v3 API.
 
 import httpx
 import json
+import re
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from app.core.config import settings
@@ -71,14 +72,12 @@ class CLOVAService:
                     json=payload,
                 )
 
-                # 에러 응답 상세 로그
                 if response.status_code != 200:
                     print(f"[CLOVA] ❌ HTTP {response.status_code}: {response.text}")
                     return await self._mock_response(messages)
 
                 data = response.json()
 
-                # API 레벨 에러 확인
                 if data.get("status", {}).get("code") != "20000":
                     print(f"[CLOVA] ❌ API error: {data.get('status')}")
                     return await self._mock_response(messages)
@@ -93,11 +92,11 @@ class CLOVAService:
 
                 return CLOVAResponse(
                     content=content,
-                    finish_reason=result.get("finishReason"),   # v3: finishReason
+                    finish_reason=result.get("finishReason"),
                     usage={
-                        "input_tokens":  usage.get("promptTokens", 0),      # v3
-                        "output_tokens": usage.get("completionTokens", 0),  # v3
-                        "total_tokens":  usage.get("totalTokens", 0),       # v3
+                        "input_tokens":  usage.get("promptTokens",    0),
+                        "output_tokens": usage.get("completionTokens", 0),
+                        "total_tokens":  usage.get("totalTokens",      0),
                     }
                 )
 
@@ -144,7 +143,6 @@ class CLOVAService:
             [Message(role="user", content=prompt)], **kwargs
         )
 
-        # mock 응답이면 빈 dict 반환
         if response.finish_reason == "mock":
             print("[CLOVA] ⚠️  analyze_json received mock — returning empty dict")
             return {}
@@ -152,7 +150,7 @@ class CLOVAService:
         try:
             content = response.content.strip()
 
-            # ```json ... ``` 블록 파싱
+            # ── 1단계: ```json ... ``` 마크다운 블록 제거 ─────────────
             if "```json" in content:
                 start   = content.find("```json") + 7
                 end     = content.find("```", start)
@@ -162,11 +160,33 @@ class CLOVAService:
                 end     = content.find("```", start)
                 content = content[start:end].strip()
 
+            # ── 2단계: JSON 객체/배열만 추출 (앞뒤 텍스트 제거) ──────
+            first_brace  = content.find('{')
+            first_bracket = content.find('[')
+            if first_brace == -1 and first_bracket == -1:
+                print("[CLOVA] ❌ No JSON object found in response")
+                return {}
+            if first_brace == -1:
+                start_idx = first_bracket
+            elif first_bracket == -1:
+                start_idx = first_brace
+            else:
+                start_idx = min(first_brace, first_bracket)
+            content = content[start_idx:]
+
+            # ── 3단계: trailing comma 제거 (CLOVA가 자주 생성) ────────
+            # e.g. [1, 2, 3,] → [1, 2, 3]  /  {"a": 1,} → {"a": 1}
+            content = re.sub(r',\s*([}\]])', r'\1', content)
+
+            # ── 4단계: 파싱 ───────────────────────────────────────────
             return json.loads(content)
 
         except json.JSONDecodeError as e:
             print(f"[CLOVA] ❌ JSON parse error: {e}")
-            print(f"[CLOVA] Raw content: {response.content[:200]}")
+            print(f"[CLOVA] Raw content: {response.content[:300]}")
+            return {}
+        except Exception as e:
+            print(f"[CLOVA] ❌ Unexpected error in analyze_json: {e}")
             return {}
 
 

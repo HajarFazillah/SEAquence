@@ -90,19 +90,6 @@ export const useChat = (avatar, situation = null) => {
     }
   }, [messages, avatar])
 
-  // ── 대화 시작 문장 ────────────────────────────────────────
-  const getStarters = useCallback(async () => {
-    const user_id = await AsyncStorage.getItem('user_id')
-    const params  = new URLSearchParams({
-      user_id,
-      role:        avatar.role,
-      avatar_name: avatar.name_ko,
-    })
-    const res  = await fetch(`${ai.starters}?${params}`)
-    const data = await res.json()
-    return data.starters || []
-  }, [avatar])
-
   return {
     messages,
     correction,
@@ -111,6 +98,5 @@ export const useChat = (avatar, situation = null) => {
     sessionReport,
     sendMessage,
     endSession,
-    getStarters,
   }
 }

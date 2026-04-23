@@ -1,13 +1,5 @@
 """
 Chat Service - Handles avatar conversations with real-time correction
-Features:
-- Real-time grammar, speech level, and vocabulary correction
-- Inline corrections with explanations
-- Encouragement and positive reinforcement
-- Adaptive hints based on mistake patterns
-- Mood-based avatar response style
-- Hybrid speech level detection: CLOVA + rule-based verification
-- info-level corrections excluded from has_errors
 """
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
@@ -51,11 +43,17 @@ class InlineCorrection(BaseModel):
     tip:         Optional[str]      = Field(None, description="학습 팁")
 
 
+class NaturalAlternative(BaseModel):
+    expression:  str = Field(..., description="더 자연스러운 표현")
+    explanation: str = Field(..., description="왜 더 자연스러운지")
+
+
 class RealTimeCorrection(BaseModel):
     original_message:  str
     corrected_message: Optional[str] = None
     has_errors:        bool = False
     corrections:       List[InlineCorrection] = []
+    natural_alternatives: List[NaturalAlternative] = []
 
     expected_speech_level: str
     detected_speech_level: Optional[str] = None
@@ -94,7 +92,79 @@ class ConversationAnalysis(BaseModel):
 
 
 # ============================================================================
-# Correction prompt
+# 단답형 → 자연스러운 대안 맵
+# ============================================================================
+
+_SHORT_ALTERNATIVES: Dict[str, Dict[str, List[Dict[str, str]]]] = {
+    "네": {
+        "polite":   [
+            {"expression": "네, 맞아요!", "explanation": "더 활기차고 자연스러운 동의 표현이에요"},
+            {"expression": "네, 그렇군요!", "explanation": "상대방 말에 공감할 때 자주 써요"},
+        ],
+        "formal":   [
+            {"expression": "네, 맞습니다.", "explanation": "격식 있는 동의 표현이에요"},
+            {"expression": "그렇습니다.", "explanation": "격식체에서 자주 쓰는 동의 표현이에요"},
+        ],
+        "informal": [
+            {"expression": "어, 맞아!", "explanation": "친한 사이에서 자연스러운 동의예요"},
+            {"expression": "응, 그렇지!", "explanation": "캐주얼하게 동의할 때 써요"},
+        ],
+    },
+    "넵": {
+        "polite":   [
+            {"expression": "네, 알겠어요!", "explanation": "더 적극적이고 자연스러운 대답이에요"},
+            {"expression": "네, 그렇군요.", "explanation": "'넵'보다 조금 더 부드러운 표현이에요"},
+        ],
+        "formal":   [{"expression": "네, 알겠습니다.", "explanation": "격식 있는 상황에서 쓰는 표현이에요"}],
+        "informal": [{"expression": "어, 알았어!", "explanation": "친한 사이에서 자연스러운 대답이에요"}],
+    },
+    "응": {
+        "informal": [
+            {"expression": "어, 맞아!", "explanation": "더 활기차고 자연스러운 동의예요"},
+            {"expression": "그렇지!", "explanation": "확실히 동의할 때 쓰는 표현이에요"},
+        ],
+        "polite": [{"expression": "네, 그래요!", "explanation": "반말 '응' 대신 해요체로 바꾸면 이렇게요"}],
+    },
+    "어": {
+        "informal": [
+            {"expression": "맞아, 그렇네!", "explanation": "더 생동감 있는 반응이에요"},
+            {"expression": "오, 그래?", "explanation": "관심과 놀라움을 표현할 때 써요"},
+        ],
+        "polite": [{"expression": "아, 그렇군요!", "explanation": "'어' 대신 해요체로 자연스럽게 반응하는 표현이에요"}],
+    },
+    "그래": {
+        "informal": [
+            {"expression": "맞아, 그렇지!", "explanation": "더 확신을 담은 동의 표현이에요"},
+            {"expression": "어, 그러네!", "explanation": "가볍게 동의할 때 자연스러운 표현이에요"},
+        ],
+        "polite": [{"expression": "그렇군요, 맞아요!", "explanation": "해요체로 더 자연스럽게 바꾼 표현이에요"}],
+    },
+    "아니": {
+        "informal": [
+            {"expression": "아니, 그건 좀 달라!", "explanation": "더 구체적으로 반대 의견을 표현할 수 있어요"},
+            {"expression": "음, 그건 아닌 것 같아.", "explanation": "부드럽게 반대할 때 쓰는 표현이에요"},
+        ],
+        "polite": [{"expression": "아니요, 그건 좀 달라요.", "explanation": "해요체로 정중하게 반대하는 표현이에요"}],
+    },
+    "아니요": {
+        "polite": [
+            {"expression": "아니요, 그렇지 않아요.", "explanation": "더 명확하게 부정하는 표현이에요"},
+            {"expression": "음, 그건 좀 아닌 것 같아요.", "explanation": "부드럽게 반대할 때 써요"},
+        ],
+        "formal": [{"expression": "아닙니다, 그렇지 않습니다.", "explanation": "격식 있게 부정하는 표현이에요"}],
+    },
+    "맞아": {
+        "informal": [
+            {"expression": "맞아, 진짜 그렇지!", "explanation": "더 강하게 동의할 때 써요"},
+            {"expression": "어, 완전 동감이야!", "explanation": "강한 공감을 표현할 때 자연스러운 표현이에요"},
+        ],
+        "polite": [{"expression": "맞아요, 정말 그렇네요!", "explanation": "해요체로 더 자연스럽게 동의하는 표현이에요"}],
+    },
+}
+
+
+# ============================================================================
+# ── 핵심 수정: context-aware correction prompt ─────────────────────────────
 # ============================================================================
 
 def build_realtime_correction_prompt(
@@ -102,6 +172,7 @@ def build_realtime_correction_prompt(
     expected_speech_level: SpeechLevel,
     avatar_role:           str,
     user_level:            str = "intermediate",
+    conversation_history:  List[ChatMessage] = [],   # ← 추가
 ) -> str:
     speech_info = SPEECH_LEVEL_INFO[expected_speech_level]
     level_guidance = {
@@ -109,6 +180,22 @@ def build_realtime_correction_prompt(
         "intermediate": "중급 학습자입니다. 주요 오류와 자연스러운 표현을 알려주세요.",
         "advanced":     "고급 학습자입니다. 미묘한 뉘앙스와 고급 표현도 피드백하세요.",
     }
+
+    # ── 최근 대화 3턴 추출 ────────────────────────────────────────────────
+    recent = conversation_history[-3:] if conversation_history else []
+    context_lines = "\n".join([
+        f"{'사용자' if m.role == 'user' else '아바타'}: {m.content}"
+        for m in recent
+    ])
+    context_section = f"""
+## 최근 대화 맥락 (교정 시 반드시 참고하세요)
+{context_lines if context_lines else "(대화 시작)"}
+
+⚠️ 중요: 위 대화 맥락을 반드시 고려하세요.
+- 앞 대화에서 나온 주제나 단어를 사용하는 것은 자연스러운 표현입니다.
+- 문맥상 자연스러운 표현은 오류로 처리하지 마세요.
+- 예: 앞서 봄축제 얘기를 했다면 "봄축제야"는 정상적인 표현입니다.
+""" if recent else ""
 
     return f"""사용자의 한국어 메시지를 분석하여 실시간 교정 피드백을 제공하세요.
 
@@ -120,45 +207,48 @@ def build_realtime_correction_prompt(
 
 ## 사용자 수준
 {level_guidance.get(user_level, level_guidance['intermediate'])}
-
-## 사용자 메시지
+{context_section}
+## 분석할 사용자 메시지
 "{user_message}"
-
-## 분석 항목
-1. **말투 (speech_level)**: {speech_info['name_ko']}를 사용했는지
-2. **문법 (grammar)**: 조사, 어미, 시제 등
-3. **맞춤법 (spelling)**: 띄어쓰기, 철자
-4. **어휘 (vocabulary)**: 적절한 단어 선택
-5. **표현 (expression)**: 자연스러운 한국어 표현
-6. **존칭 (honorific)**: 적절한 호칭 사용
 
 ## 응답 형식 (JSON)
 {{
     "has_errors": true/false,
-    "corrected_message": "전체 수정된 메시지 (오류 없으면 null)",
+    "corrected_message": "반드시 {speech_info['name_ko']}로 수정된 전체 메시지. 오류 없으면 null",
     "detected_speech_level": "formal / polite / informal 중 하나",
     "speech_level_correct": true/false,
     "accuracy_score": 0-100,
     "corrections": [
         {{
-            "original": "틀린 부분",
-            "corrected": "올바른 표현",
+            "original": "반드시 사용자 메시지에 실제로 존재하는 표현만",
+            "corrected": "올바른 {speech_info['name_ko']} 표현",
             "type": "speech_level/grammar/spelling/vocabulary/expression/honorific",
             "severity": "info/warning/error",
             "explanation": "왜 틀렸는지 한국어로 설명",
             "tip": "기억하기 쉬운 팁 (선택사항)"
         }}
     ],
-    "encouragement": "긍정적인 피드백 메시지 (잘한 점 언급)"
+    "natural_alternatives": [
+        {{
+            "expression": "이렇게도 말할 수 있어요 — 더 자연스러운 {speech_info['name_ko']} 표현",
+            "explanation": "왜 이 표현이 더 자연스러운지 한 줄로"
+        }}
+    ],
+    "encouragement": "잘한 점을 언급한 긍정적인 피드백 (1문장)"
 }}
 
+## natural_alternatives 규칙
+- 오류가 없어도 반드시 1~2개 제안하세요
+- 같은 의미지만 더 자연스럽고 세련된 {speech_info['name_ko']} 표현으로
+- 원어민이 실제로 쓰는 표현으로
+- 대화 맥락에 맞는 표현을 제안하세요
+
 ## 절대 규칙
-- detected_speech_level 은 반드시 formal / polite / informal 세 값 중 하나만 사용하세요
-- detected_speech_level 은 절대 null 이 되면 안 됩니다. 짧은 문장이어도 반드시 판단하세요
-- severity 기준: error = 명확한 실수 / warning = 어색함 / info = 더 좋은 표현 제안
-- 단순히 더 자연스러운 표현 제안은 info, 실제 문법/말투 오류는 error/warning 사용
-- 오류가 없으면 corrections는 빈 배열, has_errors는 false
-- 잘한 점이 있으면 반드시 encouragement에 언급"""
+- detected_speech_level 은 formal / polite / informal 중 하나 (null 불가)
+- corrected_message 는 반드시 {speech_info['name_ko']} 말투로
+- corrections original 은 사용자 메시지에 실제 존재하는 표현만
+- 맥락상 자연스러운 표현은 오류 처리 금지
+- 오류 없으면 corrections 빈 배열, has_errors false"""
 
 
 def build_contextual_hint_prompt(
@@ -187,9 +277,6 @@ def build_contextual_hint_prompt(
 ## 최근 대화
 {context if context else "(대화 시작)"}
 
-## 사용자 수준
-{user_level}
-
 다음 JSON 형식으로 응답하세요:
 {{
     "hint": "지금 상황에서 사용할 수 있는 자연스러운 표현 1-2개",
@@ -202,12 +289,9 @@ def build_contextual_hint_prompt(
 # 말투 레벨 정규화 맵
 # ============================================================================
 LEVEL_MAP = {
-    # 반말
     "반말":             "informal", "informal":          "informal",
     "비격식":           "informal", "casual":            "informal",
     "편한말":           "informal", "편한 말":           "informal",
-
-    # 해요체
     "해요체":           "polite",   "polite":            "polite",
     "존댓말":           "polite",   "공손한 말투":       "polite",
     "공손한말투":       "polite",   "공손":              "polite",
@@ -215,14 +299,11 @@ LEVEL_MAP = {
     "정중한 말투":      "polite",   "정중한말투":        "polite",
     "정중":             "polite",   "높임말":            "polite",
     "높임":             "polite",   "존대":              "polite",
-
-    # 합쇼체
     "합쇼체":           "formal",   "formal":            "formal",
     "격식체":           "formal",   "격식":              "formal",
     "격식적":           "formal",   "공식적":            "formal",
 }
 
-# ── 규칙 기반 어미 목록 ─────────────────────────────────────────────────────
 _FORMAL_ENDINGS   = ["습니다", "습니까", "십니까", "겠습니다", "십시오", "으십시오"]
 _POLITE_ENDINGS   = ["어요", "아요", "이에요", "예요", "해요", "세요",
                      "네요", "군요", "죠", "나요", "가요", "래요",
@@ -231,27 +312,66 @@ _INFORMAL_ENDINGS = ["이야", "야", "이어", "어", "아", "지", "니",
                      "냐", "거야", "잖아", "이잖아", "구나", "군",
                      "을게", "ㄹ게", "자", "해", "래", "네"]
 
+_SHORT_RESPONSES = {
+    "응", "어", "네", "넵", "넹", "예", "아니", "아니요", "ㅇ", "ㅇㅇ",
+    "ㄴㄴ", "ㄴ", "그래", "응응", "오", "아", "음", "흠", "헐", "와",
+    "오케이", "ok", "OK", "ㅋㅋ", "ㅎㅎ", "맞아", "맞아요", "그렇구나",
+}
+
+_INFORMAL_TO_POLITE = {
+    "이야": "이에요", "거야": "거예요", "잖아": "잖아요", "구나": "군요",
+    "거든": "거든요", "지만": "지만요", "는데": "는데요", "ㄴ데": "ㄴ데요",
+    "을게": "을게요", "ㄹ게": "ㄹ게요", "을래": "을래요", "ㄹ래": "ㄹ래요",
+    "을까": "을까요", "ㄹ까": "ㄹ까요", "싶음": "싶어요", "없음": "없어요",
+    "있음": "있어요", "함": "해요", "임": "이에요", "음": "어요",
+    "야": "요", "해": "해요", "어": "어요", "아": "아요",
+    "지": "지요", "군": "군요", "네": "네요", "래": "래요", "자": "시죠",
+}
+
+_INFORMAL_TO_FORMAL = {
+    "이야": "입니다", "거야": "겁니다", "싶음": "싶습니다",
+    "없음": "없습니다", "있음": "있습니다", "함": "합니다",
+    "임": "입니다", "음": "습니다", "야": "습니다",
+    "해": "합니다", "어": "습니다", "아": "습니다",
+    "지": "지요", "군": "군요", "네": "네요",
+}
+
+
+def simple_convert_to_level(text: str, target: str) -> Optional[str]:
+    text  = text.strip()
+    table = _INFORMAL_TO_POLITE if target == "polite" else _INFORMAL_TO_FORMAL
+    for informal, formal in sorted(table.items(), key=lambda x: -len(x[0])):
+        if text.endswith(informal):
+            return text[: -len(informal)] + formal
+    return None
+
 
 def verify_with_rules(text: str, clova_detected: str) -> str:
-    """
-    CLOVA 감지 결과를 어미 규칙으로 검증.
-    어미로 명확히 판단되면 규칙 결과 사용,
-    판단 불가하면 CLOVA 결과 신뢰.
-    """
     text = text.strip()
-
     for e in _FORMAL_ENDINGS:
-        if text.endswith(e):
-            return "formal"
+        if text.endswith(e): return "formal"
     for e in _POLITE_ENDINGS:
-        if text.endswith(e):
-            return "polite"
+        if text.endswith(e): return "polite"
     for e in _INFORMAL_ENDINGS:
-        if text.endswith(e):
-            return "informal"
-
-    # 판단 불가 → CLOVA 신뢰
+        if text.endswith(e): return "informal"
     return clova_detected
+
+
+def get_short_response_alternatives(
+    text: str,
+    expected_norm: str,
+) -> List[NaturalAlternative]:
+    text     = text.strip()
+    alts_map = _SHORT_ALTERNATIVES.get(text, {})
+    alts     = alts_map.get(expected_norm, [])
+    if not alts:
+        for level in ["polite", "informal", "formal"]:
+            alts = alts_map.get(level, [])
+            if alts: break
+    return [
+        NaturalAlternative(expression=a["expression"], explanation=a["explanation"])
+        for a in alts
+    ]
 
 
 # ============================================================================
@@ -283,19 +403,18 @@ class ChatService:
             else "intermediate"
         )
 
-        # 1. 실시간 교정 분석
+        # ── 핵심: conversation_history 전달 ───────────────────────────────
         correction = await self._analyze_realtime(
             user_message=user_message,
             expected_speech_level=expected_level,
             avatar_role=get_role_label(avatar.role, None),
             user_level=user_level,
+            conversation_history=conversation_history,   # ← 추가
         )
 
-        # 2. 현재 기분 조회
         mood_key     = f"{user_id}_{avatar.name_ko}"
         current_mood = self.user_moods.get(mood_key, 80)
 
-        # 3. 시스템 프롬프트 구성
         system_prompt = build_avatar_system_prompt(
             avatar=avatar,
             user_profile=user_profile,
@@ -304,7 +423,6 @@ class ChatService:
             is_level_correct=correction.speech_level_correct,
         )
 
-        # 메모리 주입
         if use_memory:
             try:
                 from app.services.memory_service import memory_service
@@ -327,16 +445,13 @@ class ChatService:
             temperature=0.8,
         )
 
-        # 4. 스트릭 업데이트
         streak                  = self._update_streak(user_id, correction.has_errors)
         correction.streak_bonus = streak >= 3
 
-        # 5. 기분 업데이트
         mood_change = self._calculate_mood_change(correction)
         new_mood    = self._update_mood(mood_key, mood_change)
         mood_emoji  = self._get_mood_emoji(new_mood)
 
-        # 6. 힌트/제안
         suggestions = []
         hint        = None
         if len(user_message) < 15 or correction.has_errors:
@@ -365,13 +480,42 @@ class ChatService:
         expected_speech_level: SpeechLevel,
         avatar_role:           str,
         user_level:            str,
+        conversation_history:  List[ChatMessage] = [],   # ← 추가
     ) -> RealTimeCorrection:
 
+        msg_stripped  = user_message.strip()
+        expected_norm = LEVEL_MAP.get(
+            SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"].lower(),
+            expected_speech_level.value.lower(),
+        )
+
+        # ── 단답형 스킵 ──────────────────────────────────────────────────────
+        is_short = (
+            len(msg_stripped) <= 3
+            or msg_stripped in _SHORT_RESPONSES
+            or msg_stripped.lower() in _SHORT_RESPONSES
+        )
+        if is_short:
+            detected_norm    = verify_with_rules(msg_stripped, "")
+            is_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
+            alternatives     = get_short_response_alternatives(msg_stripped, expected_norm)
+            return RealTimeCorrection(
+                original_message=user_message,
+                expected_speech_level=SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"],
+                detected_speech_level=detected_norm or expected_norm,
+                speech_level_correct=is_level_correct,
+                accuracy_score=100 if is_level_correct else 60,
+                natural_alternatives=alternatives,
+                encouragement="좋아요! 계속해서 대화해 보세요! 👍",
+            )
+
+        # ── 대화 기록 포함하여 프롬프트 생성 ─────────────────────────────────
         prompt = build_realtime_correction_prompt(
             user_message=user_message,
             expected_speech_level=expected_speech_level,
             avatar_role=avatar_role,
             user_level=user_level,
+            conversation_history=conversation_history,   # ← 추가
         )
 
         result = await clova_service.analyze_json(prompt, temperature=0.2, max_tokens=1024)
@@ -385,12 +529,20 @@ class ChatService:
                 encouragement="좋아요! 계속해서 대화해 보세요! 👍",
             )
 
+        # ── corrections 파싱 + 필터링 ─────────────────────────────────────────
         corrections = []
         for c in result.get("corrections", []):
             try:
+                original  = (c.get("original",  "") or "").strip()
+                corrected = (c.get("corrected", "") or "").strip()
+                if not original or not corrected:  continue
+                if original == corrected:          continue
+                if original not in user_message:
+                    print(f"[ChatService] ⚠️ Hallucination skip: '{original}' not in '{user_message}'")
+                    continue
                 corrections.append(InlineCorrection(
-                    original=c.get("original", ""),
-                    corrected=c.get("corrected", ""),
+                    original=original,
+                    corrected=corrected,
                     type=CorrectionType(c.get("type", "grammar")),
                     severity=CorrectionSeverity(c.get("severity", "warning")),
                     explanation=c.get("explanation", ""),
@@ -399,24 +551,28 @@ class ChatService:
             except (ValueError, KeyError):
                 continue
 
+        # ── natural_alternatives 파싱 ─────────────────────────────────────────
+        natural_alternatives = []
+        for a in result.get("natural_alternatives", []):
+            try:
+                expression  = (a.get("expression",  "") or "").strip()
+                explanation = (a.get("explanation", "") or "").strip()
+                if not expression:                      continue
+                if expression == user_message.strip():  continue
+                natural_alternatives.append(NaturalAlternative(
+                    expression=expression,
+                    explanation=explanation,
+                ))
+            except Exception:
+                continue
+
         # ── 하이브리드 발화 레벨 감지 ──────────────────────────────────────────
-        # 1단계: CLOVA 결과 정규화
-        clova_raw  = (result.get("detected_speech_level") or "").strip().lower()
-        clova_norm = LEVEL_MAP.get(clova_raw, clova_raw)
-
-        # 2단계: 규칙 기반 어미 검증 — CLOVA가 틀렸으면 보정
-        detected_norm = verify_with_rules(user_message, clova_norm)
-
-        # 3단계: 기대 레벨 정규화
-        expected_norm = LEVEL_MAP.get(
-            SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"].lower(),
-            expected_speech_level.value.lower(),
-        )
-
-        # 빈 detected = 판단 보류 (단답형)
+        clova_raw        = (result.get("detected_speech_level") or "").strip().lower()
+        clova_norm       = LEVEL_MAP.get(clova_raw, clova_raw)
+        detected_norm    = verify_with_rules(user_message, clova_norm)
         is_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
 
-        # ── has_errors 재계산 — info 레벨은 오류로 카운트하지 않음 ─────────────
+        # ── has_errors — info 제외 ────────────────────────────────────────────
         real_errors = [
             c for c in corrections
             if c.severity in (CorrectionSeverity.ERROR, CorrectionSeverity.WARNING)
@@ -424,17 +580,30 @@ class ChatService:
         has_errors     = (len(real_errors) > 0) or not is_level_correct
         accuracy_score = result.get("accuracy_score", 100)
 
-        # info 만 있는 경우 accuracy_score 조정 (100점 유지)
         if not has_errors and corrections:
             accuracy_score = max(accuracy_score, 90)
 
+        # ── 말투 오류 시 corrected 검증 ──────────────────────────────────────
         if not is_level_correct:
             accuracy_score = min(accuracy_score, 55)
             expected_name  = SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"]
             example        = SPEECH_LEVEL_INFO[expected_speech_level]["examples"][0]
+
+            clova_corrected      = (result.get("corrected_message") or "").strip()
+            clova_corrected_norm = verify_with_rules(clova_corrected, "") if clova_corrected else ""
+
+            if clova_corrected and clova_corrected_norm == expected_norm:
+                best_corrected = clova_corrected
+            else:
+                rule_corrected = simple_convert_to_level(user_message, expected_norm)
+                if rule_corrected and verify_with_rules(rule_corrected, "") == expected_norm:
+                    best_corrected = rule_corrected
+                else:
+                    best_corrected = example
+
             corrections.insert(0, InlineCorrection(
                 original=user_message,
-                corrected=result.get("corrected_message") or user_message,
+                corrected=best_corrected,
                 type=CorrectionType.SPEECH_LEVEL,
                 severity=CorrectionSeverity.ERROR,
                 explanation=f"{expected_name}를 사용해야 합니다. (감지된 말투: {detected_norm})",
@@ -446,8 +615,9 @@ class ChatService:
             corrected_message=result.get("corrected_message"),
             has_errors=has_errors,
             corrections=corrections,
+            natural_alternatives=natural_alternatives,
             expected_speech_level=SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"],
-            detected_speech_level=detected_norm or clova_raw,
+            detected_speech_level=detected_norm or clova_raw or expected_norm,
             speech_level_correct=is_level_correct,
             accuracy_score=accuracy_score,
             encouragement=result.get("encouragement"),
@@ -490,12 +660,8 @@ class ChatService:
     def _calculate_mood_change(self, correction: RealTimeCorrection) -> int:
         if not correction.has_errors:
             return 8 if correction.streak_bonus else 3
-
-        error_count   = sum(1 for c in correction.corrections
-                           if c.severity == CorrectionSeverity.ERROR)
-        warning_count = sum(1 for c in correction.corrections
-                           if c.severity == CorrectionSeverity.WARNING)
-
+        error_count   = sum(1 for c in correction.corrections if c.severity == CorrectionSeverity.ERROR)
+        warning_count = sum(1 for c in correction.corrections if c.severity == CorrectionSeverity.WARNING)
         if error_count >= 2:     return -10
         elif error_count == 1:   return -5
         elif warning_count >= 2: return -3
