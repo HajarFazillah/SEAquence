@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet,
-  ScrollView, TouchableOpacity,
+  ScrollView, TouchableOpacity, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { 
   Coffee, Briefcase, GraduationCap, ShoppingBag,
   UtensilsCrossed, Users, Building2, Handshake, PartyPopper,
-  MapPin, Home, Plane, Hospital, Phone,
+  MapPin,
 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Header, Card, Button, InputField, Tag } from '../components';
 import type { IconName } from '../components/Icon';
+
+const CUSTOM_SITUATIONS_KEY = 'custom_situations';
 
 const SITUATION_ICONS = [
   { id: 'coffee', icon: Coffee, label: '카페' },
@@ -54,6 +57,7 @@ export default function CreateSituationScreen() {
   const [selectedCategory, setSelectedCategory] = useState('casual');
   const [contexts, setContexts] = useState<string[]>([]);
   const [customContext, setCustomContext] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const toggleContext = (context: string) => {
     if (contexts.includes(context)) {
@@ -70,21 +74,43 @@ export default function CreateSituationScreen() {
     }
   };
 
-  const handleCreate = () => {
-    const newSituation = {
-      id: `custom_${Date.now()}`,
-      name_ko: name,
-      name_en: nameEn,
-      description_ko: description,
-      icon: selectedIcon,
-      category: selectedCategory,
-      contexts,
-      isCustom: true,
-    };
-    
-    console.log('Creating situation:', newSituation);
-    // TODO: Save to storage/API
-    navigation.goBack();
+  const handleCreate = async () => {
+    if (!name.trim() || !description.trim()) return;
+
+    setIsSaving(true);
+
+    try {
+      // Build new situation object matching the SITUATIONS data structure
+      const newSituation = {
+        id: `custom_${Date.now()}`,
+        name_ko: name.trim(),
+        name_en: nameEn.trim(),
+        description_ko: description.trim(),
+        icon: selectedIcon as IconName,
+        category: selectedCategory,
+        contexts,
+        isCustom: true,
+      };
+
+      // Load existing custom situations from AsyncStorage
+      const existing = await AsyncStorage.getItem(CUSTOM_SITUATIONS_KEY);
+      const existingList = existing ? JSON.parse(existing) : [];
+
+      // Add new situation to the list
+      const updatedList = [...existingList, newSituation];
+
+      // Save back to AsyncStorage
+      await AsyncStorage.setItem(CUSTOM_SITUATIONS_KEY, JSON.stringify(updatedList));
+
+      Alert.alert('완료', `"${name}" 상황이 저장되었습니다.`, [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    } catch (error) {
+      console.log('Failed to save situation:', error);
+      Alert.alert('오류', '상황 저장에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const isValid = name.trim().length > 0 && description.trim().length > 0;
@@ -241,9 +267,9 @@ export default function CreateSituationScreen() {
       {/* Create Button */}
       <View style={styles.footer}>
         <Button
-          title="상황 만들기"
+          title={isSaving ? '저장 중...' : '상황 만들기'}
           onPress={handleCreate}
-          disabled={!isValid}
+          disabled={!isValid || isSaving}
         />
       </View>
     </SafeAreaView>
@@ -268,7 +294,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  // Icons
   iconGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -298,7 +323,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Categories
   categoryRow: {
     flexDirection: 'row',
     gap: 10,
@@ -326,7 +350,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Contexts
   contextGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -366,7 +389,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
-  // Preview
   previewCard: {
     marginTop: 8,
     marginBottom: 20,
@@ -397,7 +419,6 @@ const styles = StyleSheet.create({
     color: '#6C6C80',
   },
 
-  // Footer
   footer: {
     position: 'absolute',
     bottom: 0,

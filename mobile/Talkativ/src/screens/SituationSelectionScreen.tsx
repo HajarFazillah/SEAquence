@@ -1,26 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet,
   ScrollView, TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Check, Plus } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Header, Card, Button, Icon } from '../components';
 import { SITUATIONS, SITUATION_CATEGORIES } from '../constants';
 
-// Mock custom situations
-const mockCustomSituations = [
-  {
-    id: 'custom_1',
-    name_ko: '도서관에서 공부',
-    name_en: 'Library Study',
-    description_ko: '도서관에서 친구와 함께 공부하는 상황',
-    icon: 'book' as const,
-    category: 'casual',
-    isCustom: true,
-  },
-];
+const CUSTOM_SITUATIONS_KEY = 'custom_situations';
 
 export default function SituationSelectionScreen() {
   const navigation = useNavigation<any>();
@@ -29,8 +19,28 @@ export default function SituationSelectionScreen() {
 
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedSituation, setSelectedSituation] = useState<string | null>(null);
+  const [customSituations, setCustomSituations] = useState<any[]>([]);
 
-  const allSituations = [...SITUATIONS, ...mockCustomSituations];
+  // Load custom situations from AsyncStorage
+  // useFocusEffect means this runs every time the screen comes into focus
+  // So when user creates a new situation and comes back, the list refreshes
+  useFocusEffect(
+    useCallback(() => {
+      const loadCustomSituations = async () => {
+        try {
+          const stored = await AsyncStorage.getItem(CUSTOM_SITUATIONS_KEY);
+          if (stored) {
+            setCustomSituations(JSON.parse(stored));
+          }
+        } catch (error) {
+          console.log('Failed to load custom situations:', error);
+        }
+      };
+      loadCustomSituations();
+    }, [])
+  );
+
+  const allSituations = [...SITUATIONS, ...customSituations];
 
   const filteredSituations = selectedCategory === 'all'
     ? allSituations
@@ -55,12 +65,12 @@ export default function SituationSelectionScreen() {
         {/* Avatar info */}
         {avatar && (
           <View style={styles.avatarInfo}>
-            <View style={[styles.avatarIcon, { backgroundColor: avatar.avatarBg }]}>
+            <View style={[styles.avatarIcon, { backgroundColor: avatar.avatarBg || avatar.avatar_bg || '#6C3BFF' }]}>
               <Icon name={avatar.icon || 'user'} size={24} color="#FFFFFF" />
             </View>
             <View>
               <Text style={styles.avatarName}>{avatar.name_ko}</Text>
-              <Text style={styles.avatarRole}>{avatar.description_ko}</Text>
+              <Text style={styles.avatarRole}>{avatar.description_ko || avatar.description}</Text>
             </View>
           </View>
         )}
@@ -127,7 +137,7 @@ export default function SituationSelectionScreen() {
                 <View style={styles.situationInfo}>
                   <View style={styles.situationNameRow}>
                     <Text style={styles.situationName}>{situation.name_ko}</Text>
-                    {(situation as any).isCustom && (
+                    {situation.isCustom && (
                       <View style={styles.customBadge}>
                         <Text style={styles.customBadgeText}>내가 만듦</Text>
                       </View>
@@ -204,7 +214,6 @@ const styles = StyleSheet.create({
   categoryLabel: { fontSize: 13, fontWeight: '500', color: '#6C6C80' },
   categoryLabelActive: { color: '#FFFFFF', fontWeight: '600' },
 
-  // Create Button
   createButton: {
     flexDirection: 'row',
     alignItems: 'center',

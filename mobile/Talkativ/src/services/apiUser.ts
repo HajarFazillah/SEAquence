@@ -9,7 +9,11 @@ export interface UserProfile {
   targetLang: string;
   koreanLevel: string;
   avatarUrl?: string;
+  age?: string;
+  gender?: string;
   interests?: string[];
+  dislikes?: string[];
+  memo?: string;
 }
 
 export interface UserStats {
@@ -54,7 +58,7 @@ export const getMyProfile = async (): Promise<UserProfile> => {
   return response.json();
 };
 
-export const getMyStats = async (): Promise<UserStats> => {
+export const getUserStats = async (): Promise<UserStats> => {
   const headers = await getAuthHeader();
   const response = await fetch(`${SPRING_BASE_URL}/api/users/me/stats`, {
     headers: { 'Content-Type': 'application/json', ...headers },
