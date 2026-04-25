@@ -5,8 +5,8 @@ Real-time correction during conversation.
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
 
 from app.schemas.avatar import AvatarCreate
 from app.schemas.user import UserProfileCreate
@@ -23,6 +23,37 @@ from app.services.chat_service import (
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
+class CorrectionContextFeedback(BaseModel):
+    """Frontend-provided correction hint for the latest user turn."""
+    verdict: Optional[str] = None
+    has_errors: bool = False
+    accuracy_score: Optional[int] = None
+    detected_speech_level: Optional[str] = None
+    detected_speech_level_code: Optional[str] = None
+    summary: Optional[str] = None
+    corrections: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class CorrectionContextMistake(BaseModel):
+    """Recent mistake hint from the current frontend session."""
+    message: str
+    corrected: str
+    verdict: Optional[str] = None
+    summary: Optional[str] = None
+
+
+class CorrectionContext(BaseModel):
+    """Optional context payload used to make chat replies correction-aware."""
+    session_id: Optional[str] = None
+    expected_speech_level_code: Optional[str] = None
+    expected_speech_level_label: Optional[str] = None
+    latest_user_message: Optional[str] = None
+    corrected_user_message: Optional[str] = None
+    latest_feedback: Optional[CorrectionContextFeedback] = None
+    recent_mistakes: List[CorrectionContextMistake] = Field(default_factory=list)
+    response_guidance: List[str] = Field(default_factory=list)
+
+
 class ChatRequest(BaseModel):
     """Request for chat endpoint"""
     avatar: AvatarCreate
@@ -31,6 +62,10 @@ class ChatRequest(BaseModel):
     user_profile: Optional[UserProfileCreate] = None
     situation: Optional[str] = None
     user_id: Optional[str] = "default"  # For streak tracking
+    session_id: Optional[str] = None
+    expected_speech_level: Optional[str] = None
+    correction_context: Optional[CorrectionContext] = None
+    response_instruction: List[str] = Field(default_factory=list)
 
 
 class ChatAnalyzeRequest(BaseModel):
@@ -50,16 +85,29 @@ class CorrectionResponse(BaseModel):
     tip: Optional[str] = None
 
 
+class NaturalAlternativeResponse(BaseModel):
+    """Natural alternative expression."""
+    expression: str
+    explanation: str
+
+
 class RealTimeCorrectionResponse(BaseModel):
     """Real-time correction feedback"""
     original_message: str
     corrected_message: Optional[str] = None
     has_errors: bool = False
     corrections: List[CorrectionResponse] = []
+    natural_alternatives: List[NaturalAlternativeResponse] = []
     expected_speech_level: str
+    expected_speech_level_code: Optional[str] = None
     detected_speech_level: Optional[str] = None
+    detected_speech_level_code: Optional[str] = None
     speech_level_correct: bool = True
     accuracy_score: int = 100
+    verdict: Optional[str] = None
+    summary: Optional[str] = None
+    input_kind: Optional[str] = None
+    scorable: bool = True
     encouragement: Optional[str] = None
     streak_bonus: bool = False
 
@@ -123,6 +171,14 @@ async def send_message(request: ChatRequest):
             user_profile=request.user_profile,
             situation=request.situation,
             user_id=request.user_id or "default",
+            session_id=request.session_id,
+            expected_speech_level=request.expected_speech_level,
+            correction_context=(
+                request.correction_context.model_dump()
+                if request.correction_context
+                else None
+            ),
+            response_instruction=request.response_instruction,
         )
         
         # Convert to response model
@@ -143,10 +199,23 @@ async def send_message(request: ChatRequest):
                     )
                     for c in response.correction.corrections
                 ],
+                natural_alternatives=[
+                    NaturalAlternativeResponse(
+                        expression=a.expression,
+                        explanation=a.explanation,
+                    )
+                    for a in response.correction.natural_alternatives
+                ],
                 expected_speech_level=response.correction.expected_speech_level,
+                expected_speech_level_code=response.correction.expected_speech_level_code,
                 detected_speech_level=response.correction.detected_speech_level,
+                detected_speech_level_code=response.correction.detected_speech_level_code,
                 speech_level_correct=response.correction.speech_level_correct,
                 accuracy_score=response.correction.accuracy_score,
+                verdict=response.correction.verdict,
+                summary=response.correction.summary,
+                input_kind=response.correction.input_kind,
+                scorable=response.correction.scorable,
                 encouragement=response.correction.encouragement,
                 streak_bonus=response.correction.streak_bonus,
             )
@@ -258,10 +327,23 @@ async def quick_correction_check(request: QuickCorrectionRequest):
                 )
                 for c in correction.corrections
             ],
+            natural_alternatives=[
+                NaturalAlternativeResponse(
+                    expression=a.expression,
+                    explanation=a.explanation,
+                )
+                for a in correction.natural_alternatives
+            ],
             expected_speech_level=correction.expected_speech_level,
+            expected_speech_level_code=correction.expected_speech_level_code,
             detected_speech_level=correction.detected_speech_level,
+            detected_speech_level_code=correction.detected_speech_level_code,
             speech_level_correct=correction.speech_level_correct,
             accuracy_score=correction.accuracy_score,
+            verdict=correction.verdict,
+            summary=correction.summary,
+            input_kind=correction.input_kind,
+            scorable=correction.scorable,
             encouragement=correction.encouragement,
             streak_bonus=False,
         )
