@@ -1,14 +1,50 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert,} from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import {
   ChevronRight, Heart, MessageCircle,
   Edit, Trash2, Clock, TrendingUp, Sparkles, User as UserIcon,
 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Header, Card, Button, Tag, StatusBadge, Icon } from '../components';
 import { SPEECH_LEVELS } from '../constants';
 import { deleteAvatar } from '../services/apiUser';
+import { getAvatarSessions, ActiveSession } from '../services/apiSession';
+
+const FAVORITES_KEY = 'favorite_avatars';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// Format startedAt date string into a readable relative date
+// e.g. "2026-04-17T10:30:00" → "오늘", "2일 전", "1주 전"
+const formatRelativeDate = (dateStr: string | null): string => {
+  if (!dateStr) return '-';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return '오늘';
+  if (diffDays === 1) return '1일 전';
+  if (diffDays < 7) return `${diffDays}일 전`;
+  if (diffDays < 14) return '1주 전';
+  return `${Math.floor(diffDays / 7)}주 전`;
+};
+
+// Calculate duration between startedAt and endedAt in mm:ss format
+// If session not ended, show '-'
+const formatDuration = (startStr: string | null, endStr: string | null): string => {
+  if (!startStr || !endStr) return '-';
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  const diffSec = Math.floor((end.getTime() - start.getTime()) / 1000);
+  if (diffSec < 0) return '-';
+  const mins = Math.floor(diffSec / 60);
+  const secs = diffSec % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+};
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function AvatarDetailScreen() {
   const navigation = useNavigation<any>();
@@ -16,19 +52,61 @@ export default function AvatarDetailScreen() {
   const { avatar } = route.params || {};
 
   const [isFavorite, setIsFavorite] = useState(false);
+  const [sessions, setSessions] = useState<ActiveSession[]>([]);
 
-  // Kept as mock until Session API is wired
-  const stats = {
-    totalConversations: 8,
-    totalMinutes: 45,
-    avgScore: 82,
+  // Load real sessions and favorite state every time screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (!avatar?.id) return;
+
+      // Load sessions
+      getAvatarSessions(String(avatar.id))
+        .then(data => setSessions(data))
+        .catch(err => console.log('Failed to load avatar sessions:', err));
+
+      // Load favorite state from AsyncStorage
+      AsyncStorage.getItem(FAVORITES_KEY).then(stored => {
+        const favorites: string[] = stored ? JSON.parse(stored) : [];
+        setIsFavorite(favorites.includes(String(avatar.id)));
+      }).catch(err => console.log('Failed to load favorites:', err));
+
+    }, [avatar?.id])
+  );
+
+  // Toggle favorite and save to AsyncStorage
+  const handleToggleFavorite = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(FAVORITES_KEY);
+      const favorites: string[] = stored ? JSON.parse(stored) : [];
+      const avatarId = String(avatar.id);
+      let updated: string[];
+      if (favorites.includes(avatarId)) {
+        updated = favorites.filter(id => id !== avatarId);
+        setIsFavorite(false);
+      } else {
+        updated = [...favorites, avatarId];
+        setIsFavorite(true);
+      }
+      await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(updated));
+    } catch (err) {
+      console.log('Failed to save favorite:', err);
+    }
   };
 
-  const recentConversations = [
-    { id: '1', situation: '카페에서 수다', date: '2일 전', score: 85, duration: '05:30' },
-    { id: '2', situation: '캠퍼스 만남', date: '5일 전', score: 78, duration: '03:20' },
-    { id: '3', situation: '처음 만남', date: '1주 전', score: 82, duration: '04:15' },
-  ];
+  // Calculate real stats from sessions
+  const totalConversations = sessions.length;
+  const totalMinutes = sessions.reduce((acc, s) => {
+    if (!s.lastMessageAt || !s.endedAt) return acc;
+    const start = new Date(s.lastMessageAt);
+    const end = new Date(s.endedAt);
+    const mins = Math.floor((end.getTime() - start.getTime()) / (1000 * 60));
+    return acc + (mins > 0 ? mins : 0);
+  }, 0);
+  // No score field in backend yet — show 0
+  const avgScore = 0;
+
+  // Show only the 3 most recent sessions
+  const recentSessions = sessions.slice(0, 3);
 
   const handleStartChat = () => {
     navigation.navigate('SituationSelection', { avatar });
@@ -38,7 +116,6 @@ export default function AvatarDetailScreen() {
     navigation.navigate('CreateAvatar', { avatar, isEdit: true });
   };
 
-  // ── UPDATED handleDelete ──────────────────────────────────────────────────
   const handleDelete = () => {
     Alert.alert('아바타 삭제', '정말 삭제하시겠습니까?', [
       { text: '취소', style: 'cancel' },
@@ -49,7 +126,6 @@ export default function AvatarDetailScreen() {
           try {
             await deleteAvatar(String(avatar?.id));
             navigation.navigate('Main', { screen: 'Avatar' });
-            // useFocusEffect in AvatarScreen auto-refreshes ✅
           } catch {
             Alert.alert('오류', '삭제에 실패했어요. 다시 시도해주세요.');
           }
@@ -57,12 +133,10 @@ export default function AvatarDetailScreen() {
       },
     ]);
   };
-  // ─────────────────────────────────────────────────────────────────────────
 
   type SpeechLevel = 'formal' | 'polite' | 'informal';
-
-const formalityToUser = (avatar?.formality_to_user || 'polite') as SpeechLevel;
-const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLevel;
+  const formalityToUser = (avatar?.formality_to_user || 'polite') as SpeechLevel;
+  const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLevel;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -82,11 +156,10 @@ const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLev
           <View style={[styles.avatarIcon, { backgroundColor: avatar?.avatar_bg || '#FFB6C1' }]}>
             <Icon name={(avatar?.icon || 'user') as any} size={48} color="#FFFFFF" />
           </View>
-
           <View style={styles.avatarInfo}>
             <View style={styles.nameRow}>
               <Text style={styles.avatarName}>{avatar?.name_ko || '아바타'}</Text>
-              <TouchableOpacity onPress={() => setIsFavorite(!isFavorite)}>
+              <TouchableOpacity onPress={handleToggleFavorite}>
                 <Heart
                   size={24}
                   color={isFavorite ? '#E53935' : '#B0B0C5'}
@@ -146,23 +219,23 @@ const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLev
           </Card>
         )}
 
-        {/* Stats — mock until Session API is wired */}
+        {/* Stats — totalConversations and totalMinutes are real, avgScore is 0 until backend adds score */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <MessageCircle size={20} color="#6C3BFF" />
-            <Text style={styles.statValue}>{stats.totalConversations}</Text>
+            <Text style={styles.statValue}>{totalConversations}</Text>
             <Text style={styles.statLabel}>대화</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Clock size={20} color="#4CAF50" />
-            <Text style={styles.statValue}>{stats.totalMinutes}분</Text>
+            <Text style={styles.statValue}>{totalMinutes}분</Text>
             <Text style={styles.statLabel}>연습 시간</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <TrendingUp size={20} color="#F4A261" />
-            <Text style={styles.statValue}>{stats.avgScore}%</Text>
+            <Text style={styles.statValue}>{avgScore}%</Text>
             <Text style={styles.statLabel}>평균 점수</Text>
           </View>
         </View>
@@ -214,24 +287,32 @@ const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLev
           </>
         )}
 
-        {/* Recent Conversations — mock until Session API is wired */}
+        {/* Recent Conversations — real data from backend */}
         <Text style={styles.sectionTitle}>최근 대화</Text>
-        <View style={styles.conversationList}>
-          {recentConversations.map((conv) => (
-            <Card key={conv.id} variant="elevated" style={styles.convCard}>
-              <View style={styles.convRow}>
-                <View style={styles.convInfo}>
-                  <Text style={styles.convSituation}>{conv.situation}</Text>
-                  <Text style={styles.convDate}>{conv.date} · {conv.duration}</Text>
+        {recentSessions.length === 0 ? (
+          <Card variant="elevated" style={styles.emptyCard}>
+            <Text style={styles.emptyText}>아직 대화 기록이 없어요. 대화를 시작해보세요!</Text>
+          </Card>
+        ) : (
+          <View style={styles.conversationList}>
+            {recentSessions.map((session) => (
+              <Card key={session.sessionId} variant="elevated" style={styles.convCard}>
+                <View style={styles.convRow}>
+                  <View style={styles.convInfo}>
+                    <Text style={styles.convSituation}>{session.situation}</Text>
+                    <Text style={styles.convDate}>
+                      {formatRelativeDate(session.lastMessageAt)} · {formatDuration(session.lastMessageAt, session.endedAt)}
+                    </Text>
+                  </View>
+                  <View style={styles.convScore}>
+                    <Text style={styles.convScoreText}>{session.difficulty}</Text>
+                  </View>
+                  <ChevronRight size={20} color="#B0B0C5" />
                 </View>
-                <View style={styles.convScore}>
-                  <Text style={styles.convScoreText}>{conv.score}점</Text>
-                </View>
-                <ChevronRight size={20} color="#B0B0C5" />
-              </View>
-            </Card>
-          ))}
-        </View>
+              </Card>
+            ))}
+          </View>
+        )}
 
         {/* Delete button */}
         <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
@@ -285,6 +366,8 @@ const styles = StyleSheet.create({
   speechBadgeText: { fontSize: 14, fontWeight: '600' },
   interestsCard: { marginBottom: 20 },
   tagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  emptyCard: { marginBottom: 20 },
+  emptyText: { fontSize: 14, color: '#6C6C80', textAlign: 'center', paddingVertical: 8 },
   conversationList: { gap: 10, marginBottom: 20 },
   convCard: { padding: 14 },
   convRow: { flexDirection: 'row', alignItems: 'center' },

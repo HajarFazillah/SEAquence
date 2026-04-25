@@ -2,10 +2,13 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert, ActivityIndicator,} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User } from 'lucide-react-native';
+import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User, Heart } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Header, Card, SearchBar, StatusBadge, Tag, Icon } from '../components';
 import { AVATAR_COLORS } from '../constants';
 import { getMyAvatars, deleteAvatar, UserAvatar } from '../services/apiUser';
+
+const FAVORITES_KEY = 'favorite_avatars';
 
 export default function AvatarScreen() {
   const navigation = useNavigation<any>();
@@ -13,9 +16,10 @@ export default function AvatarScreen() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [avatars, setAvatars] = useState<UserAvatar[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState<'all' | 'fictional' | 'real'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'fictional' | 'real' | 'favorites'>('all');
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
 
-  // Re-fetches every time screen is focused (after create / edit / delete)
+  // Re-fetches every time screen is focused (after create / edit / delete / favorite)
   useFocusEffect(
     useCallback(() => {
       const load = async () => {
@@ -23,6 +27,10 @@ export default function AvatarScreen() {
           setLoading(true);
           const data = await getMyAvatars();
           setAvatars(data);
+
+          // Load favorite IDs from AsyncStorage
+          const stored = await AsyncStorage.getItem(FAVORITES_KEY);
+          setFavoriteIds(stored ? JSON.parse(stored) : []);
         } catch (e) {
           console.error('Failed to load avatars:', e);
         } finally {
@@ -38,7 +46,12 @@ export default function AvatarScreen() {
       (avatar.name_ko ?? '').includes(search) ||
       (avatar.name_en ?? '').toLowerCase().includes(search.toLowerCase()) ||
       (avatar.relationship_description ?? '').includes(search);
-    const matchesFilter = filterType === 'all' || avatar.avatar_type === filterType;
+
+    let matchesFilter = true;
+    if (filterType === 'fictional') matchesFilter = avatar.avatar_type === 'fictional';
+    else if (filterType === 'real') matchesFilter = avatar.avatar_type === 'real';
+    else if (filterType === 'favorites') matchesFilter = favoriteIds.includes(String(avatar.id));
+
     return matchesSearch && matchesFilter;
   });
 
@@ -69,9 +82,9 @@ export default function AvatarScreen() {
       role: randomRoles[Math.floor(Math.random() * randomRoles.length)],
       interests: randomInterests[Math.floor(Math.random() * randomInterests.length)],
       personality_traits: ['친절한', '유쾌한'],
-      avatar_bg: randomColors[Math.floor(Math.random() * randomColors.length)],  // fixed
+      avatar_bg: randomColors[Math.floor(Math.random() * randomColors.length)],
       difficulty: 'medium',
-      avatar_type: 'fictional',                                                    // fixed
+      avatar_type: 'fictional',
     };
 
     navigation.navigate('CreateAvatar', {
@@ -121,7 +134,12 @@ export default function AvatarScreen() {
         />
 
         {/* Filter Tabs */}
-        <View style={styles.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+          contentContainerStyle={styles.filterRow}
+        >
           <TouchableOpacity
             style={[styles.filterTab, filterType === 'all' && styles.filterTabActive]}
             onPress={() => setFilterType('all')}
@@ -130,6 +148,7 @@ export default function AvatarScreen() {
               전체 ({avatars.length})
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             style={[styles.filterTab, filterType === 'fictional' && styles.filterTabActive]}
             onPress={() => setFilterType('fictional')}
@@ -139,6 +158,7 @@ export default function AvatarScreen() {
               가상 인물
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             style={[styles.filterTab, filterType === 'real' && styles.filterTabActive]}
             onPress={() => setFilterType('real')}
@@ -148,7 +168,18 @@ export default function AvatarScreen() {
               실제 인물
             </Text>
           </TouchableOpacity>
-        </View>
+
+          <TouchableOpacity
+            style={[styles.filterTab, styles.filterTabHeart, filterType === 'favorites' && styles.filterTabFavorite]}
+            onPress={() => setFilterType('favorites')}
+          >
+            <Heart
+              size={14}
+              color={filterType === 'favorites' ? '#FFFFFF' : '#E53935'}
+              fill={filterType === 'favorites' ? '#FFFFFF' : '#E53935'}
+            />
+          </TouchableOpacity>
+        </ScrollView>
 
         {/* Create New Avatar Button */}
         <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateModal(true)}>
@@ -183,6 +214,10 @@ export default function AvatarScreen() {
                       <View style={styles.avatarNameRow}>
                         <Text style={styles.avatarName}>{avatar.name_ko}</Text>
                         <StatusBadge status={avatar.difficulty as 'easy' | 'medium' | 'hard'} />
+                        {/* Show heart icon if favorited */}
+                        {favoriteIds.includes(String(avatar.id)) && (
+                          <Heart size={16} color="#E53935" fill="#E53935" />
+                        )}
                       </View>
                       <Text style={styles.avatarMeta}>
                         {avatar.name_en}{avatar.age ? ` · ${avatar.age}세` : ''}
@@ -243,12 +278,16 @@ export default function AvatarScreen() {
                 <View style={styles.emptyState}>
                   <Icon name="search" size={48} color="#B0B0C5" />
                   <Text style={styles.emptyTitle}>
-                    {search ? '검색 결과가 없어요' : '아직 만든 아바타가 없어요'}
+                    {filterType === 'favorites'
+                      ? '즐겨찾기한 아바타가 없어요'
+                      : search ? '검색 결과가 없어요' : '아직 만든 아바타가 없어요'}
                   </Text>
                   <Text style={styles.emptySubtitle}>
-                    {search ? '다른 검색어를 입력해보세요' : '새 아바타를 만들어보세요!'}
+                    {filterType === 'favorites'
+                      ? '아바타 상세 페이지에서 ♡를 눌러 추가해보세요'
+                      : search ? '다른 검색어를 입력해보세요' : '새 아바타를 만들어보세요!'}
                   </Text>
-                  {!search && (
+                  {!search && filterType !== 'favorites' && (
                     <TouchableOpacity style={styles.emptyButton} onPress={() => setShowCreateModal(true)}>
                       <Plus size={18} color="#FFFFFF" />
                       <Text style={styles.emptyButtonText}>아바타 만들기</Text>
@@ -315,13 +354,16 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 32 },
   searchBar: { marginBottom: 12 },
-  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  filterScroll: { marginBottom: 16 },
+  filterRow: { flexDirection: 'row', gap: 8 },
   filterTab: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
     backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E2EC',
   },
   filterTabActive: { backgroundColor: '#6C3BFF', borderColor: '#6C3BFF' },
+  filterTabHeart: { paddingHorizontal: 12, paddingVertical: 8 },
+  filterTabFavorite: { backgroundColor: '#E53935', borderColor: '#E53935', paddingHorizontal: 12, paddingVertical: 8 },
   filterText: { fontSize: 12, fontWeight: '600', color: '#6C6C80' },
   filterTextActive: { color: '#FFFFFF' },
   createButton: {
