@@ -56,6 +56,30 @@ interface Message {
   feedback?: SpeechAnalysis;
 }
 
+interface CorrectionContext {
+  session_id: string;
+  expected_speech_level_code: string;
+  expected_speech_level_label: string;
+  latest_user_message: string;
+  corrected_user_message: string;
+  latest_feedback: {
+    verdict?: string;
+    has_errors: boolean;
+    accuracy_score: number | null;
+    detected_speech_level?: string;
+    detected_speech_level_code?: string;
+    summary?: string;
+    corrections: Correction[];
+  } | null;
+  recent_mistakes: Array<{
+    message: string;
+    corrected: string;
+    verdict?: string;
+    summary?: string;
+  }>;
+  response_guidance: string[];
+}
+
 const getMoodConfig = (mood: number) => {
   if (mood >= 80) return { icon: Heart,  color: '#E91E63', label: '아주 좋아요!' };
   if (mood >= 60) return { icon: Smile,  color: '#4CAF50', label: '좋아요'       };
@@ -79,6 +103,15 @@ const LEVEL_EXAMPLES: Record<string, string> = {
   formal: '안녕하십니까. 만나서 반갑습니다.',
   polite: '안녕하세요. 만나서 반가워요.',
   informal: '안녕. 만나서 반가워.',
+};
+
+const DECORATIVE_REPLY_SYMBOLS = /😊|😂|❤️|❤|✨|😍|🥰|😘|💕|💖|💗|💝|💞|💓|😄|😆|😁|😃|🤣|🙂|😉|☺️|☺|🌟|⭐/g;
+
+const SITUATION_CATEGORY_LABELS: Record<string, string> = {
+  casual: '일상',
+  service: '서비스',
+  formal: '격식',
+  work: '업무',
 };
 
 const SPEECH_LEVEL_TERMS: Record<string, { code: string; label: string }> = {
@@ -120,9 +153,61 @@ const normalizeExpectedLevelCode = (level?: string) => {
   return SPEECH_LEVEL_TERMS[normalized]?.code || SPEECH_LEVEL_TERMS[compact]?.code || '';
 };
 
+const splitTrailingPunctuation = (text: string) => {
+  const match = text.match(/([.!?…。？！"')\]\s]*)$/);
+  const trailing = match?.[1] || '';
+  return {
+    core: text.slice(0, text.length - trailing.length),
+    trailing,
+  };
+};
+
+const getFinalConsonantIndex = (char: string) => {
+  if (!char || char.length !== 1) return -1;
+  const code = char.charCodeAt(0);
+  if (code < 0xac00 || code > 0xd7a3) return -1;
+  return (code - 0xac00) % 28;
+};
+
+const hasBatchimBieup = (char: string) => getFinalConsonantIndex(char) === 17;
+
+const removeFinalBieup = (char: string) => (
+  hasBatchimBieup(char) ? String.fromCharCode(char.charCodeAt(0) - 17) : char
+);
+
+const endsWithHapsidaFormal = (text: string) => {
+  const { core } = splitTrailingPunctuation(text.trim());
+  if (!core) return false;
+  if (core.endsWith('읍시다') || core.endsWith('십시다')) return true;
+  if (!core.endsWith('시다') || core.length < 3) return false;
+  return hasBatchimBieup(core.charAt(core.length - 3));
+};
+
+const convertHapsidaToInformal = (text: string) => {
+  const { core, trailing } = splitTrailingPunctuation(text.trim());
+  if (!core) return null;
+
+  if (core.endsWith('읍시다') && core.length >= 4) {
+    return `${core.slice(0, -4)}${core.charAt(core.length - 4)}자${trailing}`;
+  }
+
+  if (core.endsWith('시다') && core.length >= 3) {
+    const lead = core.charAt(core.length - 3);
+    if (hasBatchimBieup(lead)) {
+      return `${core.slice(0, -3)}${removeFinalBieup(lead)}자${trailing}`;
+    }
+  }
+
+  return null;
+};
+
 const detectLikelySpeechLevel = (text: string) => {
   const compact = text.trim().replace(/\s+/g, ' ');
   if (!/[가-힣]/.test(compact)) return null;
+
+  if (endsWithHapsidaFormal(compact)) {
+    return 'formal';
+  }
 
   if (/(안녕하십니까|감사합니다|죄송합니다|부탁드립니다|입니다|합니다|했습니다|하겠습니다|습니까|십니까|니다[.!?…。！？”"')\]\s]*$)/.test(compact)) {
     return 'formal';
@@ -157,6 +242,9 @@ const COMMON_TYPO_FIXES: Array<{ pattern: RegExp; original: string; corrected: s
   { pattern: /반가워여/, original: '반가워여', corrected: '반가워요', explanation: "'반가워여'는 채팅식 표기이고, 연습 문장에서는 '반가워요'가 자연스럽습니다." },
   { pattern: /고마워여/, original: '고마워여', corrected: '고마워요', explanation: "'고마워여'는 채팅식 표기이고, 연습 문장에서는 '고마워요'가 자연스럽습니다." },
   { pattern: /미안해여/, original: '미안해여', corrected: '미안해요', explanation: "'미안해여'는 채팅식 표기이고, 연습 문장에서는 '미안해요'가 자연스럽습니다." },
+  { pattern: /갑시당/, original: '갑시당', corrected: '갑시다', explanation: "'갑시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '갑시다'가 자연스럽습니다." },
+  { pattern: /봅시당/, original: '봅시당', corrected: '봅시다', explanation: "'봅시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '봅시다'가 자연스럽습니다." },
+  { pattern: /합시당/, original: '합시당', corrected: '합시다', explanation: "'합시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '합시다'가 자연스럽습니다." },
 ];
 
 const getLocalTypoCorrections = (text: string): Correction[] =>
@@ -180,6 +268,11 @@ const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
   const spellingFixedText = applyLocalSpellingFixes(text);
 
   if (expectedCode === 'informal') {
+    const convertedHapsida = convertHapsidaToInformal(spellingFixedText);
+    if (convertedHapsida && convertedHapsida !== text) {
+      return convertedHapsida;
+    }
+
     const changed = replaceAll(spellingFixedText, [
       [/안녕하십니까|안녕하세요/g, '안녕'],
       [/만나서 반갑습니다|만나서 반가워요/g, '만나서 반가워'],
@@ -401,6 +494,137 @@ const normalizeScore = (score: any) => {
   return Math.max(0, Math.min(100, Math.round(parsed)));
 };
 
+const getRecommendedExpression = (feedback?: SpeechAnalysis | null, fallback = '') => (
+  feedback?.natural_alternatives?.[0]?.expression ||
+  feedback?.corrections?.[0]?.corrected ||
+  fallback
+);
+
+const buildRecentMistakeContext = (messages: Message[]) =>
+  messages
+    .filter(m => m.sender === 'user' && m.feedback?.has_errors)
+    .slice(-4)
+    .map(m => ({
+      message:   m.text,
+      corrected: getRecommendedExpression(m.feedback, m.text),
+      verdict:   m.feedback?.verdict,
+      summary:   m.feedback?.summary,
+    }));
+
+const buildCorrectionContext = (
+  sessionId: string,
+  text: string,
+  expectedSpeechLevel: string | undefined,
+  feedback: SpeechAnalysis | null,
+  messages: Message[],
+): CorrectionContext => {
+  const expectedCode = normalizeExpectedLevelCode(expectedSpeechLevel);
+  const expectedLabel = expectedCode ? LEVEL_LABELS[expectedCode] : String(expectedSpeechLevel || '');
+  const correctedUserMessage = getRecommendedExpression(feedback, applyLocalSpellingFixes(text));
+
+  return {
+    session_id: sessionId,
+    expected_speech_level_code: expectedCode || String(expectedSpeechLevel || ''),
+    expected_speech_level_label: expectedLabel,
+    latest_user_message: text,
+    corrected_user_message: correctedUserMessage,
+    latest_feedback: feedback ? {
+      verdict: feedback.verdict,
+      has_errors: feedback.has_errors,
+      accuracy_score: feedback.accuracy_score,
+      detected_speech_level: feedback.detected_speech_level,
+      detected_speech_level_code: feedback.detected_speech_level_code,
+      summary: feedback.summary,
+      corrections: feedback.corrections,
+    } : null,
+    recent_mistakes: buildRecentMistakeContext(messages),
+    response_guidance: [
+      '사용자의 원문에 오타나 말투 오류가 있으면 corrected_user_message 기준으로 의도를 이해하세요.',
+      '채팅 답변에는 "polite detected", "점수", "감지" 같은 분석 라벨을 직접 쓰지 마세요.',
+      '교정이 필요한 경우 자연스러운 수정 문장을 짧게 짚은 뒤, 아바타의 말투로 대화를 이어가세요.',
+      '이전 recent_mistakes를 참고해 같은 실수가 반복되면 조금 더 분명하게 안내하세요.',
+    ],
+  };
+};
+
+const buildSituationPromptContext = (situation: any) => {
+  if (!situation) return null;
+  if (typeof situation === 'string') {
+    const trimmed = situation.trim();
+    return trimmed || null;
+  }
+
+  const name = situation?.name_ko || situation?.title || situation?.name || '';
+  const description = situation?.description_ko || situation?.description || '';
+  const contexts = Array.isArray(situation?.contexts)
+    ? situation.contexts.filter((item: any) => String(item).trim())
+    : [];
+  const categoryId = String(situation?.category || '').trim();
+  const categoryLabel = SITUATION_CATEGORY_LABELS[categoryId] || categoryId;
+  const isCustom = Boolean(situation?.isCustom);
+
+  const parts = [
+    name ? `상황 이름: ${name}` : '',
+    description ? `상황 설명: ${description}` : '',
+    categoryLabel ? `상황 카테고리: ${categoryLabel}` : '',
+    contexts.length > 0 ? `상황 맥락: ${contexts.join(', ')}` : '',
+    isCustom ? '이 상황은 사용자가 직접 만든 맞춤 상황입니다.' : '',
+  ].filter(Boolean);
+
+  return parts.join('\n') || null;
+};
+
+const sanitizeAiReply = (message: string) =>
+  message
+    .replace(DECORATIVE_REPLY_SYMBOLS, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+
+const isDiagnosticOrGenericReply = (message: string) => {
+  const normalized = message.trim();
+  if (!normalized) return true;
+
+  return (
+    /(polite|formal|informal|speech level|detected|accuracy|score)/i.test(normalized) ||
+    /(감지|점수|정확도|분석 결과|말투 분석)/.test(normalized) ||
+    /(네,?\s*그렇군요|더 이야기해|계속.*대화|무엇을 도와|도와드릴|말씀해 주세요)/.test(normalized)
+  );
+};
+
+const buildCorrectionAwareFallbackReply = (
+  originalText: string,
+  feedback?: SpeechAnalysis | null,
+) => {
+  if (!feedback?.has_errors) return '';
+
+  const corrected = getRecommendedExpression(feedback, originalText);
+
+  if (feedback.verdict === 'speech_and_spelling') {
+    return `"${corrected}"라고 하면 더 자연스러워. 좋아, 그 표현으로 다시 이어가 보자.`;
+  }
+
+  if (feedback.verdict === 'spelling') {
+    return `"${corrected}"가 맞는 표기야. 무슨 말인지 알겠어. 이어서 말해줘.`;
+  }
+
+  if (feedback.verdict === 'wrong_speech_level') {
+    return `"${corrected}"처럼 말하면 지금 관계에 더 잘 맞아. 그럼 계속 이야기해 보자.`;
+  }
+
+  return `"${corrected}"라고 하면 더 자연스러워. 계속 이어가 볼게.`;
+};
+
+const makeContextAwareAiReply = (
+  rawMessage: string,
+  originalText: string,
+  feedback?: SpeechAnalysis | null,
+) => {
+  const cleaned = sanitizeAiReply(rawMessage || '');
+  if (!feedback?.has_errors) return cleaned || '좋아, 계속 이야기해 보자.';
+  if (!isDiagnosticOrGenericReply(cleaned)) return cleaned;
+  return buildCorrectionAwareFallbackReply(originalText, feedback) || cleaned;
+};
+
 const sendMessageToAI = async (
   text:      string,
   history:   HistoryItem[],
@@ -408,25 +632,44 @@ const sendMessageToAI = async (
   situation: any,
   user_id:   string,
   expectedSpeechLevel?: string,
+  sessionId?: string,
+  correctionContext?: CorrectionContext,
 ) => {
-  const res = await fetch(`${AI_SERVER}/api/v1/chat`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_message:         text,
-      conversation_history: history,
-      avatar: {
-        id:                 avatar?.id                 || 'test',
-        name_ko:            avatar?.name_ko            || '아바타',
-        role:               avatar?.role               || 'friend',
-        personality_traits: avatar?.personality_traits || [],
-        interests:          avatar?.interests          || [],
-        dislikes:           avatar?.dislikes           || [],
-      },
-      situation: situation?.name_ko || situation?.title || null,
-      user_id,
-    }),
-  });
+  const situationContext = buildSituationPromptContext(situation);
+  const legacyPayload = {
+    user_message:         text,
+    conversation_history: history,
+    avatar: {
+      id:                 avatar?.id                 || 'test',
+      name_ko:            avatar?.name_ko            || '아바타',
+      role:               avatar?.role               || 'friend',
+      personality_traits: avatar?.personality_traits || [],
+      interests:          avatar?.interests          || [],
+      dislikes:           avatar?.dislikes           || [],
+    },
+    situation: situationContext,
+    user_id,
+  };
+  const contextPayload = {
+    ...legacyPayload,
+    session_id: sessionId,
+    expected_speech_level: expectedSpeechLevel,
+    correction_context: correctionContext,
+    response_instruction: correctionContext?.response_guidance,
+  };
+  const postChat = (payload: typeof contextPayload | typeof legacyPayload) =>
+    fetch(`${AI_SERVER}/api/v1/chat`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+  let res = await postChat(contextPayload);
+
+  // Some backend validators reject unknown fields until the API contract is updated.
+  if ((res.status === 400 || res.status === 422) && correctionContext) {
+    res = await postChat(legacyPayload);
+  }
 
   if (!res.ok) throw new Error(`AI server error: ${res.status}`);
   const data = await res.json();
@@ -467,9 +710,11 @@ const sendMessageToAI = async (
     summary: correction.summary || correction.overall_feedback || '',
   } : null;
 
+  const finalSpeechAnalysis = applyLocalFeedbackGuard(text, speech_analysis, expectedSpeechLevel);
+
   return {
-    message:        data.message,
-    speech_analysis: applyLocalFeedbackGuard(text, speech_analysis, expectedSpeechLevel),
+    message:        makeContextAwareAiReply(data.message || data.response || data.reply || '', text, finalSpeechAnalysis),
+    speech_analysis: finalSpeechAnalysis,
     mood_change:    data.mood_change    || 0,
     current_mood:   data.current_mood   || 70,
     mood_emoji:     data.mood_emoji     || '😊',
@@ -500,7 +745,7 @@ const feedbackTitle = (fb: SpeechAnalysis) => {
   if (fb.verdict === 'practice_expression') return `${detected || expected || '말투'} 연습 표현`;
   if (fb.verdict === 'fragment') return '표현 조각';
   if (fb.verdict === 'spelling' || fb.corrections.some(c => c.type === 'spelling')) return '오타 수정 필요';
-  if (fb.verdict === 'wrong_speech_level') return detected ? `${detected} 사용됨` : '말투 수정 필요';
+  if (fb.verdict === 'wrong_speech_level') return detected ? `${detected}로 들려요` : '말투 수정 필요';
   if (fb.verdict === 'needs_revision') return '수정이 필요한 표현';
   if (fb.verdict === 'unclear') return '말투를 판단하기 어려워요';
 
@@ -515,7 +760,7 @@ const feedbackTitle = (fb: SpeechAnalysis) => {
   if (fb.detected_speech_confidence && fb.detected_speech_confidence < 0.75) {
     return `${detected}에 가까워요`;
   }
-  return `${detected} 감지`;
+  return `${detected} 표현이에요`;
 };
 
 export default function ChatScreen() {
@@ -529,6 +774,7 @@ export default function ChatScreen() {
   const profileBg        = route.params?.avatarBg || avatar?.avatar_bg || '#FFB6C1';
 
   const flatListRef = useRef<FlatList>(null);
+  const sessionIdRef = useRef(`chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   const [messages,         setMessages]         = useState<Message[]>([]);
   const [input,            setInput]            = useState('');
@@ -569,8 +815,25 @@ export default function ChatScreen() {
         ...buildHistoryFromMessages(messages),
         { role: 'user', content: text },
       ];
+      const localAnalysisHint = applyLocalFeedbackGuard(text, null, recommendedLevel);
+      const correctionContext = buildCorrectionContext(
+        sessionIdRef.current,
+        text,
+        recommendedLevel,
+        localAnalysisHint,
+        messages,
+      );
 
-      const data = await sendMessageToAI(text, history, avatar, situation, userId, recommendedLevel);
+      const data = await sendMessageToAI(
+        text,
+        history,
+        avatar,
+        situation,
+        userId,
+        recommendedLevel,
+        sessionIdRef.current,
+        correctionContext,
+      );
       const aiMsg: Message = { id: (Date.now() + 1).toString(), text: data.message, sender: 'ai' };
 
       setAvatarMood(data.current_mood);

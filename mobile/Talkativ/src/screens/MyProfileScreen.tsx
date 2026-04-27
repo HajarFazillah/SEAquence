@@ -10,11 +10,8 @@ import {
   HelpCircle, LogOut, Edit, Heart, BookOpen,
   Award, Clock, TrendingUp, MessageCircle, MessageSquare,
 } from 'lucide-react-native';
-import { Header, Card, Tag, ProgressBar } from '../components';
+import { Card, Tag, ProgressBar } from '../components';
 import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2;
 
 const mockUser = {
   id: 'user_1',
