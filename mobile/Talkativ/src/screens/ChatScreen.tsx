@@ -107,6 +107,13 @@ const LEVEL_EXAMPLES: Record<string, string> = {
 
 const DECORATIVE_REPLY_SYMBOLS = /😊|😂|❤️|❤|✨|😍|🥰|😘|💕|💖|💗|💝|💞|💓|😄|😆|😁|😃|🤣|🙂|😉|☺️|☺|🌟|⭐/g;
 
+const SITUATION_CATEGORY_LABELS: Record<string, string> = {
+  casual: '일상',
+  service: '서비스',
+  formal: '격식',
+  work: '업무',
+};
+
 const SPEECH_LEVEL_TERMS: Record<string, { code: string; label: string }> = {
   formal: { code: 'formal', label: '합쇼체' },
   'formal speech': { code: 'formal', label: '합쇼체' },
@@ -146,9 +153,61 @@ const normalizeExpectedLevelCode = (level?: string) => {
   return SPEECH_LEVEL_TERMS[normalized]?.code || SPEECH_LEVEL_TERMS[compact]?.code || '';
 };
 
+const splitTrailingPunctuation = (text: string) => {
+  const match = text.match(/([.!?…。？！"')\]\s]*)$/);
+  const trailing = match?.[1] || '';
+  return {
+    core: text.slice(0, text.length - trailing.length),
+    trailing,
+  };
+};
+
+const getFinalConsonantIndex = (char: string) => {
+  if (!char || char.length !== 1) return -1;
+  const code = char.charCodeAt(0);
+  if (code < 0xac00 || code > 0xd7a3) return -1;
+  return (code - 0xac00) % 28;
+};
+
+const hasBatchimBieup = (char: string) => getFinalConsonantIndex(char) === 17;
+
+const removeFinalBieup = (char: string) => (
+  hasBatchimBieup(char) ? String.fromCharCode(char.charCodeAt(0) - 17) : char
+);
+
+const endsWithHapsidaFormal = (text: string) => {
+  const { core } = splitTrailingPunctuation(text.trim());
+  if (!core) return false;
+  if (core.endsWith('읍시다') || core.endsWith('십시다')) return true;
+  if (!core.endsWith('시다') || core.length < 3) return false;
+  return hasBatchimBieup(core.charAt(core.length - 3));
+};
+
+const convertHapsidaToInformal = (text: string) => {
+  const { core, trailing } = splitTrailingPunctuation(text.trim());
+  if (!core) return null;
+
+  if (core.endsWith('읍시다') && core.length >= 4) {
+    return `${core.slice(0, -4)}${core.charAt(core.length - 4)}자${trailing}`;
+  }
+
+  if (core.endsWith('시다') && core.length >= 3) {
+    const lead = core.charAt(core.length - 3);
+    if (hasBatchimBieup(lead)) {
+      return `${core.slice(0, -3)}${removeFinalBieup(lead)}자${trailing}`;
+    }
+  }
+
+  return null;
+};
+
 const detectLikelySpeechLevel = (text: string) => {
   const compact = text.trim().replace(/\s+/g, ' ');
   if (!/[가-힣]/.test(compact)) return null;
+
+  if (endsWithHapsidaFormal(compact)) {
+    return 'formal';
+  }
 
   if (/(안녕하십니까|감사합니다|죄송합니다|부탁드립니다|입니다|합니다|했습니다|하겠습니다|습니까|십니까|니다[.!?…。！？”"')\]\s]*$)/.test(compact)) {
     return 'formal';
@@ -183,6 +242,9 @@ const COMMON_TYPO_FIXES: Array<{ pattern: RegExp; original: string; corrected: s
   { pattern: /반가워여/, original: '반가워여', corrected: '반가워요', explanation: "'반가워여'는 채팅식 표기이고, 연습 문장에서는 '반가워요'가 자연스럽습니다." },
   { pattern: /고마워여/, original: '고마워여', corrected: '고마워요', explanation: "'고마워여'는 채팅식 표기이고, 연습 문장에서는 '고마워요'가 자연스럽습니다." },
   { pattern: /미안해여/, original: '미안해여', corrected: '미안해요', explanation: "'미안해여'는 채팅식 표기이고, 연습 문장에서는 '미안해요'가 자연스럽습니다." },
+  { pattern: /갑시당/, original: '갑시당', corrected: '갑시다', explanation: "'갑시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '갑시다'가 자연스럽습니다." },
+  { pattern: /봅시당/, original: '봅시당', corrected: '봅시다', explanation: "'봅시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '봅시다'가 자연스럽습니다." },
+  { pattern: /합시당/, original: '합시당', corrected: '합시다', explanation: "'합시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '합시다'가 자연스럽습니다." },
 ];
 
 const getLocalTypoCorrections = (text: string): Correction[] =>
@@ -206,6 +268,11 @@ const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
   const spellingFixedText = applyLocalSpellingFixes(text);
 
   if (expectedCode === 'informal') {
+    const convertedHapsida = convertHapsidaToInformal(spellingFixedText);
+    if (convertedHapsida && convertedHapsida !== text) {
+      return convertedHapsida;
+    }
+
     const changed = replaceAll(spellingFixedText, [
       [/안녕하십니까|안녕하세요/g, '안녕'],
       [/만나서 반갑습니다|만나서 반가워요/g, '만나서 반가워'],
@@ -480,6 +547,33 @@ const buildCorrectionContext = (
   };
 };
 
+const buildSituationPromptContext = (situation: any) => {
+  if (!situation) return null;
+  if (typeof situation === 'string') {
+    const trimmed = situation.trim();
+    return trimmed || null;
+  }
+
+  const name = situation?.name_ko || situation?.title || situation?.name || '';
+  const description = situation?.description_ko || situation?.description || '';
+  const contexts = Array.isArray(situation?.contexts)
+    ? situation.contexts.filter((item: any) => String(item).trim())
+    : [];
+  const categoryId = String(situation?.category || '').trim();
+  const categoryLabel = SITUATION_CATEGORY_LABELS[categoryId] || categoryId;
+  const isCustom = Boolean(situation?.isCustom);
+
+  const parts = [
+    name ? `상황 이름: ${name}` : '',
+    description ? `상황 설명: ${description}` : '',
+    categoryLabel ? `상황 카테고리: ${categoryLabel}` : '',
+    contexts.length > 0 ? `상황 맥락: ${contexts.join(', ')}` : '',
+    isCustom ? '이 상황은 사용자가 직접 만든 맞춤 상황입니다.' : '',
+  ].filter(Boolean);
+
+  return parts.join('\n') || null;
+};
+
 const sanitizeAiReply = (message: string) =>
   message
     .replace(DECORATIVE_REPLY_SYMBOLS, '')
@@ -541,6 +635,7 @@ const sendMessageToAI = async (
   sessionId?: string,
   correctionContext?: CorrectionContext,
 ) => {
+  const situationContext = buildSituationPromptContext(situation);
   const legacyPayload = {
     user_message:         text,
     conversation_history: history,
@@ -552,7 +647,7 @@ const sendMessageToAI = async (
       interests:          avatar?.interests          || [],
       dislikes:           avatar?.dislikes           || [],
     },
-    situation: situation?.name_ko || situation?.title || null,
+    situation: situationContext,
     user_id,
   };
   const contextPayload = {
@@ -650,7 +745,7 @@ const feedbackTitle = (fb: SpeechAnalysis) => {
   if (fb.verdict === 'practice_expression') return `${detected || expected || '말투'} 연습 표현`;
   if (fb.verdict === 'fragment') return '표현 조각';
   if (fb.verdict === 'spelling' || fb.corrections.some(c => c.type === 'spelling')) return '오타 수정 필요';
-  if (fb.verdict === 'wrong_speech_level') return detected ? `${detected} 사용됨` : '말투 수정 필요';
+  if (fb.verdict === 'wrong_speech_level') return detected ? `${detected}로 들려요` : '말투 수정 필요';
   if (fb.verdict === 'needs_revision') return '수정이 필요한 표현';
   if (fb.verdict === 'unclear') return '말투를 판단하기 어려워요';
 
@@ -665,7 +760,7 @@ const feedbackTitle = (fb: SpeechAnalysis) => {
   if (fb.detected_speech_confidence && fb.detected_speech_confidence < 0.75) {
     return `${detected}에 가까워요`;
   }
-  return `${detected} 감지`;
+  return `${detected} 표현이에요`;
 };
 
 export default function ChatScreen() {

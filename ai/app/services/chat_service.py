@@ -8,6 +8,7 @@ from enum import Enum
 from app.schemas.avatar import AvatarBase, SpeechLevel, get_speech_levels_for_role, get_role_label
 from app.schemas.user import UserProfile, KoreanLevel
 from app.services.clova_service import clova_service, Message
+from app.services.simple_speech_analyzer import get_speech_analyzer
 from app.services.prompt_builder import (
     build_avatar_system_prompt,
     build_speech_correction_prompt,
@@ -355,6 +356,9 @@ _COMMON_TYPO_FIXES = [
     ("반가워여", "반가워요", "'반가워여'는 채팅식 표기이고, 연습 문장에서는 '반가워요'가 자연스럽습니다."),
     ("고마워여", "고마워요", "'고마워여'는 채팅식 표기이고, 연습 문장에서는 '고마워요'가 자연스럽습니다."),
     ("미안해여", "미안해요", "'미안해여'는 채팅식 표기이고, 연습 문장에서는 '미안해요'가 자연스럽습니다."),
+    ("갑시당", "갑시다", "'갑시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '갑시다'가 자연스럽습니다."),
+    ("봅시당", "봅시다", "'봅시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '봅시다'가 자연스럽습니다."),
+    ("합시당", "합시다", "'합시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '합시다'가 자연스럽습니다."),
 ]
 
 _DIAGNOSTIC_REPLY_PATTERN = re.compile(
@@ -387,6 +391,9 @@ _INFORMAL_TO_FORMAL = {
 
 def simple_convert_to_level(text: str, target: str) -> Optional[str]:
     text  = text.strip()
+    converted_hapsida = convert_hapsida_to_target(text, target)
+    if converted_hapsida and converted_hapsida != text:
+        return converted_hapsida
     table = _INFORMAL_TO_POLITE if target == "polite" else _INFORMAL_TO_FORMAL
     for informal, formal in sorted(table.items(), key=lambda x: -len(x[0])):
         if text.endswith(informal):
@@ -394,9 +401,63 @@ def simple_convert_to_level(text: str, target: str) -> Optional[str]:
     return None
 
 
+def get_final_consonant_index(char: str) -> int:
+    if not char or len(char) != 1:
+        return -1
+    code = ord(char)
+    if not (0xAC00 <= code <= 0xD7A3):
+        return -1
+    return (code - 0xAC00) % 28
+
+
+def has_batchim_bieup(char: str) -> bool:
+    return get_final_consonant_index(char) == 17
+
+
+def remove_final_bieup(char: str) -> str:
+    return chr(ord(char) - 17) if has_batchim_bieup(char) else char
+
+
+def ends_with_hapsida_formal(text: str) -> bool:
+    if text.endswith("읍시다") or text.endswith("십시다"):
+        return True
+    if not text.endswith("시다") or len(text) < 3:
+        return False
+    return has_batchim_bieup(text[-3])
+
+
+def convert_hapsida_to_target(text: str, target: str) -> Optional[str]:
+    trailing_match = re.search(r'([.!?…。？！"\'\)\]\s]*)$', text)
+    trailing = trailing_match.group(1) if trailing_match else ""
+    core = text[: len(text) - len(trailing)] if trailing else text
+    if not core:
+        return None
+
+    if target == "informal":
+        if core.endswith("읍시다") and len(core) >= 4:
+            return f"{core[:-4]}{core[-4]}자{trailing}"
+        if core.endswith("시다") and len(core) >= 3 and has_batchim_bieup(core[-3]):
+            return f"{core[:-3]}{remove_final_bieup(core[-3])}자{trailing}"
+
+    if target == "polite":
+        replacements = {
+            "갑시다": "가요",
+            "봅시다": "봐요",
+            "합시다": "해요",
+            "해봅시다": "해봐요",
+        }
+        for original, corrected in replacements.items():
+            if core.endswith(original):
+                return f"{core[:-len(original)]}{corrected}{trailing}"
+
+    return None
+
+
 def verify_with_rules(text: str, clova_detected: str) -> str:
     text = re.sub(r"[.!?…。？！\"')\]\s]+$", "", text.strip())
     clova_detected = LEVEL_MAP.get((clova_detected or "").strip().lower(), clova_detected or "")
+    if ends_with_hapsida_formal(text):
+        return "formal"
     for e in _FORMAL_ENDINGS:
         if text.endswith(e): return "formal"
     for e in _POLITE_ENDINGS:
@@ -454,6 +515,9 @@ def make_level_suggestion(text: str, expected_norm: str) -> str:
     spelling_fixed = apply_spelling_fixes(text).strip()
 
     if expected_norm == "informal":
+        converted_hapsida = convert_hapsida_to_target(spelling_fixed, "informal")
+        if converted_hapsida and converted_hapsida != text:
+            return converted_hapsida
         changed = replace_all(spelling_fixed, [
             (r"안녕하십니까|안녕하세요", "안녕"),
             (r"만나서 반갑습니다|만나서 반가워요", "만나서 반가워"),
@@ -487,6 +551,9 @@ def make_level_suggestion(text: str, expected_norm: str) -> str:
         (r"죄송합니다|미안해", "미안해요"),
         (r"어떻게 지내십니까[?？]?|어떻게 지내[?？]?", "어떻게 지내세요?"),
     ]).strip()
+    converted_hapsida = convert_hapsida_to_target(spelling_fixed, "polite")
+    if converted_hapsida and converted_hapsida != text:
+        return converted_hapsida
     return changed if changed and changed != text else _LEVEL_EXAMPLES["polite"]
 
 
@@ -600,6 +667,7 @@ class ChatService:
         self.user_streaks: Dict[str, int] = {}
         self.user_moods:   Dict[str, int] = {}
         self.session_turns: Dict[str, List[ChatMessage]] = {}
+        self.native_speech_analyzer = get_speech_analyzer()
 
     async def generate_response(
         self,
@@ -902,6 +970,112 @@ class ChatService:
         correction.encouragement = correction.encouragement or "조금만 고치면 훨씬 자연스럽게 들려요."
         return correction
 
+    def _apply_native_analyzer_feedback(
+        self,
+        user_message: str,
+        expected_norm: str,
+        avatar_role: str,
+        corrections: List[InlineCorrection],
+        natural_alternatives: List[NaturalAlternative],
+        detected_norm: str,
+        is_level_correct: bool,
+        accuracy_score: int,
+        summary: str,
+    ) -> Dict[str, Any]:
+        """Augment CLOVA output with native analyzer signals."""
+        analyzed_text = apply_spelling_fixes(user_message)
+        native = self.native_speech_analyzer.check_appropriateness(
+            analyzed_text,
+            expected_norm,
+            avatar_role,
+        )
+
+        existing_pairs = {(c.original, c.corrected, c.type) for c in corrections}
+
+        for item in native.word_errors:
+            original = (item.get("original") or "").strip()
+            corrected = (item.get("expected") or "").strip()
+            if not original or not corrected:
+                continue
+            key = (original, corrected, CorrectionType.VOCABULARY)
+            if key in existing_pairs:
+                continue
+            corrections.append(InlineCorrection(
+                original=original,
+                corrected=corrected,
+                type=CorrectionType.VOCABULARY,
+                severity=CorrectionSeverity.ERROR if item.get("severity") == "error" else CorrectionSeverity.WARNING,
+                explanation=item.get("explanation") or "이 상황에서는 더 적절한 표현이 있어요.",
+            ))
+            existing_pairs.add(key)
+
+        for item in native.missing_honorifics:
+            original = (item.get("original") or "").strip()
+            corrected = (item.get("corrected") or "").strip()
+            if not original or not corrected:
+                continue
+            key = (original, corrected, CorrectionType.HONORIFIC)
+            if key in existing_pairs:
+                continue
+            corrections.append(InlineCorrection(
+                original=original,
+                corrected=corrected,
+                type=CorrectionType.HONORIFIC,
+                severity=CorrectionSeverity.ERROR,
+                explanation=item.get("explanation") or "높임말 표현으로 바꾸는 것이 자연스럽습니다.",
+            ))
+            existing_pairs.add(key)
+
+        if native.is_mixed and native.mixed_detail:
+            has_mixed_note = any(c.type == CorrectionType.SPEECH_LEVEL and "섞여" in c.explanation for c in corrections)
+            if not has_mixed_note:
+                corrections.append(InlineCorrection(
+                    original=user_message,
+                    corrected=user_message,
+                    type=CorrectionType.SPEECH_LEVEL,
+                    severity=CorrectionSeverity.WARNING,
+                    explanation=f"한 문장 안에서 말투가 섞여 있어요. {native.mixed_detail}",
+                    tip="한 메시지 안에서는 말투를 하나로 통일해 보세요.",
+                ))
+
+        native_level = native.overall_level.value if native.overall_level.value != "unknown" else ""
+        if native_level and not detected_norm:
+            detected_norm = native_level
+        if native_level and detected_norm != native_level and expected_norm != native_level:
+            # When regex/LLM disagree but native analyzer finds a clearer wrong level, prefer it.
+            detected_norm = native_level
+
+        native_inappropriate = native.is_appropriate is False
+        if native_inappropriate:
+            is_level_correct = False
+
+        if corrections:
+            accuracy_score = min(accuracy_score, native.score)
+        elif native_level and native_level == expected_norm and native.score < 100:
+            accuracy_score = min(accuracy_score, native.score)
+
+        if not summary:
+            summary = native.feedback_ko or ""
+        elif native.feedback_ko and native.feedback_ko not in summary:
+            summary = f"{summary} {native.feedback_ko}".strip()
+
+        if not natural_alternatives and expected_norm in _LEVEL_EXAMPLES:
+            natural_alternatives = [
+                NaturalAlternative(
+                    expression=_LEVEL_EXAMPLES[expected_norm],
+                    explanation=f"{LEVEL_KO_LABELS.get(expected_norm, expected_norm)}에서 자주 쓰는 자연스러운 예문입니다.",
+                )
+            ]
+
+        return {
+            "corrections": corrections,
+            "natural_alternatives": natural_alternatives,
+            "detected_norm": detected_norm,
+            "is_level_correct": is_level_correct,
+            "accuracy_score": accuracy_score,
+            "summary": summary,
+        }
+
     async def _analyze_realtime(
         self,
         user_message:          str,
@@ -954,6 +1128,37 @@ class ChatService:
         result = await clova_service.analyze_json(prompt, temperature=0.2, max_tokens=1024)
 
         if not result:
+            native_augmented = self._apply_native_analyzer_feedback(
+                user_message=user_message,
+                expected_norm=expected_norm,
+                avatar_role=avatar_role,
+                corrections=local_rule_correction.corrections[:],
+                natural_alternatives=local_rule_correction.natural_alternatives[:],
+                detected_norm=local_rule_correction.detected_speech_level_code or "",
+                is_level_correct=local_rule_correction.speech_level_correct,
+                accuracy_score=local_rule_correction.accuracy_score,
+                summary=local_rule_correction.summary or "",
+            )
+            local_rule_correction.corrections = native_augmented["corrections"]
+            local_rule_correction.natural_alternatives = native_augmented["natural_alternatives"]
+            local_rule_correction.detected_speech_level_code = native_augmented["detected_norm"] or local_rule_correction.detected_speech_level_code
+            local_rule_correction.detected_speech_level = LEVEL_KO_LABELS.get(
+                local_rule_correction.detected_speech_level_code or "",
+                local_rule_correction.detected_speech_level or local_rule_correction.expected_speech_level,
+            )
+            local_rule_correction.speech_level_correct = native_augmented["is_level_correct"]
+            local_rule_correction.accuracy_score = max(0, min(100, int(native_augmented["accuracy_score"])))
+            local_rule_correction.summary = native_augmented["summary"] or local_rule_correction.summary
+            local_rule_correction.has_errors = (
+                any(c.severity in (CorrectionSeverity.ERROR, CorrectionSeverity.WARNING) and c.original != c.corrected
+                    for c in local_rule_correction.corrections)
+                or not local_rule_correction.speech_level_correct
+            )
+            local_rule_correction.verdict = infer_verdict(
+                local_rule_correction.has_errors,
+                sum(1 for c in local_rule_correction.corrections if c.type == CorrectionType.SPELLING),
+                local_rule_correction.speech_level_correct,
+            )
             return local_rule_correction
 
         # ── corrections 파싱 + 필터링 ─────────────────────────────────────────
@@ -1055,9 +1260,34 @@ class ChatService:
         if not natural_alternatives and local_rule_correction.natural_alternatives:
             natural_alternatives = local_rule_correction.natural_alternatives
 
+        summary = result.get("summary") or result.get("overall_feedback") or local_rule_correction.summary
+        native_augmented = self._apply_native_analyzer_feedback(
+            user_message=user_message,
+            expected_norm=expected_norm,
+            avatar_role=avatar_role,
+            corrections=corrections,
+            natural_alternatives=natural_alternatives,
+            detected_norm=detected_norm,
+            is_level_correct=is_level_correct,
+            accuracy_score=accuracy_score,
+            summary=summary,
+        )
+        corrections = native_augmented["corrections"]
+        natural_alternatives = native_augmented["natural_alternatives"]
+        detected_norm = native_augmented["detected_norm"]
+        is_level_correct = native_augmented["is_level_correct"]
+        accuracy_score = native_augmented["accuracy_score"]
+        summary = native_augmented["summary"]
+
+        real_errors = [
+            c for c in corrections
+            if c.severity in (CorrectionSeverity.ERROR, CorrectionSeverity.WARNING)
+            and c.original != c.corrected
+        ]
+        has_errors = (len(real_errors) > 0) or not is_level_correct
+
         typo_count = sum(1 for c in corrections if c.type == CorrectionType.SPELLING)
         verdict = result.get("verdict") or infer_verdict(has_errors, typo_count, is_level_correct)
-        summary = result.get("summary") or result.get("overall_feedback") or local_rule_correction.summary
         accuracy_score = max(0, min(100, int(accuracy_score)))
 
         return RealTimeCorrection(
