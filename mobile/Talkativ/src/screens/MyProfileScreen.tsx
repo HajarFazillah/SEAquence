@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet,
-  ScrollView, TouchableOpacity, Image, Switch,
+  ScrollView, TouchableOpacity, Image, Switch, Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -13,6 +13,13 @@ import {
 import { Card, Tag, ProgressBar } from '../components';
 import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
 
+<<<<<<< Updated upstream
+=======
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2;
+
+>>>>>>> Stashed changes
 const mockUser = {
   id: 'user_1',
   name: 'Nunnalin',
