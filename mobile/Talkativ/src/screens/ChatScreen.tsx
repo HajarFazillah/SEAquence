@@ -166,6 +166,12 @@ const LEVEL_EXAMPLES: Record<string, string> = {
 };
 
 const DECORATIVE_REPLY_SYMBOLS = /😊|😂|❤️|❤|✨|😍|🥰|😘|💕|💖|💗|💝|💞|💓|😄|😆|😁|😃|🤣|🙂|😉|☺️|☺|🌟|⭐/g;
+const BAD_ALT_PATTERNS = [
+  /^이렇게도 말할 수 있어요/i,
+  /^더 자연스러운 .*표현/i,
+  /^원래 문장이 이미 자연스러워/,
+  /^변경할 필요가 없/,
+];
 
 const SITUATION_CATEGORY_LABELS: Record<string, string> = {
   casual: '일상', service: '서비스', formal: '격식', work: '업무',
@@ -485,6 +491,24 @@ const normalizeScore = (score: any) => {
   return Math.max(0, Math.min(100, Math.round(parsed)));
 };
 
+const isValidAlternative = (
+  alt: NaturalAlternative | undefined,
+  originalText = '',
+  correctedText = '',
+  expectedLevel = '',
+) => {
+  const expression = alt?.expression?.trim() || '';
+  const explanation = alt?.explanation?.trim() || '';
+  if (!expression || expression.length < 2) return false;
+  if (BAD_ALT_PATTERNS.some(pattern => pattern.test(expression) || pattern.test(explanation))) return false;
+  if (expression === originalText.trim()) return false;
+  if (correctedText && expression === correctedText.trim()) return false;
+  const expectedCode = normalizeExpectedLevelCode(expectedLevel);
+  const detectedCode = detectLikelySpeechLevel(expression) || '';
+  if (expectedCode && detectedCode && detectedCode !== expectedCode) return false;
+  return true;
+};
+
 const getRecommendedExpression = (feedback?: SpeechAnalysis | null, fallback = '') =>
   feedback?.natural_alternatives?.[0]?.expression || feedback?.corrections?.[0]?.corrected || fallback;
 
@@ -624,6 +648,12 @@ const sendMessageToAI = async (
     encouragement: correction.encouragement || '', summary: correction.summary || correction.overall_feedback || '',
   } : null;
   const finalSpeechAnalysis = applyLocalFeedbackGuard(text, speech_analysis, expectedSpeechLevel);
+  const correctedText = correction?.corrected_message || finalSpeechAnalysis?.corrections?.[0]?.corrected || '';
+  if (finalSpeechAnalysis) {
+    finalSpeechAnalysis.natural_alternatives = (finalSpeechAnalysis.natural_alternatives || []).filter(
+      alt => isValidAlternative(alt, text, correctedText, expectedSpeechLevel),
+    );
+  }
   return {
     message: makeContextAwareAiReply(data.message || data.response || data.reply || '', text, finalSpeechAnalysis),
     speech_analysis: finalSpeechAnalysis,
