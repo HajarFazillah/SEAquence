@@ -241,6 +241,13 @@ export default function ConversationSummaryScreen() {
     { value: summary.scores.vocabulary, label: '어휘력', detail: summary.scoreDetails.vocabulary },
     { value: summary.scores.naturalness, label: '자연스러움', detail: summary.scoreDetails.naturalness },
   ];
+  const getScoreSourceLabel = (detail?: ScoreDetail) => {
+    if (!detail?.source) return '';
+    if (detail.used_fallback) return '기본값 사용';
+    if (detail.source.includes('konlpy')) return 'KoNLPy 보조';
+    if (detail.source === 'rule_based') return '규칙 기반';
+    return '혼합 계산';
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -282,7 +289,7 @@ export default function ConversationSummaryScreen() {
                 <Text style={styles.scoreColLabel}>{s.label}</Text>
                 {s.detail?.source ? (
                   <Text style={styles.scoreSourceLabel}>
-                    {s.detail.used_fallback ? '기본값 사용' : s.detail.source === 'rule_based' ? '규칙 기반' : '혼합 계산'}
+                    {getScoreSourceLabel(s.detail)}
                   </Text>
                 ) : null}
               </View>

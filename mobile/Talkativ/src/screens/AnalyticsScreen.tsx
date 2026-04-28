@@ -96,6 +96,13 @@ export default function AnalyticsScreen() {
     naturalness:    scores?.naturalness    ?? 0.78,
   };
   const sessionScoreDetails: { speechAccuracy?: ScoreDetail; vocabulary?: ScoreDetail; naturalness?: ScoreDetail } = scoreDetails || {};
+  const getScoreSourceLabel = (detail?: ScoreDetail) => {
+    if (!detail?.source) return '';
+    if (detail.used_fallback) return '기본값 사용';
+    if (detail.source.includes('konlpy')) return 'KoNLPy 보조';
+    if (detail.source === 'rule_based') return '규칙 기반 계산';
+    return '혼합 계산';
+  };
 
   const overallScore  = Math.round((sessionScores.speechAccuracy + sessionScores.vocabulary + sessionScores.naturalness) / 3 * 100);
   const displayScore  = isHomeAnalysis ? Math.round(summary?.overall_score || 0) : overallScore;
@@ -233,7 +240,7 @@ export default function AnalyticsScreen() {
                   </View>
                   {item.detail?.source ? (
                     <Text style={styles.scoreFootnote}>
-                      {item.detail.used_fallback ? '기본값 사용' : item.detail.source === 'rule_based' ? '규칙 기반 계산' : '혼합 계산'}
+                      {getScoreSourceLabel(item.detail)}
                       {item.detail.note ? ` · ${item.detail.note}` : ''}
                     </Text>
                   ) : null}

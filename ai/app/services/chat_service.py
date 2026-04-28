@@ -10,6 +10,7 @@ from app.schemas.avatar import AvatarBase, SpeechLevel, get_speech_levels_for_ro
 from app.schemas.user import UserProfile, KoreanLevel
 from app.services.clova_service import clova_service, Message
 from app.services.simple_speech_analyzer import get_speech_analyzer
+from app.services.sophisticated_speech_analyzer import get_analyzer as get_sophisticated_speech_analyzer
 from app.services.prompt_builder import (
     build_avatar_system_prompt,
     build_speech_correction_prompt,
@@ -18,6 +19,7 @@ from app.services.prompt_builder import (
     SPEECH_LEVEL_INFO,
     postprocess_model_output,
 )
+from app.ml.korean_nlp import morpheme_analyzer
 
 # ============================================================================
 # Enums & Models
@@ -757,6 +759,11 @@ class ChatService:
         self.user_moods:   Dict[str, int] = {}
         self.session_turns: Dict[str, List[ChatMessage]] = {}
         self.native_speech_analyzer = get_speech_analyzer()
+        self.sophisticated_speech_analyzer = None
+        try:
+            self.sophisticated_speech_analyzer = get_sophisticated_speech_analyzer()
+        except Exception:
+            self.sophisticated_speech_analyzer = None
 
     def _extract_user_messages(self, conversation_history: List[ChatMessage]) -> List[str]:
         return [
@@ -770,6 +777,35 @@ class ChatService:
         for text in texts:
             tokens.extend(re.findall(r"[가-힣]{2,}", text))
         return tokens
+
+    def _analyze_with_konlpy(self, text: str) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "available": False,
+            "source": None,
+            "speech": None,
+            "morphemes": None,
+        }
+
+        try:
+            if self.sophisticated_speech_analyzer and getattr(self.sophisticated_speech_analyzer, "use_morphological", False):
+                speech_result = self.sophisticated_speech_analyzer.analyze(text)
+                result["speech"] = speech_result
+                result["available"] = True
+                result["source"] = getattr(self.sophisticated_speech_analyzer.konlpy, "analyzer_name", "KoNLPy")
+        except Exception:
+            result["speech"] = None
+
+        try:
+            morph_result = morpheme_analyzer.analyze(text)
+            if getattr(morph_result, "morphemes", None):
+                result["morphemes"] = morph_result
+                result["available"] = True
+                if not result["source"]:
+                    result["source"] = getattr(morpheme_analyzer, "engine", "KoNLPy")
+        except Exception:
+            result["morphemes"] = None
+
+        return result
 
     def _calculate_speech_accuracy_score(
         self,
@@ -800,12 +836,16 @@ class ChatService:
         honorific_penalty = 0
         spelling_penalty = 0
         mixed_style_penalty = 0
+        konlpy_samples_used = 0
+        konlpy_sources: List[str] = []
 
         for text in user_messages:
             fixed = apply_spelling_fixes(text)
             typo_count = len(get_typo_corrections(text))
             detected_norm = verify_with_rules(fixed, "")
             native = self.native_speech_analyzer.check_appropriateness(fixed, expected_norm, avatar_role)
+            konlpy_meta = self._analyze_with_konlpy(fixed)
+            speech_result = konlpy_meta["speech"]
 
             message_penalty = 0
             if detected_norm and detected_norm != expected_norm:
@@ -827,6 +867,31 @@ class ChatService:
                 mixed_style_penalty += 8
                 message_penalty += 8
 
+            if speech_result:
+                konlpy_samples_used += 1
+                if konlpy_meta["source"]:
+                    konlpy_sources.append(konlpy_meta["source"])
+                primary_name = getattr(getattr(speech_result, "primary_level", None), "name", "").lower()
+                if primary_name == "hapsyo":
+                    konlpy_level = "formal"
+                elif primary_name == "haeyo":
+                    konlpy_level = "polite"
+                elif primary_name == "hae":
+                    konlpy_level = "informal"
+                else:
+                    konlpy_level = ""
+
+                if konlpy_level and konlpy_level != expected_norm:
+                    speech_level_penalty += 10
+                    message_penalty += 10
+                if not getattr(speech_result, "is_consistent", True):
+                    mixed_style_penalty += 6
+                    message_penalty += 6
+                honorific_density = float(getattr(speech_result, "honorific_density", 0.0) or 0.0)
+                if expected_norm in {"formal", "polite"} and honorific_density < 0.02:
+                    honorific_penalty += 4
+                    message_penalty += 4
+
             if typo_count:
                 penalty = min(12, typo_count * 4)
                 spelling_penalty += penalty
@@ -839,7 +904,7 @@ class ChatService:
 
         return {
             "score": score,
-            "source": "rule_based",
+            "source": "rule_based+konlpy" if konlpy_samples_used > 0 else "rule_based",
             "used_fallback": False,
             "components": {
                 "messages_evaluated": len(user_messages),
@@ -848,12 +913,32 @@ class ChatService:
                 "honorific_penalty": honorific_penalty,
                 "spelling_penalty": spelling_penalty,
                 "mixed_style_penalty": mixed_style_penalty,
+                "konlpy_samples_used": konlpy_samples_used,
+                "konlpy_sources": sorted(set(konlpy_sources)),
             },
-            "note": "말투 어미, 높임 표현, 오타, 혼용 여부를 규칙 기반으로 계산했습니다.",
+            "note": (
+                "KoNLPy 형태소 분석을 보조로 사용해 말투 어미, 높임 표현, 오타, 혼용 여부를 계산했습니다."
+                if konlpy_samples_used > 0
+                else "말투 어미, 높임 표현, 오타, 혼용 여부를 규칙 기반으로 계산했습니다."
+            ),
         }
 
     def _calculate_vocabulary_score(self, user_messages: List[str]) -> Dict[str, Any]:
-        tokens = self._extract_korean_tokens(user_messages)
+        tokens: List[str] = []
+        konlpy_samples_used = 0
+        konlpy_sources: List[str] = []
+        for text in user_messages:
+            konlpy_meta = self._analyze_with_konlpy(text)
+            morph_result = konlpy_meta["morphemes"]
+            if morph_result and getattr(morph_result, "nouns", None):
+                tokens.extend([token for token in morph_result.nouns if len(token) >= 2])
+                tokens.extend([token for token in getattr(morph_result, "verbs", []) if len(token) >= 2])
+                konlpy_samples_used += 1
+                if konlpy_meta["source"]:
+                    konlpy_sources.append(konlpy_meta["source"])
+            else:
+                tokens.extend(re.findall(r"[가-힣]{2,}", text))
+
         if not tokens:
             return {
                 "score": 0,
@@ -888,7 +973,7 @@ class ChatService:
 
         return {
             "score": score,
-            "source": "rule_based",
+            "source": "rule_based+konlpy" if konlpy_samples_used > 0 else "rule_based",
             "used_fallback": False,
             "components": {
                 "token_count": token_count,
@@ -897,8 +982,14 @@ class ChatService:
                 "difficulty_score": difficulty_score,
                 "advanced_token_count": advanced_token_count,
                 "top_tokens": [token for token, _ in Counter(tokens).most_common(5)],
+                "konlpy_samples_used": konlpy_samples_used,
+                "konlpy_sources": sorted(set(konlpy_sources)),
             },
-            "note": "단어 다양성과 상대적으로 난도가 높은 어휘 사용 비율을 함께 반영했습니다.",
+            "note": (
+                "KoNLPy 형태소 분석으로 명사/동사를 뽑아 단어 다양성과 난도를 계산했습니다."
+                if konlpy_samples_used > 0
+                else "단어 다양성과 상대적으로 난도가 높은 어휘 사용 비율을 함께 반영했습니다."
+            ),
         }
 
     def _calculate_rule_naturalness_score(
@@ -927,11 +1018,15 @@ class ChatService:
         error_penalty = 0
         unnatural_expression_penalty = 0
         mixed_style_penalty = 0
+        konlpy_samples_used = 0
+        konlpy_sources: List[str] = []
 
         for text in user_messages:
             fixed = apply_spelling_fixes(text)
             typo_count = len(get_typo_corrections(text))
             native = self.native_speech_analyzer.check_appropriateness(fixed, expected_norm, avatar_role)
+            konlpy_meta = self._analyze_with_konlpy(fixed)
+            speech_result = konlpy_meta["speech"]
             message_penalty = 0
 
             if typo_count:
@@ -953,6 +1048,18 @@ class ChatService:
                 mixed_style_penalty += 8
                 message_penalty += 8
 
+            if speech_result:
+                konlpy_samples_used += 1
+                if konlpy_meta["source"]:
+                    konlpy_sources.append(konlpy_meta["source"])
+                if not getattr(speech_result, "is_consistent", True):
+                    mixed_style_penalty += 6
+                    message_penalty += 6
+                pragmatics = getattr(speech_result, "pragmatic_markers", []) or []
+                if len(pragmatics) == 0 and len(fixed) >= 8:
+                    unnatural_expression_penalty += 3
+                    message_penalty += 3
+
             total_penalty += min(60, message_penalty)
 
         average_penalty = total_penalty / max(1, len(user_messages))
@@ -960,7 +1067,7 @@ class ChatService:
 
         return {
             "score": score,
-            "source": "hybrid",
+            "source": "hybrid+konlpy" if konlpy_samples_used > 0 else "hybrid",
             "used_fallback": False,
             "components": {
                 "messages_evaluated": len(user_messages),
@@ -968,8 +1075,14 @@ class ChatService:
                 "unnatural_expression_penalty": unnatural_expression_penalty,
                 "mixed_style_penalty": mixed_style_penalty,
                 "llm_score": None,
+                "konlpy_samples_used": konlpy_samples_used,
+                "konlpy_sources": sorted(set(konlpy_sources)),
             },
-            "note": "오류 수, 부자연한 표현, 말투 혼용을 기준으로 자연스러움을 계산했습니다.",
+            "note": (
+                "KoNLPy 기반 일관성/형태소 신호와 오류 수를 함께 반영해 자연스러움을 계산했습니다."
+                if konlpy_samples_used > 0
+                else "오류 수, 부자연한 표현, 말투 혼용을 기준으로 자연스러움을 계산했습니다."
+            ),
         }
 
     async def generate_response(
