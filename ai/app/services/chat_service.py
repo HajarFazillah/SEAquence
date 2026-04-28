@@ -2023,11 +2023,12 @@ class ChatService:
             correction=correction,
             correction_context=correction_context,
             response_instruction=response_instruction or [],
+            conversation_thread=self._extract_conversation_thread(effective_history),
         )
 
         history = [
             Message(role=msg.role, content=msg.content)
-            for msg in effective_history[-10:]
+            for msg in effective_history[-14:]
         ]
         reply_user_message = self._make_reply_user_message(user_message, correction)
 
@@ -2113,12 +2114,19 @@ class ChatService:
         ]
         self.session_turns[session_key] = history[-20:]
 
+    def _extract_conversation_thread(self, history: List[ChatMessage]) -> Dict[str, str]:
+        """Pull the last assistant message and flag whether it contained a question."""
+        last_ai = next((m.content for m in reversed(history) if m.role == "assistant"), "")
+        asked_question = bool(last_ai) and ("?" in last_ai or "？" in last_ai)
+        return {"last_ai_message": last_ai, "asked_question": str(asked_question)}
+
     def _build_turn_context_section(
         self,
         user_message: str,
         correction: RealTimeCorrection,
         correction_context: Optional[Dict[str, Any]],
         response_instruction: List[str],
+        conversation_thread: Optional[Dict[str, str]] = None,
     ) -> str:
         corrected = correction.corrected_message or self._best_corrected_expression(correction) or user_message
         recent_mistakes = (correction_context or {}).get("recent_mistakes") or []
@@ -2131,6 +2139,19 @@ class ChatService:
             f"- {line}" for line in response_instruction if str(line).strip()
         )
 
+        thread = conversation_thread or {}
+        last_ai_msg = thread.get("last_ai_message", "")
+        asked_question = thread.get("asked_question", False)
+
+        thread_section = ""
+        if last_ai_msg:
+            thread_section = f"""
+## 대화 흐름 (반드시 반영)
+- 직전 당신의 말: {last_ai_msg}
+- {"→ 당신이 질문을 했습니다. 사용자의 대답에 먼저 자연스럽게 반응한 뒤 대화를 이어가세요." if asked_question else "→ 이 흐름을 자연스럽게 이어가세요."}
+- 이 맥락을 무시하고 새 주제를 꺼내지 마세요. 실제 사람처럼 대화의 흐름을 기억하세요.
+"""
+
         return f"""
 
 ## 현재 턴 응답 생성 규칙 (최우선)
@@ -2140,11 +2161,11 @@ class ChatService:
 - 감지 말투: {correction.detected_speech_level or "불명확"}
 - 오류 여부: {"있음" if correction.has_errors else "없음"}
 - 요약: {correction.summary or "특이사항 없음"}
-
+{thread_section}
 ## 채팅 말풍선 규칙
 - 채팅 답변에는 "polite detected", "감지", "점수", "정확도", "분석 결과" 같은 분석 라벨을 절대 쓰지 마세요.
-- 오류가 있으면 첫 문장에서 자연스러운 수정 문장을 짧게 알려주고, 바로 캐릭터답게 대화를 이어가세요.
-- 오류가 없으면 교정 설명을 길게 하지 말고, 사용자의 내용에 자연스럽게 반응하세요.
+- 오류가 있으면 교정을 한 문장으로 자연스럽게 녹여낸 뒤 대화를 바로 이어가세요. 교정을 따로 설명하지 마세요.
+- 오류가 없으면 사용자 말에 바로 공감하거나 반응하면서 대화를 이어가세요.
 - 답변은 1~3문장으로 짧고 실제 사람이 말하듯 작성하세요.
 - 이모지와 장식 기호는 사용하지 마세요.
 
