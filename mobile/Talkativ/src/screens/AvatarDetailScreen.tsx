@@ -7,17 +7,22 @@ import {
   Clock, TrendingUp, ChevronLeft, Sparkles, Users, ChevronRight,
 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Icon, CompatibilityRing } from '../components';
+// FIX 4: Added Card to imports — it was used in JSX but missing here
+import { Icon, CompatibilityRing, Card } from '../components';
 import { SPEECH_LEVELS } from '../constants';
 import { deleteAvatar, getMyProfile } from '../services/apiUser';
 import { getAvatarSessions, ActiveSession } from '../services/apiSession';
 
+// FIX 1: BRAND and BG moved to the top — they were defined at the bottom of the
+// file but referenced throughout JSX. `const` is not hoisted, causing a
+// ReferenceError at runtime whenever any JSX used BRAND before the declaration.
+const BRAND = '#6C3BFF';
+const BG    = '#F7F7FB';
+
 const FAVORITES_KEY = 'favorite_avatars';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Format startedAt date string into a readable relative date
-// e.g. "2026-04-17T10:30:00" → "오늘", "2일 전", "1주 전"
 const formatRelativeDate = (dateStr: string | null): string => {
   if (!dateStr) return '-';
   const date = new Date(dateStr);
@@ -31,8 +36,6 @@ const formatRelativeDate = (dateStr: string | null): string => {
   return `${Math.floor(diffDays / 7)}주 전`;
 };
 
-// Calculate duration between startedAt and endedAt in mm:ss format
-// If session not ended, show '-'
 const formatDuration = (startStr: string | null, endStr: string | null): string => {
   if (!startStr || !endStr) return '-';
   const start = new Date(startStr);
@@ -43,10 +46,6 @@ const formatDuration = (startStr: string | null, endStr: string | null): string 
   const secs = diffSec % 60;
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 };
-
-// ─── Component ───────────────────────────────────────────────────────────────
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const stripMarkdown = (text: string): string =>
   text
@@ -113,10 +112,8 @@ const getAgeGapLabel = (userAge?: number | null, avatarAge?: number | null): str
   if (!Number.isFinite(userAge) || !Number.isFinite(avatarAge)) {
     return '나이 정보가 더 있으면 차이를 정확히 보여줄 수 있어요';
   }
-
   const gap = Math.abs(Number(userAge) - Number(avatarAge));
   if (gap === 0) return '동갑이에요';
-
   const direction = Number(avatarAge) > Number(userAge) ? '연상' : '연하';
   return `${gap}살 차이 · ${direction}`;
 };
@@ -131,7 +128,6 @@ const getTalkToneLabel = (avatar: any): string => {
 const getCompatibilityFactors = (avatar: any, userAge?: number | null) => {
   const commonInterests = (avatar?.compatibility?.common_interests || []).slice(0, 3);
   const difficulty = getDifficultyLabel(avatar?.difficulty);
-
   return [
     {
       key: 'shared',
@@ -163,7 +159,7 @@ const getCompatibilityFactors = (avatar: any, userAge?: number | null) => {
       title: '추천 말투',
       value: getTalkToneLabel(avatar),
       tone: '#EEE8FF',
-      iconColor: '#6C3BFF',
+      iconColor: BRAND,
     },
   ];
 };
@@ -179,26 +175,32 @@ export default function AvatarDetailScreen() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
 
-  // Load real sessions and favorite state every time screen comes into focus
+  // FIX 5: getMyProfile was imported but never called, so userAge was always
+  // null and the age-gap label never worked. Load the profile on mount.
+  useEffect(() => {
+    getMyProfile()
+      .then((profile) => {
+        const age = Number(profile?.age);
+        if (Number.isFinite(age)) setUserAge(age);
+      })
+      .catch(() => {});
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       if (!avatar?.id) return;
 
-      // Load sessions
       getAvatarSessions(String(avatar.id))
         .then(data => setSessions(data))
         .catch(err => console.log('Failed to load avatar sessions:', err));
 
-      // Load favorite state from AsyncStorage
       AsyncStorage.getItem(FAVORITES_KEY).then(stored => {
         const favorites: string[] = stored ? JSON.parse(stored) : [];
         setIsFavorite(favorites.includes(String(avatar.id)));
       }).catch(err => console.log('Failed to load favorites:', err));
-
     }, [avatar?.id])
   );
 
-  // Toggle favorite and save to AsyncStorage
   const handleToggleFavorite = async () => {
     try {
       const stored = await AsyncStorage.getItem(FAVORITES_KEY);
@@ -218,7 +220,6 @@ export default function AvatarDetailScreen() {
     }
   };
 
-  // Calculate real stats from sessions
   const totalConversations = sessions.length;
   const totalMinutes = sessions.reduce((acc, s) => {
     if (!s.lastMessageAt || !s.endedAt) return acc;
@@ -227,10 +228,8 @@ export default function AvatarDetailScreen() {
     const mins = Math.floor((end.getTime() - start.getTime()) / (1000 * 60));
     return acc + (mins > 0 ? mins : 0);
   }, 0);
-  // No score field in backend yet — show 0
   const avgScore = 0;
 
-  // Show only the 3 most recent sessions
   const recentSessions = sessions.slice(0, 3);
 
   const handleStartChat = () => {
@@ -257,7 +256,7 @@ export default function AvatarDetailScreen() {
       },
     ]);
   };
-  
+
   type SpeechLevel = 'formal' | 'polite' | 'informal';
   const formalityToUser   = (avatar?.formality_to_user   || 'polite') as SpeechLevel;
   const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLevel;
@@ -269,7 +268,9 @@ export default function AvatarDetailScreen() {
   const compatibilityScore = Number.isFinite(Number(avatar?.compatibility?.score))
     ? Number(avatar.compatibility.score)
     : null;
-  const compatibilityFactors = compatibilityScore !== null ? getCompatibilityFactors(avatar, userAge) : [];
+  const compatibilityFactors = compatibilityScore !== null
+    ? getCompatibilityFactors(avatar, userAge)
+    : [];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -288,7 +289,6 @@ export default function AvatarDetailScreen() {
 
         {/* ── Hero ── */}
         <View style={styles.hero}>
-          {/* gradient ring via border trick */}
           <View style={styles.avRing}>
             <View style={[styles.avInner, { backgroundColor: avatar?.avatar_bg || '#C4B5FD' }]}>
               <Icon name={(avatar?.icon || 'user') as any} size={44} color="#fff" />
@@ -302,10 +302,10 @@ export default function AvatarDetailScreen() {
               onPress={handleToggleFavorite}
             >
               <Heart
-                  size={15}
-                  color={isFavorite ? '#FF4D4D' : '#ccc'}
-                  fill={isFavorite ? '#FF4D4D' : 'none'}
-                />
+                size={15}
+                color={isFavorite ? '#FF4D4D' : '#ccc'}
+                fill={isFavorite ? '#FF4D4D' : 'none'}
+              />
             </TouchableOpacity>
           </View>
 
@@ -356,9 +356,9 @@ export default function AvatarDetailScreen() {
         {/* ── Stats ── */}
         <View style={styles.stats}>
           {[
-            { icon: <MessageCircle size={15} color={BRAND}      />, bg: '#EDE9FE', value: '8',    label: '대화'      },
-            { icon: <Clock         size={15} color="#22C55E"    />, bg: '#DCFCE7', value: '45분', label: '연습 시간' },
-            { icon: <TrendingUp    size={15} color="#EAB308"    />, bg: '#FEF9C3', value: '82%',  label: '평균 점수' },
+            { icon: <MessageCircle size={15} color={BRAND}   />, bg: '#EDE9FE', value: String(totalConversations), label: '대화'      },
+            { icon: <Clock         size={15} color="#22C55E" />, bg: '#DCFCE7', value: `${totalMinutes}분`,        label: '연습 시간' },
+            { icon: <TrendingUp    size={15} color="#EAB308" />, bg: '#FEF9C3', value: `${avgScore}%`,             label: '평균 점수' },
           ].map((s, i) => (
             <View key={i} style={styles.statCard}>
               <View style={[styles.statIcon, { backgroundColor: s.bg }]}>{s.icon}</View>
@@ -370,8 +370,11 @@ export default function AvatarDetailScreen() {
 
         {/* ── 기본 정보 ── */}
         <Text style={styles.sectionLabel}>기본 정보</Text>
-        <View style={styles.infoGrid}>
 
+        {/* FIX 2: infoGrid View was never closed — everything from statsRow
+            onward (speech, interests, conversations, etc.) was incorrectly
+            nested inside it, breaking layout. Added closing </View> below. */}
+        <View style={styles.infoGrid}>
           {avatar?.age ? (
             <View style={styles.miniCard}>
               <View style={[styles.miniIcon, { backgroundColor: '#EDE9FE' }]}>
@@ -427,27 +430,7 @@ export default function AvatarDetailScreen() {
               </View>
             </View>
           ) : null}
-
-        {/* Stats — totalConversations and totalMinutes are real, avgScore is 0 until backend adds score */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <MessageCircle size={20} color="#6C3BFF" />
-            <Text style={styles.statValue}>{totalConversations}</Text>
-            <Text style={styles.statLabel}>대화</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Clock size={20} color="#4CAF50" />
-            <Text style={styles.statValue}>{totalMinutes}분</Text>
-            <Text style={styles.statLabel}>연습 시간</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <TrendingUp size={20} color="#F4A261" />
-            <Text style={styles.statValue}>{avgScore}%</Text>
-            <Text style={styles.statLabel}>평균 점수</Text>
-          </View>
-        </View>
+        </View>{/* ← FIX 2: this closing tag was missing */}
 
         {/* ── 말투 설정 ── */}
         <Text style={styles.sectionLabel}>말투 설정</Text>
@@ -495,8 +478,8 @@ export default function AvatarDetailScreen() {
           </>
         )}
 
-        {/* Recent Conversations — real data from backend */}
-        <Text style={styles.sectionTitle}>최근 대화</Text>
+        {/* ── 최근 대화 ── */}
+        <Text style={styles.sectionLabel}>최근 대화</Text>
         {recentSessions.length === 0 ? (
           <Card variant="elevated" style={styles.emptyCard}>
             <Text style={styles.emptyText}>아직 대화 기록이 없어요. 대화를 시작해보세요!</Text>
@@ -521,6 +504,7 @@ export default function AvatarDetailScreen() {
             ))}
           </View>
         )}
+
         {/* ── 싫어하는 주제 ── */}
         {(avatar?.dislikes ?? []).length > 0 && (
           <>
@@ -587,19 +571,14 @@ export default function AvatarDetailScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const BRAND = '#6C3BFF';
-const BG    = '#F7F7FB';
-
 const styles = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: BG },
   content: { paddingHorizontal: 16, paddingBottom: 110, paddingTop: 4 },
 
-  // Header
   header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
   headerBtn:   { width: 36, height: 36, borderRadius: 18, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 15, fontWeight: '500', color: '#111' },
 
-  // Hero
   hero:       { alignItems: 'center', paddingTop: 8, paddingBottom: 24, gap: 7 },
   avRing:     { width: 100, height: 100, borderRadius: 50, padding: 3, marginBottom: 4, backgroundColor: '#A78BFA' },
   avInner:    { width: '100%', height: '100%', borderRadius: 50, alignItems: 'center', justifyContent: 'center' },
@@ -610,34 +589,31 @@ const styles = StyleSheet.create({
   avatarSub:  { fontSize: 13, color: '#aaa', marginTop: -3 },
   avatarRole: { fontSize: 13, color: '#888' },
   heroPills:  { flexDirection: 'row', gap: 7, marginTop: 2 },
-  pillType:       { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#EDE9FE' },
-  pillTypeText:   { fontSize: 11, fontWeight: '500', color: BRAND },
-  pillDiff:       { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#FEF9C3' },
-  pillDiffText:   { fontSize: 11, fontWeight: '500', color: '#92400E' },
+  pillType:     { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#EDE9FE' },
+  pillTypeText: { fontSize: 11, fontWeight: '500', color: BRAND },
+  pillDiff:     { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#FEF9C3' },
+  pillDiffText: { fontSize: 11, fontWeight: '500', color: '#92400E' },
 
-  compatibilityCard: { width: '100%', marginTop: 14, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 16, borderWidth: 1, borderColor: '#EEE8FF' },
-  compatibilityTopRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  compatibilityCopy: { flex: 1 },
+  compatibilityCard:    { width: '100%', marginTop: 14, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 16, borderWidth: 1, borderColor: '#EEE8FF' },
+  compatibilityTopRow:  { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  compatibilityCopy:    { flex: 1 },
   compatibilityEyebrow: { fontSize: 11, fontWeight: '600', color: BRAND, marginBottom: 6 },
-  compatibilityHeadline: { fontSize: 15, fontWeight: '600', color: '#111', lineHeight: 22, marginBottom: 6 },
+  compatibilityHeadline:{ fontSize: 15, fontWeight: '600', color: '#111', lineHeight: 22, marginBottom: 6 },
   compatibilityCaption: { fontSize: 12, color: '#666', lineHeight: 18 },
-  factorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
-  factorCard: { width: '47.5%', backgroundColor: '#FAFAFD', borderRadius: 16, padding: 12, minHeight: 102 },
-  factorIconWrap: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  factorTitle: { fontSize: 11, fontWeight: '600', color: '#7A7A92', marginBottom: 6 },
-  factorValue: { fontSize: 12, lineHeight: 18, color: '#333' },
+  factorGrid:           { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
+  factorCard:           { width: '47.5%', backgroundColor: '#FAFAFD', borderRadius: 16, padding: 12, minHeight: 102 },
+  factorIconWrap:       { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  factorTitle:          { fontSize: 11, fontWeight: '600', color: '#7A7A92', marginBottom: 6 },
+  factorValue:          { fontSize: 12, lineHeight: 18, color: '#333' },
 
-  // Stats
   stats:     { flexDirection: 'row', gap: 10, marginBottom: 24 },
   statCard:  { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center', gap: 5 },
   statIcon:  { width: 32, height: 32, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   statValue: { fontSize: 16, fontWeight: '500', color: '#111' },
   statLabel: { fontSize: 10, color: '#999' },
 
-  // Section label
   sectionLabel: { fontSize: 11, fontWeight: '500', color: '#999', letterSpacing: 0.5, marginBottom: 10 },
 
-  // Info grid
   infoGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
   miniCard:     { width: '47.5%', backgroundColor: '#fff', borderRadius: 20, padding: 15, gap: 3 },
   miniCardWide: { width: '100%', backgroundColor: '#fff', borderRadius: 20, padding: 15, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
@@ -647,21 +623,37 @@ const styles = StyleSheet.create({
   miniDesc:     { fontSize: 11, color: '#888', lineHeight: 16, marginTop: 3 },
   miniDescWide: { fontSize: 13, color: '#444', lineHeight: 20, marginTop: 4 },
 
-  // Speech
   speechRow:       { flexDirection: 'row', gap: 8, marginBottom: 24 },
   speechCard:      { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center', gap: 8 },
   speechDir:       { fontSize: 10, color: '#aaa' },
   speechBadge:     { backgroundColor: BRAND, paddingHorizontal: 18, paddingVertical: 7, borderRadius: 20 },
   speechBadgeText: { fontSize: 13, fontWeight: '500', color: '#fff' },
 
-  // Tags
   tagWrap:    { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 24 },
   tagSel:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#EDE9FE' },
   tagSelText: { fontSize: 12, fontWeight: '500', color: BRAND },
   tagOut:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#fff', borderWidth: 0.5, borderColor: '#E5E5EA' },
   tagOutText: { fontSize: 12, fontWeight: '500', color: '#555' },
 
-  // Guide / memo
+  // FIX 3: statsRow / statItem / statDivider were referenced in original JSX
+  // but never defined — caused style lookup to return undefined (no crash but
+  // layout completely broken). Added here; old duplicate stats block in JSX
+  // was removed since the stats section above already uses real data.
+  statsRow:    { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 24 },
+  statItem:    { flex: 1, alignItems: 'center', gap: 6 },
+  statDivider: { width: 1, height: 32, backgroundColor: '#F0F0F5' },
+
+  conversationList: { gap: 10, marginBottom: 24 },
+  emptyCard:        { padding: 20, alignItems: 'center' },
+  emptyText:        { fontSize: 13, color: '#999', textAlign: 'center' },
+  convCard:         { marginBottom: 0 },
+  convRow:          { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  convInfo:         { flex: 1 },
+  convSituation:    { fontSize: 14, fontWeight: '600', color: '#111', marginBottom: 3 },
+  convDate:         { fontSize: 12, color: '#aaa' },
+  convScore:        { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#EDE9FE', borderRadius: 10 },
+  convScoreText:    { fontSize: 11, fontWeight: '600', color: BRAND },
+
   guideCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 24 },
   guideHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   guideDot:  { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND },
@@ -669,11 +661,9 @@ const styles = StyleSheet.create({
   guideText: { fontSize: 13, color: '#555', lineHeight: 21 },
   memoText:  { fontSize: 13, color: '#555', lineHeight: 21 },
 
-  // Delete
   deleteBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, marginBottom: 8 },
   deleteBtnText: { fontSize: 13, fontWeight: '500', color: '#FF4D4D' },
 
-  // Footer
   footer:       { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, paddingBottom: 28, backgroundColor: BG },
   startBtn:     { backgroundColor: BRAND, borderRadius: 22, paddingVertical: 15, alignItems: 'center' },
   startBtnText: { fontSize: 15, fontWeight: '500', color: '#fff' },
