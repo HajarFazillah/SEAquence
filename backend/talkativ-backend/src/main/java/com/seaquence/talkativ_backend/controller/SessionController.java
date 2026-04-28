@@ -27,17 +27,28 @@ public class SessionController {
     @GetMapping
     public ResponseEntity<List<SessionResponse>> getSessions(
             @RequestParam(defaultValue = "active") String status,
+            @RequestParam(required = false) String avatarId,
             Authentication auth) {
 
         String userId = (String) auth.getPrincipal();
-        List<Session> sessions = sessionRepository.findByUserIdAndStatus(userId, status);
+        List<Session> sessions;
+
+        // If avatarId is provided, filter by avatarId (ignore status)
+        if (avatarId != null && !avatarId.isEmpty()) {
+            sessions = sessionRepository.findByUserIdAndAvatarId(userId, avatarId);
+        } else {
+            sessions = sessionRepository.findByUserIdAndStatus(userId, status);
+        }
+
         List<SessionResponse> response = sessions.stream()
                 .map(s -> new SessionResponse(
                         s.getSessionId(), s.getAvatarId(), s.getAvatarName(),
                         s.getAvatarIcon(), s.getAvatarBg(), s.getSituation(),
                         s.getMood(), s.getDifficulty(),
-                        s.getStartedAt() != null ? s.getStartedAt().toString() : null))
+                        s.getStartedAt() != null ? s.getStartedAt().toString() : null,
+                        s.getEndedAt() != null ? s.getEndedAt().toString() : null))
                 .collect(Collectors.toList());
+
         return ResponseEntity.ok(response);
     }
 
@@ -59,14 +70,14 @@ public class SessionController {
         session.setDifficulty(request.getDifficulty() != null ? request.getDifficulty() : "medium");
         session.setMood(50);
         session.setStatus("active");
-
         sessionRepository.save(session);
 
         SessionResponse response = new SessionResponse(
                 session.getSessionId(), session.getAvatarId(), session.getAvatarName(),
                 session.getAvatarIcon(), session.getAvatarBg(), session.getSituation(),
                 session.getMood(), session.getDifficulty(),
-                session.getStartedAt() != null ? session.getStartedAt().toString() : null);
+                session.getStartedAt() != null ? session.getStartedAt().toString() : null,
+                session.getEndedAt() != null ? session.getEndedAt().toString() : null);
 
         return ResponseEntity.ok(response);
     }
@@ -77,7 +88,6 @@ public class SessionController {
             Authentication auth) {
 
         String userId = (String) auth.getPrincipal();
-
         java.util.Optional<Session> found = sessionRepository.findById(sessionId);
 
         if (found.isEmpty() || !found.get().getUserId().equals(userId)) {
@@ -88,6 +98,7 @@ public class SessionController {
         s.setStatus("ended");
         s.setEndedAt(LocalDateTime.now());
         sessionRepository.save(s);
+
         return ResponseEntity.ok().build();
     }
 }

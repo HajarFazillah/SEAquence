@@ -10,10 +10,12 @@ public class SessionResponse {
     private int mood;
     private String difficulty;
     private String lastMessageAt;
+    private String endedAt;
 
     public SessionResponse(String sessionId, String avatarId, String avatarName,
                            String avatarIcon, String avatarBg, String situation,
-                           int mood, String difficulty, String lastMessageAt) {
+                           int mood, String difficulty, String lastMessageAt,
+                           String endedAt) {
         this.sessionId = sessionId;
         this.avatarId = avatarId;
         this.avatarName = avatarName;
@@ -23,6 +25,7 @@ public class SessionResponse {
         this.mood = mood;
         this.difficulty = difficulty;
         this.lastMessageAt = lastMessageAt;
+        this.endedAt = endedAt;
     }
 
     public String getSessionId() { return sessionId; }
@@ -34,4 +37,5 @@ public class SessionResponse {
     public int getMood() { return mood; }
     public String getDifficulty() { return difficulty; }
     public String getLastMessageAt() { return lastMessageAt; }
+    public String getEndedAt() { return endedAt; }
 }

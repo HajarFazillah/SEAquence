@@ -1,14 +1,50 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import {
   Heart, MessageCircle, Edit, Trash2,
-  Clock, TrendingUp, ChevronLeft, Sparkles, Users,
+  Clock, TrendingUp, ChevronLeft, Sparkles, Users, ChevronRight,
 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Icon, CompatibilityRing } from '../components';
 import { SPEECH_LEVELS } from '../constants';
 import { deleteAvatar, getMyProfile } from '../services/apiUser';
+import { getAvatarSessions, ActiveSession } from '../services/apiSession';
+
+const FAVORITES_KEY = 'favorite_avatars';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// Format startedAt date string into a readable relative date
+// e.g. "2026-04-17T10:30:00" → "오늘", "2일 전", "1주 전"
+const formatRelativeDate = (dateStr: string | null): string => {
+  if (!dateStr) return '-';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return '오늘';
+  if (diffDays === 1) return '1일 전';
+  if (diffDays < 7) return `${diffDays}일 전`;
+  if (diffDays < 14) return '1주 전';
+  return `${Math.floor(diffDays / 7)}주 전`;
+};
+
+// Calculate duration between startedAt and endedAt in mm:ss format
+// If session not ended, show '-'
+const formatDuration = (startStr: string | null, endStr: string | null): string => {
+  if (!startStr || !endStr) return '-';
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  const diffSec = Math.floor((end.getTime() - start.getTime()) / 1000);
+  if (diffSec < 0) return '-';
+  const mins = Math.floor(diffSec / 60);
+  const secs = diffSec % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+};
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -141,26 +177,69 @@ export default function AvatarDetailScreen() {
   const { avatar } = route.params || {};
 
   const [isFavorite, setIsFavorite] = useState(false);
+  const [sessions, setSessions] = useState<ActiveSession[]>([]);
 
-  useEffect(() => {
-    let mounted = true;
+  // Load real sessions and favorite state every time screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (!avatar?.id) return;
 
-    getMyProfile()
-      .then((profile) => {
-        const parsedAge = Number(profile?.age);
-        if (mounted && Number.isFinite(parsedAge)) {
-          setUserAge(parsedAge);
-        }
-      })
-      .catch(() => {});
+      // Load sessions
+      getAvatarSessions(String(avatar.id))
+        .then(data => setSessions(data))
+        .catch(err => console.log('Failed to load avatar sessions:', err));
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+      // Load favorite state from AsyncStorage
+      AsyncStorage.getItem(FAVORITES_KEY).then(stored => {
+        const favorites: string[] = stored ? JSON.parse(stored) : [];
+        setIsFavorite(favorites.includes(String(avatar.id)));
+      }).catch(err => console.log('Failed to load favorites:', err));
 
-  const handleStartChat = () => navigation.navigate('SituationSelection', { avatar });
-  const handleEdit      = () => navigation.navigate('CreateAvatar', { avatar, isEdit: true });
+    }, [avatar?.id])
+  );
+
+  // Toggle favorite and save to AsyncStorage
+  const handleToggleFavorite = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(FAVORITES_KEY);
+      const favorites: string[] = stored ? JSON.parse(stored) : [];
+      const avatarId = String(avatar.id);
+      let updated: string[];
+      if (favorites.includes(avatarId)) {
+        updated = favorites.filter(id => id !== avatarId);
+        setIsFavorite(false);
+      } else {
+        updated = [...favorites, avatarId];
+        setIsFavorite(true);
+      }
+      await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(updated));
+    } catch (err) {
+      console.log('Failed to save favorite:', err);
+    }
+  };
+
+  // Calculate real stats from sessions
+  const totalConversations = sessions.length;
+  const totalMinutes = sessions.reduce((acc, s) => {
+    if (!s.lastMessageAt || !s.endedAt) return acc;
+    const start = new Date(s.lastMessageAt);
+    const end = new Date(s.endedAt);
+    const mins = Math.floor((end.getTime() - start.getTime()) / (1000 * 60));
+    return acc + (mins > 0 ? mins : 0);
+  }, 0);
+  // No score field in backend yet — show 0
+  const avgScore = 0;
+
+  // Show only the 3 most recent sessions
+  const recentSessions = sessions.slice(0, 3);
+
+  const handleStartChat = () => {
+    navigation.navigate('SituationSelection', { avatar });
+  };
+
+  const handleEdit = () => {
+    navigation.navigate('CreateAvatar', { avatar, isEdit: true });
+  };
 
   const handleDelete = () => {
     Alert.alert('아바타 삭제', '정말 삭제하시겠습니까?', [
@@ -178,7 +257,7 @@ export default function AvatarDetailScreen() {
       },
     ]);
   };
-
+  
   type SpeechLevel = 'formal' | 'polite' | 'informal';
   const formalityToUser   = (avatar?.formality_to_user   || 'polite') as SpeechLevel;
   const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLevel;
@@ -220,9 +299,13 @@ export default function AvatarDetailScreen() {
             <Text style={styles.avatarName}>{avatar?.name_ko || '아바타'}</Text>
             <TouchableOpacity
               style={[styles.favBtn, isFavorite && styles.favBtnOn]}
-              onPress={() => setIsFavorite(!isFavorite)}
+              onPress={handleToggleFavorite}
             >
-              <Heart size={15} color={isFavorite ? '#FF4D4D' : '#ccc'} fill={isFavorite ? '#FF4D4D' : 'none'} />
+              <Heart
+                  size={15}
+                  color={isFavorite ? '#FF4D4D' : '#ccc'}
+                  fill={isFavorite ? '#FF4D4D' : 'none'}
+                />
             </TouchableOpacity>
           </View>
 
@@ -345,6 +428,25 @@ export default function AvatarDetailScreen() {
             </View>
           ) : null}
 
+        {/* Stats — totalConversations and totalMinutes are real, avgScore is 0 until backend adds score */}
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <MessageCircle size={20} color="#6C3BFF" />
+            <Text style={styles.statValue}>{totalConversations}</Text>
+            <Text style={styles.statLabel}>대화</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Clock size={20} color="#4CAF50" />
+            <Text style={styles.statValue}>{totalMinutes}분</Text>
+            <Text style={styles.statLabel}>연습 시간</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <TrendingUp size={20} color="#F4A261" />
+            <Text style={styles.statValue}>{avgScore}%</Text>
+            <Text style={styles.statLabel}>평균 점수</Text>
+          </View>
         </View>
 
         {/* ── 말투 설정 ── */}
@@ -393,6 +495,32 @@ export default function AvatarDetailScreen() {
           </>
         )}
 
+        {/* Recent Conversations — real data from backend */}
+        <Text style={styles.sectionTitle}>최근 대화</Text>
+        {recentSessions.length === 0 ? (
+          <Card variant="elevated" style={styles.emptyCard}>
+            <Text style={styles.emptyText}>아직 대화 기록이 없어요. 대화를 시작해보세요!</Text>
+          </Card>
+        ) : (
+          <View style={styles.conversationList}>
+            {recentSessions.map((session) => (
+              <Card key={session.sessionId} variant="elevated" style={styles.convCard}>
+                <View style={styles.convRow}>
+                  <View style={styles.convInfo}>
+                    <Text style={styles.convSituation}>{session.situation}</Text>
+                    <Text style={styles.convDate}>
+                      {formatRelativeDate(session.lastMessageAt)} · {formatDuration(session.lastMessageAt, session.endedAt)}
+                    </Text>
+                  </View>
+                  <View style={styles.convScore}>
+                    <Text style={styles.convScoreText}>{session.difficulty}</Text>
+                  </View>
+                  <ChevronRight size={20} color="#B0B0C5" />
+                </View>
+              </Card>
+            ))}
+          </View>
+        )}
         {/* ── 싫어하는 주제 ── */}
         {(avatar?.dislikes ?? []).length > 0 && (
           <>

@@ -30,6 +30,8 @@ import {
 import { Card, Header, Tag } from '../components';
 import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
 
+const CUSTOM_AVATAR_KEY = 'custom_avatar_url';
+
 const mockUser = {
   name: 'Nunnalin',
   email: 'nunnalin@example.com',
@@ -82,6 +84,7 @@ export const MyProfileScreen: React.FC = () => {
     practiceMinutes: 0,
     progressPercent: 0,
   });
+  const [customAvatarUrl, setCustomAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     getMyProfile()
