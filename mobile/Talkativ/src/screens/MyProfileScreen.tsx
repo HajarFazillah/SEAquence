@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
+<<<<<<< HEAD
   View, Text, StyleSheet,
   ScrollView, TouchableOpacity, Image, Switch, Dimensions,
+=======
+  View, Text, StyleSheet, Dimensions,
+  ScrollView, TouchableOpacity, Image, Switch, Alert,
+>>>>>>> 36e1be5ad0eb61d59ad187fdf1744e86dc96f69f
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -9,10 +14,15 @@ import {
   ChevronRight, Bell, Moon, Globe, 
   HelpCircle, LogOut, Edit, Heart, BookOpen,
   Award, Clock, TrendingUp, MessageCircle, MessageSquare,
+  Camera,
 } from 'lucide-react-native';
+
+import { launchImageLibrary } from 'react-native-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Card, Tag, ProgressBar } from '../components';
 import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
 
+<<<<<<< HEAD
 <<<<<<< Updated upstream
 =======
 
@@ -20,6 +30,10 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2;
 
 >>>>>>> Stashed changes
+=======
+const CUSTOM_AVATAR_KEY = 'custom_avatar_url';
+
+>>>>>>> 36e1be5ad0eb61d59ad187fdf1744e86dc96f69f
 const mockUser = {
   id: 'user_1',
   name: 'Nunnalin',
@@ -59,6 +73,7 @@ export const MyProfileScreen: React.FC = () => {
     practiceMinutes: 0,
     progressPercent: 0,
   });
+  const [customAvatarUrl, setCustomAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     getMyProfile()
@@ -68,12 +83,18 @@ export const MyProfileScreen: React.FC = () => {
     getUserStats()
       .then(data => setStats(data))
       .catch(err => console.log('Stats fetch failed:', err));
+
+    // Load saved custom avatar from AsyncStorage
+    AsyncStorage.getItem(CUSTOM_AVATAR_KEY)
+      .then(saved => { if (saved) setCustomAvatarUrl(saved); })
+      .catch(err => console.log('Failed to load custom avatar:', err));
   }, []);
 
+  // Custom avatar overrides realUser avatar which overrides mock
+  const displayAvatar = customAvatarUrl ?? realUser?.avatarUrl ?? mockUser.avatarUrl;
   const displayName = realUser?.username ?? mockUser.name;
   const displayEmail = realUser?.email ?? mockUser.email;
   const displayLevel = realUser?.koreanLevel ?? mockUser.koreanLevel;
-  const displayAvatar = realUser?.avatarUrl ?? mockUser.avatarUrl;
   const displayMemo = realUser?.memo ?? mockUser.memo;
   const displayInterests = realUser?.interests && realUser.interests.length > 0 
     ? realUser.interests 
@@ -81,6 +102,45 @@ export const MyProfileScreen: React.FC = () => {
   const displayDislikes = realUser?.dislikes && realUser.dislikes.length > 0
     ? realUser.dislikes
     : mockUser.dislikes;
+
+  const handleChangePhoto = () => {
+    Alert.alert(
+      '프로필 사진 변경',
+      '사진을 선택하거나 기본 사진으로 되돌릴 수 있어요.',
+      [
+        {
+          text: '사진 선택',
+          onPress: () => {
+            launchImageLibrary(
+              { mediaType: 'photo', quality: 0.8, selectionLimit: 1 },
+              (response) => {
+                if (response.didCancel) return;
+                if (response.errorCode) {
+                  Alert.alert('오류', '사진을 불러오지 못했어요. 다시 시도해주세요.');
+                  return;
+                }
+                const uri = response.assets?.[0]?.uri;
+                if (uri) {
+                  setCustomAvatarUrl(uri);
+                  AsyncStorage.setItem(CUSTOM_AVATAR_KEY, uri)
+                    .catch(err => console.log('Failed to save avatar:', err));
+                }
+              }
+            );
+          },
+        },
+        {
+          text: '기본 사진으로',
+          onPress: () => {
+            setCustomAvatarUrl(null);
+            AsyncStorage.removeItem(CUSTOM_AVATAR_KEY)
+              .catch(err => console.log('Failed to remove avatar:', err));
+          },
+        },
+        { text: '취소', style: 'cancel' },
+      ]
+    );
+  };
 
   const handleEditProfile = () => {
     navigation.navigate('EditProfile');
@@ -128,8 +188,8 @@ export const MyProfileScreen: React.FC = () => {
           <View style={styles.profileCardContent}>
             <View style={styles.avatarContainer}>
               <Image source={{ uri: displayAvatar }} style={styles.avatar} />
-              <TouchableOpacity style={styles.editAvatarBtn} onPress={handleEditProfile}>
-                <Edit size={12} color="#FFFFFF" />
+              <TouchableOpacity style={styles.editAvatarBtn} onPress={handleChangePhoto}>
+                <Camera size={12} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
             <View style={styles.profileInfo}>
@@ -345,7 +405,6 @@ export const MyProfileScreen: React.FC = () => {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
-
   profileCard: {
     backgroundColor: '#6C3BFF',
     borderRadius: 20,
@@ -353,270 +412,71 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 24,
   },
-  profileCardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginRight: 16,
-  },
+  profileCardContent: { flexDirection: 'row', alignItems: 'center' },
+  avatarContainer: { position: 'relative', marginRight: 16 },
   avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#E8E8F0',
-    borderWidth: 3,
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: '#E8E8F0', borderWidth: 3,
     borderColor: 'rgba(255,255,255,0.3)',
   },
   editAvatarBtn: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#1A1A2E',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#6C3BFF',
+    position: 'absolute', bottom: -2, right: -2,
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: '#1A1A2E', alignItems: 'center',
+    justifyContent: 'center', borderWidth: 2, borderColor: '#6C3BFF',
   },
-  profileInfo: {
-    flex: 1,
-  },
-  userName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  userEmail: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.7)',
-    marginBottom: 10,
-  },
+  profileInfo: { flex: 1 },
+  userName: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', marginBottom: 4 },
+  userEmail: { fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 10 },
   levelBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
+    paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: 12, alignSelf: 'flex-start',
   },
-  levelText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-
-  memoCard: {
-    marginBottom: 20,
-  },
-  memoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
-  },
-  memoTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1A1A2E',
-  },
-  memoEditBtn: {
-    padding: 4,
-  },
-  memoText: {
-    fontSize: 14,
-    color: '#6C6C80',
-    lineHeight: 20,
-  },
-
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A2E',
-    marginBottom: 12,
-  },
-
-  statsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
-  },
+  levelText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
+  memoCard: { marginBottom: 20 },
+  memoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  memoTitle: { flex: 1, fontSize: 14, fontWeight: '700', color: '#1A1A2E' },
+  memoEditBtn: { padding: 4 },
+  memoText: { fontSize: 14, color: '#6C6C80', lineHeight: 20 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
+  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   statCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    flex: 1, backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16,
+    flexDirection: 'row', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
   },
-  statCardClickable: {
-    borderWidth: 1,
-    borderColor: '#F0F0F5',
-  },
-  statIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  statTextContainer: {
-    flex: 1,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1A1A2E',
-  },
-  statLabel: {
-    fontSize: 11,
-    color: '#6C6C80',
-    marginTop: 2,
-  },
-  viewMoreBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0EDFF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  viewMoreText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#6C3BFF',
-  },
-
-  sectionCard: {
-    marginBottom: 16,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  sectionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sectionTitleText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A2E',
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6C6C80',
-    marginBottom: 10,
-  },
-  editBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#F0EDFF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  editLink: {
-    fontSize: 12,
-    color: '#6C3BFF',
-    fontWeight: '600',
-  },
-  tagContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F0F0F5',
-    marginVertical: 16,
-  },
-
-  progressItem: {
-    marginBottom: 16,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  progressText: {
-    fontSize: 14,
-    color: '#1A1A2E',
-  },
-  progressPercent: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  menuCard: {
-    padding: 0,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  menuItemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F5',
-  },
-  menuItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  menuIconBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#F5F5FA',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  menuItemLabel: {
-    fontSize: 15,
-    color: '#1A1A2E',
-    fontWeight: '500',
-  },
-  menuItemLabelDanger: {
-    color: '#E53935',
-  },
-  menuItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  menuItemValue: {
-    fontSize: 14,
-    color: '#6C6C80',
-  },
-
-  version: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: '#B0B0C5',
-    marginTop: 8,
-  },
+  statCardClickable: { borderWidth: 1, borderColor: '#F0F0F5' },
+  statIconBg: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  statTextContainer: { flex: 1 },
+  statValue: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  statLabel: { fontSize: 11, color: '#6C6C80', marginTop: 2 },
+  viewMoreBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0EDFF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  viewMoreText: { fontSize: 10, fontWeight: '600', color: '#6C3BFF' },
+  sectionCard: { marginBottom: 16 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sectionTitleText: { fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
+  sectionSubtitle: { fontSize: 13, fontWeight: '600', color: '#6C6C80', marginBottom: 10 },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F0EDFF', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  editLink: { fontSize: 12, color: '#6C3BFF', fontWeight: '600' },
+  tagContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  divider: { height: 1, backgroundColor: '#F0F0F5', marginVertical: 16 },
+  progressItem: { marginBottom: 16 },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  progressText: { fontSize: 14, color: '#1A1A2E' },
+  progressPercent: { fontSize: 14, fontWeight: '700' },
+  menuCard: { padding: 0, overflow: 'hidden', marginBottom: 20 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
+  menuItemBorder: { borderBottomWidth: 1, borderBottomColor: '#F0F0F5' },
+  menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuIconBg: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#F5F5FA', alignItems: 'center', justifyContent: 'center' },
+  menuItemLabel: { fontSize: 15, color: '#1A1A2E', fontWeight: '500' },
+  menuItemLabelDanger: { color: '#E53935' },
+  menuItemRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  menuItemValue: { fontSize: 14, color: '#6C6C80' },
+  version: { textAlign: 'center', fontSize: 12, color: '#B0B0C5', marginTop: 8 },
 });
 
 export default MyProfileScreen;
