@@ -57,6 +57,17 @@ export interface CompatibilityResult {
   common_interests: string[];
   suggested_topics: string[];
   avoid_topics: string[];
+  recommendation?: string;
+}
+
+export interface CompatibilityAvatarInput {
+  id: string;
+  name_ko: string;
+  role: string;
+  difficulty?: string;
+  interests?: string[];
+  dislikes?: string[];
+  personality_traits?: string[];
 }
 
 export interface ChatMessage {
@@ -422,18 +433,48 @@ class ApiService {
 
   async batchCompatibility(
     userLikes: string[],
-    userDislikes: string[]
+    userDislikes: string[],
+    avatars: CompatibilityAvatarInput[]
   ): Promise<CompatibilityResult[]> {
-    const response = await fetch(`${AI_BASE_URL}/compatibility/batch`, {
+    const response = await fetch(`${AI_BASE_URL}/compatibility/batch-simple`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user: { likes: userLikes, dislikes: userDislikes },
+        user_profile: {
+          name: '나',
+          age: 23,
+          korean_level: 'intermediate',
+          interests: userLikes,
+          dislikes: userDislikes,
+        },
+        avatars: avatars.map((avatar) => ({
+          id: avatar.id,
+          name_ko: avatar.name_ko,
+          role: avatar.role || 'friend',
+          difficulty: avatar.difficulty || 'medium',
+          interests: avatar.interests || [],
+          dislikes: avatar.dislikes || [],
+          personality_traits: avatar.personality_traits || [],
+        })),
       }),
     });
     if (!response.ok) throw new Error('Failed to batch analyze compatibility');
     const data = await response.json();
-    return data.results;
+    return (data.results || []).map((item: any) => ({
+      avatar_id: String(item.avatar_id || ''),
+      score: Math.round(item.overall_score || 0),
+      chemistry_level: item.overall_score >= 85
+        ? 'excellent'
+        : item.overall_score >= 70
+          ? 'good'
+          : item.overall_score >= 50
+            ? 'okay'
+            : 'low',
+      common_interests: Array.isArray(item.shared_interests) ? item.shared_interests : [],
+      suggested_topics: Array.isArray(item.shared_interests) ? item.shared_interests.slice(0, 3) : [],
+      avoid_topics: [],
+      recommendation: item.recommendation || '',
+    }));
   }
 
   // ── Chat (Spring Boot) ─────────────────────────────────────────────────────

@@ -10,9 +10,7 @@ import {
 import { Card, Button, StatusBadge, Icon } from '../components';
 import { useHomeData } from '../hooks/useHomeData';
 import { ActiveSession } from '../services/apiSession';
-
-// Interests still hardcoded until profile API supports it
-const DEFAULT_INTERESTS = ['K-POP', '카페', '여행', '영화'];
+import { buildConversationPreviewText } from '../services/conversationPreview';
 
 const getMoodConfig = (mood: number) => {
   if (mood >= 70) return { icon: Smile, color: '#4CAF50', label: '좋음' };
@@ -44,7 +42,7 @@ const CircularProgress = ({ percentage }: { percentage: number }) => {
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const { profile, stats, activeSessions, loading } = useHomeData();
+  const { profile, stats, activeSessions, conversationPreviews, loading } = useHomeData();
 
   const liveStats = [
     { id: '1', title: '완료한 대화', count: stats?.completedSessions ?? 0, icon: 'message' as const, color: '#6C3BFF' },
@@ -62,6 +60,7 @@ export const HomeScreen: React.FC = () => {
         difficulty: item.difficulty,
       },
       situation: { name_ko: item.situation },
+      sessionId: item.sessionId,
     });
   };
 
@@ -119,7 +118,7 @@ export const HomeScreen: React.FC = () => {
             <Button
               title="궁합 분석"
               onPress={() => navigation.navigate('AvatarCompatibility', {
-                interests: DEFAULT_INTERESTS
+                interests: (profile?.interests && profile.interests.length > 0) ? profile.interests : ['K-POP', '카페', '여행']
               })}
               variant="ghost"
               size="medium"
@@ -140,7 +139,9 @@ export const HomeScreen: React.FC = () => {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.quickAction}
-            onPress={() => navigation.navigate('AvatarCompatibility', { interests: DEFAULT_INTERESTS })}>
+            onPress={() => navigation.navigate('AvatarCompatibility', {
+              interests: (profile?.interests && profile.interests.length > 0) ? profile.interests : ['K-POP', '카페', '여행']
+            })}>
             <View style={[styles.quickIcon, { backgroundColor: '#FFEBEE' }]}>
               <Heart size={24} color="#E53935" />
             </View>
@@ -179,6 +180,7 @@ export const HomeScreen: React.FC = () => {
           ) : (
             activeSessions.map((item) => {
               const moodConfig = getMoodConfig(item.mood);
+              const previewText = buildConversationPreviewText(conversationPreviews[item.avatarId]);
               const MoodIcon = moodConfig.icon;
               return (
                 <Card key={item.sessionId} variant="elevated" style={styles.progressCard}
@@ -191,6 +193,7 @@ export const HomeScreen: React.FC = () => {
                   </View>
                   <Text style={styles.progressAvatarName}>{item.avatarName}</Text>
                   <Text style={styles.progressSituation}>{item.situation}</Text>
+                  {previewText ? <Text style={styles.progressPreview}>{previewText}</Text> : null}
                   <View style={styles.moodRow}>
                     <MoodIcon size={16} color={moodConfig.color} />
                     <Text style={[styles.moodText, { color: moodConfig.color }]}>
@@ -259,7 +262,8 @@ const styles = StyleSheet.create({
   progressAvatarRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   progressAvatarIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   progressAvatarName: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 2 },
-  progressSituation: { fontSize: 12, color: '#6C6C80', marginBottom: 12 },
+  progressSituation: { fontSize: 12, color: '#6C6C80', marginBottom: 8 },
+  progressPreview: { fontSize: 11, lineHeight: 16, color: '#43435C', marginBottom: 10 },
   moodRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   moodText: { fontSize: 12, fontWeight: '600' },
   moodBarTrack: { height: 6, backgroundColor: '#E2E2EC', borderRadius: 3, overflow: 'hidden' },

@@ -9,6 +9,7 @@ import { ChevronLeft, Send, ChevronDown, AlertCircle, CheckCircle, Lightbulb } f
 import Svg, { Path, Circle, Polygon } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
+import { makePreviewPayload, saveConversationPreview } from '../services/conversationPreview';
 
 const AI_SERVER = 'http://10.0.2.2:8000';
 
@@ -152,6 +153,27 @@ const buildHistoryFromMessages = (messages: Message[]): HistoryItem[] =>
   messages
     .map(m => ({ role: (m.sender === 'user' ? 'user' : 'assistant') as HistoryRole, content: m.text }))
     .filter(m => m.content.trim().length > 0);
+
+const buildLatestPreviewPayload = (
+  messages: Message[],
+  avatar: any,
+  situation: any,
+  sessionId: string
+) => {
+  const latestUser = [...messages].reverse().find((message) => message.sender === 'user')?.text;
+  const latestAi = [...messages].reverse().find((message) => message.sender === 'ai')?.text;
+  const avatarId = String(avatar?.id || avatar?.avatarId || avatar?.name_ko || 'unknown-avatar');
+
+  return makePreviewPayload({
+    sessionId,
+    avatarId,
+    avatarName: avatar?.name_ko,
+    situation: situation?.name_ko || situation?.title,
+    messageCount: messages.length,
+    lastUserMessage: latestUser,
+    lastAiMessage: latestAi,
+  });
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -681,7 +703,7 @@ export default function ChatScreen() {
   const profileBg        = route.params?.avatarBg || avatar?.avatar_bg || '#6C3BFF';
 
   const flatListRef  = useRef<FlatList>(null);
-  const sessionIdRef = useRef(`chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const sessionIdRef = useRef(route.params?.sessionId || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   const [messages,         setMessages]         = useState<Message[]>([]);
   const [input,            setInput]            = useState('');
@@ -695,6 +717,10 @@ export default function ChatScreen() {
 
   useEffect(() => { AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); }); }, []);
   useEffect(() => { if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100); }, [messages]);
+  useEffect(() => {
+    if (!avatar || messages.length === 0) return;
+    saveConversationPreview(buildLatestPreviewPayload(messages, avatar, situation, sessionIdRef.current)).catch(() => {});
+  }, [avatar, messages, situation]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;

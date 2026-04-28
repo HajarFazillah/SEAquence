@@ -8,9 +8,10 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User } from 'lucide-react-native';
 import { Header, Card, SearchBar, StatusBadge, Tag, Icon, CompatibilityRing, IconName } from '../components';
 import { AVATAR_COLORS } from '../constants';
-import { getMyAvatars, deleteAvatar, UserAvatar } from '../services/apiUser';
-
-const AI_SERVER = 'http://10.0.2.2:8000';
+import { apiService, CompatibilityAvatarInput } from '../services/api';
+import { getMyAvatars, deleteAvatar, getMyProfile, UserAvatar } from '../services/apiUser';
+import { ActiveSession, getActiveSessions } from '../services/apiSession';
+import { ConversationPreview, buildConversationPreviewText, getConversationPreviewMapByAvatar } from '../services/conversationPreview';
 
 type RandomGender = 'male' | 'female' | 'other';
 type RandomAvatarType = 'fictional' | 'real';
@@ -205,6 +206,49 @@ const buildRandomAvatarTemplate = () => {
   };
 };
 
+const DEFAULT_COMPAT_INTERESTS = ['K-POP', '카페', '여행'];
+
+const normalizeInterest = (value: string) => value.trim().toLowerCase();
+
+type CompatibilityBreakdown = {
+  score: number;
+  sharedInterests: string[];
+  overlapBonus: number;
+  sharedInterestBonus: number;
+  difficultyBonus: number;
+};
+
+const buildFallbackCompatibilityBreakdowns = (
+  avatarList: UserAvatar[],
+  userInterests: string[]
+): Record<number, CompatibilityBreakdown> => {
+  const baselineInterests = userInterests.length > 0 ? userInterests : DEFAULT_COMPAT_INTERESTS;
+  const normalizedUserInterests = baselineInterests.map(normalizeInterest);
+
+  return avatarList.reduce<Record<number, CompatibilityBreakdown>>((scores, avatar) => {
+    const sharedInterests = (avatar.interests || []).filter((interest) =>
+      normalizedUserInterests.some((userInterest) =>
+        normalizeInterest(interest).includes(userInterest) || userInterest.includes(normalizeInterest(interest))
+      )
+    );
+
+    const overlapRatio = sharedInterests.length / Math.max(baselineInterests.length, avatar.interests?.length || 1, 1);
+    const overlapBonus = Math.round(overlapRatio * 36);
+    const sharedInterestBonus = Math.min(sharedInterests.length * 8, 24);
+    const difficultyBonus = avatar.difficulty === 'easy' ? 8 : avatar.difficulty === 'medium' ? 4 : 0;
+    const score = Math.max(40, Math.min(92, 46 + overlapBonus + sharedInterestBonus + difficultyBonus));
+
+    scores[avatar.id] = {
+      score,
+      sharedInterests,
+      overlapBonus,
+      sharedInterestBonus,
+      difficultyBonus,
+    };
+    return scores;
+  }, {});
+};
+
 export default function AvatarScreen() {
   const navigation = useNavigation<any>();
   const [search,          setSearch]          = useState('');
@@ -213,39 +257,35 @@ export default function AvatarScreen() {
   const [loading,         setLoading]         = useState(true);
   const [filterType,      setFilterType]      = useState<'all' | 'fictional' | 'real'>('all');
   const [compatScores,    setCompatScores]    = useState<Record<number, number>>({});
+  const [compatBreakdowns, setCompatBreakdowns] = useState<Record<number, CompatibilityBreakdown>>({});
+  const [activeSessions, setActiveSessions] = useState<Record<number, ActiveSession>>({});
+  const [conversationPreviews, setConversationPreviews] = useState<Record<string, ConversationPreview>>({});
 
   // ── 궁합 점수 로드 (컴포넌트 안에 정의) ───────────────────────────────────
   const fetchCompatibilityScores = async (
-    avatarList:    UserAvatar[],
+    avatarList: UserAvatar[],
     userInterests: string[]
   ): Promise<Record<number, number>> => {
-    if (!avatarList.length) return {};
+    if (!avatarList.length || userInterests.length === 0) return {};
+
     try {
-      const res = await fetch(`${AI_SERVER}/api/v1/compatibility/batch-simple`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_profile: {
-            name:     '나',
-            likes:    userInterests,
-            dislikes: [],
-          },
-          avatars: avatarList.map(a => ({
-            id:                 String(a.id),
-            name_ko:            a.name_ko,
-            role:               a.role               || 'friend',
-            interests:          a.interests          || [],
-            personality_traits: a.personality_traits || [],
-            dislikes:           a.dislikes           || [],
-          })),
-        }),
-      });
-      if (!res.ok) return {};
-      const data = await res.json();
+      const avatars: CompatibilityAvatarInput[] = avatarList.map((avatar) => ({
+        id: String(avatar.id),
+        name_ko: avatar.name_ko,
+        role: avatar.role || 'friend',
+        difficulty: avatar.difficulty || 'medium',
+        interests: avatar.interests || [],
+        dislikes: avatar.dislikes || [],
+        personality_traits: avatar.personality_traits || [],
+      }));
+
+      const results = await apiService.batchCompatibility(userInterests, [], avatars);
       const scores: Record<number, number> = {};
-      (data.results || []).forEach((r: any, idx: number) => {
-        const avatar = avatarList[idx];
-        if (avatar) scores[avatar.id] = Math.round(r.overall_score || 0);
+      results.forEach((result) => {
+        const avatarId = Number(result.avatar_id);
+        if (Number.isFinite(avatarId)) {
+          scores[avatarId] = result.score;
+        }
       });
       return scores;
     } catch {
@@ -259,15 +299,54 @@ export default function AvatarScreen() {
       const load = async () => {
         try {
           setLoading(true);
-          const data = await getMyAvatars();
+          const [avatarsResult, profileResult, sessionsResult, previewsResult] = await Promise.allSettled([
+            getMyAvatars(),
+            getMyProfile(),
+            getActiveSessions(),
+            getConversationPreviewMapByAvatar(),
+          ]);
+
+          if (avatarsResult.status !== 'fulfilled') {
+            throw avatarsResult.reason;
+          }
+
+          const data = avatarsResult.value;
           setAvatars(data);
 
+          if (sessionsResult.status === 'fulfilled') {
+            const mappedSessions = sessionsResult.value.reduce<Record<number, ActiveSession>>((acc, session) => {
+              const avatarId = Number(session.avatarId);
+              if (Number.isFinite(avatarId)) acc[avatarId] = session;
+              return acc;
+            }, {});
+            setActiveSessions(mappedSessions);
+          } else {
+            setActiveSessions({});
+          }
+
+          if (previewsResult.status === 'fulfilled') {
+            setConversationPreviews(previewsResult.value);
+          } else {
+            setConversationPreviews({});
+          }
+
+          const profileInterests = profileResult.status === 'fulfilled'
+            ? profileResult.value.interests || []
+            : [];
+
+          const fallbackBreakdowns = buildFallbackCompatibilityBreakdowns(data, profileInterests);
+          setCompatBreakdowns(fallbackBreakdowns);
+          setCompatScores(Object.fromEntries(
+            Object.entries(fallbackBreakdowns).map(([avatarId, breakdown]) => [Number(avatarId), breakdown.score])
+          ));
+
           if (data.length > 0) {
-            const userInterests = data
-              .flatMap(a => a.interests || [])
-              .slice(0, 5);
-            fetchCompatibilityScores(data, userInterests)
-              .then(scores => setCompatScores(scores))
+            fetchCompatibilityScores(data, profileInterests)
+              .then(scores => {
+                if (Object.keys(scores).length > 0) {
+                  setCompatScores(scores);
+                }
+              })
               .catch(() => {});
           }
         } catch (e) {
@@ -290,7 +369,27 @@ export default function AvatarScreen() {
   });
 
   const handleAvatarPress = (avatar: UserAvatar) => {
-    navigation.navigate('AvatarDetail', { avatar });
+    const compatibilityScore = compatScores[avatar.id];
+    const compatibilityBreakdown = compatBreakdowns[avatar.id];
+    navigation.navigate('AvatarDetail', {
+      avatar: compatibilityScore !== undefined
+        ? {
+            ...avatar,
+            compatibility: {
+              score: compatibilityScore,
+              common_interests: compatibilityBreakdown?.sharedInterests || [],
+              breakdown: compatibilityBreakdown
+                ? {
+                    base_score: 46,
+                    overlap_bonus: compatibilityBreakdown.overlapBonus,
+                    shared_interest_bonus: compatibilityBreakdown.sharedInterestBonus,
+                    difficulty_bonus: compatibilityBreakdown.difficultyBonus,
+                  }
+                : undefined,
+            },
+          }
+        : avatar,
+    });
   };
 
   const handleCreateFromScratch = () => {
@@ -402,6 +501,8 @@ export default function AvatarScreen() {
             <>
               {filteredAvatars.map((avatar) => {
                 const score = compatScores[avatar.id];
+                const activeSession = activeSessions[avatar.id];
+                const previewText = buildConversationPreviewText(conversationPreviews[String(avatar.id)]);
                 return (
                   <Card
                     key={avatar.id}
@@ -425,11 +526,7 @@ export default function AvatarScreen() {
                       </View>
 
                       {/* 궁합 링 */}
-                      {score !== undefined ? (
-                        <CompatibilityRing percentage={score} size={52} />
-                      ) : (
-                        <View style={styles.compatPlaceholder} />
-                      )}
+                      <CompatibilityRing percentage={score ?? 55} size={52} />
                     </View>
 
                     {/* Avatar Type Badge */}
@@ -449,6 +546,16 @@ export default function AvatarScreen() {
                         </Text>
                       </View>
                     </View>
+
+                    {activeSession ? (
+                      <View style={styles.sessionCard}>
+                        <View style={styles.sessionBadge}>
+                          <Text style={styles.sessionBadgeText}>진행 중</Text>
+                        </View>
+                        <Text style={styles.sessionSituation}>{activeSession.situation}</Text>
+                        {previewText ? <Text style={styles.sessionPreview}>{previewText}</Text> : null}
+                      </View>
+                    ) : null}
 
                     {/* Interests */}
                     <View style={styles.interestsRow}>
@@ -568,6 +675,12 @@ const styles = StyleSheet.create({
   typeBadgeText:          { fontSize: 11, fontWeight: '600' },
   typeBadgeTextFictional: { color: '#9C27B0' },
   typeBadgeTextReal:      { color: '#2196F3' },
+
+  sessionCard: { marginTop: 12, padding: 12, borderRadius: 14, backgroundColor: '#F8F7FF', borderWidth: 1, borderColor: '#ECE9FF' },
+  sessionBadge: { alignSelf: 'flex-start', backgroundColor: '#EEE8FF', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 8 },
+  sessionBadgeText: { fontSize: 10, fontWeight: '700', color: '#6C3BFF' },
+  sessionSituation: { fontSize: 12, fontWeight: '600', color: '#35354B', marginBottom: 6 },
+  sessionPreview: { fontSize: 11, lineHeight: 16, color: '#606079' },
 
   interestsRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
 

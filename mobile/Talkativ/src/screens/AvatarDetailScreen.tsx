@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   Heart, MessageCircle, Edit, Trash2,
-  Clock, TrendingUp, ChevronLeft,
+  Clock, TrendingUp, ChevronLeft, Sparkles, Users,
 } from 'lucide-react-native';
-import { Tag, Icon } from '../components';
+import { Icon, CompatibilityRing } from '../components';
 import { SPEECH_LEVELS } from '../constants';
-import { deleteAvatar } from '../services/apiUser';
+import { deleteAvatar, getMyProfile } from '../services/apiUser';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -66,14 +66,98 @@ const getDifficultyLabel = (diff?: string): string => {
   return '중급';
 };
 
+const getCompatibilityHeadline = (score: number): string => {
+  if (score >= 85) return '대화 리듬이 잘 맞을 가능성이 높아요';
+  if (score >= 70) return '편하게 이어갈 만한 궁합이에요';
+  if (score >= 55) return '화제를 잘 잡으면 금방 편해질 수 있어요';
+  return '시작 주제를 잘 고르면 더 좋아질 수 있어요';
+};
+
+const getAgeGapLabel = (userAge?: number | null, avatarAge?: number | null): string => {
+  if (!Number.isFinite(userAge) || !Number.isFinite(avatarAge)) {
+    return '나이 정보가 더 있으면 차이를 정확히 보여줄 수 있어요';
+  }
+
+  const gap = Math.abs(Number(userAge) - Number(avatarAge));
+  if (gap === 0) return '동갑이에요';
+
+  const direction = Number(avatarAge) > Number(userAge) ? '연상' : '연하';
+  return `${gap}살 차이 · ${direction}`;
+};
+
+const getTalkToneLabel = (avatar: any): string => {
+  const level = avatar?.formality_from_user || 'polite';
+  if (level === 'informal') return '편한 반말이 잘 어울려요';
+  if (level === 'formal') return '격식 있는 말투가 잘 맞아요';
+  return '부드러운 존댓말이 자연스러워요';
+};
+
+const getCompatibilityFactors = (avatar: any, userAge?: number | null) => {
+  const commonInterests = (avatar?.compatibility?.common_interests || []).slice(0, 3);
+  const difficulty = getDifficultyLabel(avatar?.difficulty);
+
+  return [
+    {
+      key: 'shared',
+      icon: Heart,
+      title: '공통 관심사',
+      value: commonInterests.length > 0 ? commonInterests.join(' · ') : '겹치는 관심사를 더 찾아보면 좋아요',
+      tone: '#FFE8EF',
+      iconColor: '#E85D8E',
+    },
+    {
+      key: 'age',
+      icon: Users,
+      title: '연령대 분위기',
+      value: getAgeGapLabel(userAge, Number(avatar?.age)),
+      tone: '#EAF3FF',
+      iconColor: '#3D7BEA',
+    },
+    {
+      key: 'difficulty',
+      icon: TrendingUp,
+      title: '대화 난이도',
+      value: `${difficulty} 정도의 템포로 연습하기 좋아요`,
+      tone: '#FFF4DB',
+      iconColor: '#E4A11B',
+    },
+    {
+      key: 'tone',
+      icon: Sparkles,
+      title: '추천 말투',
+      value: getTalkToneLabel(avatar),
+      tone: '#EEE8FF',
+      iconColor: '#6C3BFF',
+    },
+  ];
+};
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AvatarDetailScreen() {
+  const [userAge, setUserAge] = useState<number | null>(null);
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
   const { avatar } = route.params || {};
 
   const [isFavorite, setIsFavorite] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    getMyProfile()
+      .then((profile) => {
+        const parsedAge = Number(profile?.age);
+        if (mounted && Number.isFinite(parsedAge)) {
+          setUserAge(parsedAge);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleStartChat = () => navigation.navigate('SituationSelection', { avatar });
   const handleEdit      = () => navigation.navigate('CreateAvatar', { avatar, isEdit: true });
@@ -103,6 +187,10 @@ export default function AvatarDetailScreen() {
                           : avatar?.gender === 'female' ? '여성'
                           : avatar?.gender === 'other'  ? '기타' : null;
   const roleLabel         = avatar?.custom_role || avatar?.role || '';
+  const compatibilityScore = Number.isFinite(Number(avatar?.compatibility?.score))
+    ? Number(avatar.compatibility.score)
+    : null;
+  const compatibilityFactors = compatibilityScore !== null ? getCompatibilityFactors(avatar, userAge) : [];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -140,6 +228,33 @@ export default function AvatarDetailScreen() {
 
           {avatar?.name_en ? <Text style={styles.avatarSub}>{avatar.name_en}</Text> : null}
           {roleLabel ? <Text style={styles.avatarRole}>{roleLabel}</Text> : null}
+
+          {compatibilityScore !== null ? (
+            <View style={styles.compatibilityCard}>
+              <View style={styles.compatibilityTopRow}>
+                <CompatibilityRing percentage={compatibilityScore} size={84} strokeWidth={7} />
+                <View style={styles.compatibilityCopy}>
+                  <Text style={styles.compatibilityEyebrow}>궁합 점수</Text>
+                  <Text style={styles.compatibilityHeadline}>{getCompatibilityHeadline(compatibilityScore)}</Text>
+                  <Text style={styles.compatibilityCaption}>이 점수는 아래 요소들을 함께 보고 정리했어요.</Text>
+                </View>
+              </View>
+              <View style={styles.factorGrid}>
+                {compatibilityFactors.map((factor) => {
+                  const FactorIcon = factor.icon;
+                  return (
+                    <View key={factor.key} style={styles.factorCard}>
+                      <View style={[styles.factorIconWrap, { backgroundColor: factor.tone }]}>
+                        <FactorIcon size={14} color={factor.iconColor} />
+                      </View>
+                      <Text style={styles.factorTitle}>{factor.title}</Text>
+                      <Text style={styles.factorValue}>{factor.value}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.heroPills}>
             <View style={styles.pillType}>
@@ -371,6 +486,18 @@ const styles = StyleSheet.create({
   pillTypeText:   { fontSize: 11, fontWeight: '500', color: BRAND },
   pillDiff:       { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#FEF9C3' },
   pillDiffText:   { fontSize: 11, fontWeight: '500', color: '#92400E' },
+
+  compatibilityCard: { width: '100%', marginTop: 14, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 16, borderWidth: 1, borderColor: '#EEE8FF' },
+  compatibilityTopRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  compatibilityCopy: { flex: 1 },
+  compatibilityEyebrow: { fontSize: 11, fontWeight: '600', color: BRAND, marginBottom: 6 },
+  compatibilityHeadline: { fontSize: 15, fontWeight: '600', color: '#111', lineHeight: 22, marginBottom: 6 },
+  compatibilityCaption: { fontSize: 12, color: '#666', lineHeight: 18 },
+  factorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
+  factorCard: { width: '47.5%', backgroundColor: '#FAFAFD', borderRadius: 16, padding: 12, minHeight: 102 },
+  factorIconWrap: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  factorTitle: { fontSize: 11, fontWeight: '600', color: '#7A7A92', marginBottom: 6 },
+  factorValue: { fontSize: 12, lineHeight: 18, color: '#333' },
 
   // Stats
   stats:     { flexDirection: 'row', gap: 10, marginBottom: 24 },
