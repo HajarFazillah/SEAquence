@@ -5,14 +5,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import {
-  ChevronLeft, X, Send, Smile, Meh, Frown, Angry, Heart,
-  CheckCircle, AlertCircle, Lightbulb,
-} from 'lucide-react-native';
+import { ChevronLeft, X, Send, ChevronDown, AlertCircle, CheckCircle, Lightbulb } from 'lucide-react-native';
+import Svg, { Path, Circle, Polygon } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
 
 const AI_SERVER = 'http://10.0.2.2:8000';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type HistoryRole = 'user' | 'assistant';
 interface HistoryItem { role: HistoryRole; content: string; }
@@ -32,21 +32,21 @@ interface NaturalAlternative {
 }
 
 interface SpeechAnalysis {
-  detected_speech_level: string;
+  detected_speech_level:      string;
   detected_speech_level_code?: string;
   detected_speech_confidence?: number;
-  speech_level_correct:  boolean;
-  expected_speech_level: string;
+  speech_level_correct:       boolean;
+  expected_speech_level:      string;
   expected_speech_level_code?: string;
-  input_kind?: string;
-  verdict?: string;
-  has_errors:            boolean;
-  accuracy_score:        number | null;
-  scorable?:             boolean;
-  corrections:           Correction[];
-  natural_alternatives:  NaturalAlternative[];
-  encouragement?:        string;
-  summary?:              string;
+  input_kind?:  string;
+  verdict?:     string;
+  has_errors:   boolean;
+  accuracy_score: number | null;
+  scorable?:    boolean;
+  corrections:  Correction[];
+  natural_alternatives: NaturalAlternative[];
+  encouragement?: string;
+  summary?:     string;
 }
 
 interface Message {
@@ -57,61 +57,118 @@ interface Message {
 }
 
 interface CorrectionContext {
-  session_id: string;
-  expected_speech_level_code: string;
+  session_id:                  string;
+  expected_speech_level_code:  string;
   expected_speech_level_label: string;
-  latest_user_message: string;
-  corrected_user_message: string;
+  latest_user_message:         string;
+  corrected_user_message:      string;
   latest_feedback: {
-    verdict?: string;
-    has_errors: boolean;
-    accuracy_score: number | null;
-    detected_speech_level?: string;
+    verdict?:                    string;
+    has_errors:                  boolean;
+    accuracy_score:              number | null;
+    detected_speech_level?:      string;
     detected_speech_level_code?: string;
-    summary?: string;
-    corrections: Correction[];
+    summary?:                    string;
+    corrections:                 Correction[];
   } | null;
   recent_mistakes: Array<{
-    message: string;
+    message:   string;
     corrected: string;
-    verdict?: string;
-    summary?: string;
+    verdict?:  string;
+    summary?:  string;
   }>;
   response_guidance: string[];
 }
 
-const getMoodConfig = (mood: number) => {
-  if (mood >= 80) return { icon: Heart,  color: '#E91E63', label: '아주 좋아요!' };
-  if (mood >= 60) return { icon: Smile,  color: '#4CAF50', label: '좋아요'       };
-  if (mood >= 40) return { icon: Meh,    color: '#F4A261', label: '그저 그래요'  };
-  if (mood >= 20) return { icon: Frown,  color: '#FF9800', label: '조금 힘들어요' };
-  return           { icon: Angry,  color: '#E53935', label: '화나요!'       };
+// ─── Mood helpers ─────────────────────────────────────────────────────────────
+
+interface MoodState {
+  label: string;
+  lbrow: string; rbrow: string;
+  leye:  string; reye:  string;
+  mouth: string;
+}
+
+const MOOD_STATES: MoodState[] = [
+  { label: '화나요!',      lbrow: 'M18 29 Q24 27 28 29', rbrow: 'M44 29 Q48 27 54 29', leye: 'M19 35 Q23 39 27 35', reye: 'M45 35 Q49 39 53 35', mouth: 'M23 50 Q36 44 49 50' },
+  { label: '힘들어요',     lbrow: 'M18 26 Q24 23 28 26', rbrow: 'M44 26 Q48 23 54 26', leye: 'M19 32 Q23 29 27 32', reye: 'M45 32 Q49 29 53 32', mouth: 'M23 48 Q36 44 49 48' },
+  { label: '그저 그래요',  lbrow: 'M18 24 Q24 22 28 24', rbrow: 'M44 24 Q48 22 54 24', leye: 'M19 30 Q23 27 27 30', reye: 'M45 30 Q49 27 53 30', mouth: 'M23 46 Q36 46 49 46' },
+  { label: '좋아요',       lbrow: 'M18 24 Q24 21 28 24', rbrow: 'M44 24 Q48 21 54 24', leye: 'M19 30 Q23 27 27 30', reye: 'M45 30 Q49 27 53 30', mouth: 'M23 46 Q36 56 49 46' },
+  { label: '아주 좋아요!', lbrow: 'M18 22 Q24 17 28 22', rbrow: 'M44 22 Q48 17 54 22', leye: 'M19 29 Q23 24 27 29', reye: 'M45 29 Q49 24 53 29', mouth: 'M21 43 Q36 58 51 43' },
+];
+
+const getMoodState = (mood: number): MoodState => {
+  if (mood >= 80) return MOOD_STATES[4];
+  if (mood >= 60) return MOOD_STATES[3];
+  if (mood >= 40) return MOOD_STATES[2];
+  if (mood >= 20) return MOOD_STATES[1];
+  return MOOD_STATES[0];
 };
+
+const moodColor = (mood: number): string => {
+  if (mood >= 70) return '#22C55E';
+  if (mood >= 40) return '#EAB308';
+  return '#FF4D4D';
+};
+
+const scoreColor = (score: number | null): string => {
+  if (score === null) return '#999';
+  if (score >= 70) return '#22C55E';
+  if (score >= 40) return '#EAB308';
+  return '#FF4D4D';
+};
+
+// ─── MoodFace component ───────────────────────────────────────────────────────
+
+const MoodFace = ({ mood }: { mood: number }) => {
+  const s = getMoodState(mood);
+  const col = '#6C3BFF';
+  return (
+    <Svg width={52} height={52} viewBox="0 0 72 72">
+      <Circle cx={36} cy={36} r={34} fill="rgba(108,59,255,0.12)" />
+      <Path d={s.lbrow} stroke={col} strokeWidth={2.2} strokeLinecap="round" fill="none" />
+      <Path d={s.rbrow} stroke={col} strokeWidth={2.2} strokeLinecap="round" fill="none" />
+      <Path d={s.leye}  stroke={col} strokeWidth={2.5} strokeLinecap="round" fill="none" />
+      <Path d={s.reye}  stroke={col} strokeWidth={2.5} strokeLinecap="round" fill="none" />
+      <Path d={s.mouth} stroke={col} strokeWidth={2.5} strokeLinecap="round" fill="none" />
+    </Svg>
+  );
+};
+
+// ─── Star streak icon ─────────────────────────────────────────────────────────
+
+const StarIcon = () => (
+  <Svg width={11} height={11} viewBox="0 0 10 10">
+    <Polygon
+      points="5,0.5 6.5,4 10,4 7.3,6.2 8.2,9.8 5,7.8 1.8,9.8 2.7,6.2 0,4 3.5,4"
+      fill="#6C3BFF"
+    />
+  </Svg>
+);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const buildHistoryFromMessages = (messages: Message[]): HistoryItem[] =>
   messages
     .map(m => ({ role: (m.sender === 'user' ? 'user' : 'assistant') as HistoryRole, content: m.text }))
     .filter(m => m.content.trim().length > 0);
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const LEVEL_LABELS: Record<string, string> = {
-  formal: '합쇼체',
-  polite: '해요체',
-  informal: '반말',
+  formal: '합쇼체', polite: '해요체', informal: '반말',
 };
 
 const LEVEL_EXAMPLES: Record<string, string> = {
-  formal: '안녕하십니까. 만나서 반갑습니다.',
-  polite: '안녕하세요. 만나서 반가워요.',
+  formal:   '안녕하십니까. 만나서 반갑습니다.',
+  polite:   '안녕하세요. 만나서 반가워요.',
   informal: '안녕. 만나서 반가워.',
 };
 
 const DECORATIVE_REPLY_SYMBOLS = /😊|😂|❤️|❤|✨|😍|🥰|😘|💕|💖|💗|💝|💞|💓|😄|😆|😁|😃|🤣|🙂|😉|☺️|☺|🌟|⭐/g;
 
 const SITUATION_CATEGORY_LABELS: Record<string, string> = {
-  casual: '일상',
-  service: '서비스',
-  formal: '격식',
-  work: '업무',
+  casual: '일상', service: '서비스', formal: '격식', work: '업무',
 };
 
 const SPEECH_LEVEL_TERMS: Record<string, { code: string; label: string }> = {
@@ -138,12 +195,10 @@ const SPEECH_LEVEL_TERMS: Record<string, { code: string; label: string }> = {
   반말: { code: 'informal', label: '반말' },
 };
 
+// ─── Utility functions (unchanged) ───────────────────────────────────────────
+
 const normalizeInputToken = (text: string) =>
-  text
-    .trim()
-    .toLowerCase()
-    .replace(/[.,!?…。？！]+$/g, '')
-    .replace(/\s+/g, ' ');
+  text.trim().toLowerCase().replace(/[.,!?…。？！]+$/g, '').replace(/\s+/g, ' ');
 
 const normalizeExpectedLevelCode = (level?: string) => {
   if (!level) return '';
@@ -156,10 +211,7 @@ const normalizeExpectedLevelCode = (level?: string) => {
 const splitTrailingPunctuation = (text: string) => {
   const match = text.match(/([.!?…。？！"')\]\s]*)$/);
   const trailing = match?.[1] || '';
-  return {
-    core: text.slice(0, text.length - trailing.length),
-    trailing,
-  };
+  return { core: text.slice(0, text.length - trailing.length), trailing };
 };
 
 const getFinalConsonantIndex = (char: string) => {
@@ -170,10 +222,8 @@ const getFinalConsonantIndex = (char: string) => {
 };
 
 const hasBatchimBieup = (char: string) => getFinalConsonantIndex(char) === 17;
-
-const removeFinalBieup = (char: string) => (
-  hasBatchimBieup(char) ? String.fromCharCode(char.charCodeAt(0) - 17) : char
-);
+const removeFinalBieup = (char: string) =>
+  hasBatchimBieup(char) ? String.fromCharCode(char.charCodeAt(0) - 17) : char;
 
 const endsWithHapsidaFormal = (text: string) => {
   const { core } = splitTrailingPunctuation(text.trim());
@@ -186,42 +236,24 @@ const endsWithHapsidaFormal = (text: string) => {
 const convertHapsidaToInformal = (text: string) => {
   const { core, trailing } = splitTrailingPunctuation(text.trim());
   if (!core) return null;
-
-  if (core.endsWith('읍시다') && core.length >= 4) {
+  if (core.endsWith('읍시다') && core.length >= 4)
     return `${core.slice(0, -4)}${core.charAt(core.length - 4)}자${trailing}`;
-  }
-
   if (core.endsWith('시다') && core.length >= 3) {
     const lead = core.charAt(core.length - 3);
-    if (hasBatchimBieup(lead)) {
+    if (hasBatchimBieup(lead))
       return `${core.slice(0, -3)}${removeFinalBieup(lead)}자${trailing}`;
-    }
   }
-
   return null;
 };
 
 const detectLikelySpeechLevel = (text: string) => {
   const compact = text.trim().replace(/\s+/g, ' ');
   if (!/[가-힣]/.test(compact)) return null;
-
-  if (endsWithHapsidaFormal(compact)) {
-    return 'formal';
-  }
-
-  if (/(안녕하십니까|감사합니다|죄송합니다|부탁드립니다|입니다|합니다|했습니다|하겠습니다|습니까|십니까|니다[.!?…。！？”"')\]\s]*$)/.test(compact)) {
-    return 'formal';
-  }
-
-  if (/(안녕하세요|고마워요|감사해요|미안해요|죄송해요|반가워요|괜찮아요|좋아요|있어요|없어요|이에요|예요|세요|해요|아요|어요|나요|죠|지요|네요|군요|까요|요[.!?…。！？”"')\]\s]*$)/.test(compact)) {
-    return 'polite';
-  }
-
-  if (/(^|\s)(안녕|응|아니|고마워|미안해|반가워|괜찮아|좋아|있어|없어|뭐해|가자|갈래|먹어|마셔|봐|해|자)([.!?…。！？”"')\]\s]|$)/.test(compact)
-      || /(어떻게 지내|뭐 해|뭐해|잘 지내|했어|할래|줄래|니\?|냐\?|야[.!?…。！？”"')\]\s]*$)/.test(compact)) {
-    return 'informal';
-  }
-
+  if (endsWithHapsidaFormal(compact)) return 'formal';
+  if (/(안녕하십니까|감사합니다|죄송합니다|부탁드립니다|입니다|합니다|했습니다|하겠습니다|습니까|십니까|니다[.!?…。！？""')\]\s]*$)/.test(compact)) return 'formal';
+  if (/(안녕하세요|고마워요|감사해요|미안해요|죄송해요|반가워요|괜찮아요|좋아요|있어요|없어요|이에요|예요|세요|해요|아요|어요|나요|죠|지요|네요|군요|까요|요[.!?…。！？""')\]\s]*$)/.test(compact)) return 'polite';
+  if (/(^|\s)(안녕|응|아니|고마워|미안해|반가워|괜찮아|좋아|있어|없어|뭐해|가자|갈래|먹어|마셔|봐|해|자)([.!?…。！？""')\]\s]|$)/.test(compact)
+    || /(어떻게 지내|뭐 해|뭐해|잘 지내|했어|할래|줄래|니\?|냐\?|야[.!?…。！？""')\]\s]*$)/.test(compact)) return 'informal';
   return null;
 };
 
@@ -248,15 +280,10 @@ const COMMON_TYPO_FIXES: Array<{ pattern: RegExp; original: string; corrected: s
 ];
 
 const getLocalTypoCorrections = (text: string): Correction[] =>
-  COMMON_TYPO_FIXES
-    .filter(item => item.pattern.test(text))
-    .map(item => ({
-      original: item.original,
-      corrected: item.corrected,
-      explanation: item.explanation,
-      severity: 'error',
-      type: 'spelling',
-    }));
+  COMMON_TYPO_FIXES.filter(item => item.pattern.test(text)).map(item => ({
+    original: item.original, corrected: item.corrected,
+    explanation: item.explanation, severity: 'error', type: 'spelling',
+  }));
 
 const applyLocalSpellingFixes = (text: string) =>
   COMMON_TYPO_FIXES.reduce((result, item) => result.replace(item.pattern, item.corrected), text);
@@ -266,29 +293,20 @@ const replaceAll = (text: string, pairs: Array<[RegExp, string]>) =>
 
 const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
   const spellingFixedText = applyLocalSpellingFixes(text);
-
   if (expectedCode === 'informal') {
     const convertedHapsida = convertHapsidaToInformal(spellingFixedText);
-    if (convertedHapsida && convertedHapsida !== text) {
-      return convertedHapsida;
-    }
-
+    if (convertedHapsida && convertedHapsida !== text) return convertedHapsida;
     const changed = replaceAll(spellingFixedText, [
       [/안녕하십니까|안녕하세요/g, '안녕'],
       [/만나서 반갑습니다|만나서 반가워요/g, '만나서 반가워'],
       [/감사합니다|고마워요/g, '고마워'],
       [/죄송합니다|죄송해요|미안해요/g, '미안해'],
       [/어떻게 지내세요[?？]?|어떻게 지내요[?？]?/g, '어떻게 지내?'],
-      [/이에요/g, '이야'],
-      [/예요/g, '야'],
-      [/입니다/g, '이야'],
-      [/([가-힣])요([.!?…。！]?)/g, '$1$2'],
-      [/습니다/g, '어'],
-      [/니다/g, '야'],
+      [/이에요/g, '이야'], [/예요/g, '야'], [/입니다/g, '이야'],
+      [/([가-힣])요([.!?…。！]?)/g, '$1$2'], [/습니다/g, '어'], [/니다/g, '야'],
     ]).trim();
     return changed && changed !== text ? changed : LEVEL_EXAMPLES.informal;
   }
-
   if (expectedCode === 'formal') {
     const changed = replaceAll(spellingFixedText, [
       [/안녕하세요|안녕/g, '안녕하십니까'],
@@ -300,7 +318,6 @@ const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
     ]).trim();
     return changed && changed !== text ? changed : LEVEL_EXAMPLES.formal;
   }
-
   const changed = replaceAll(spellingFixedText, [
     [/안녕하십니까|안녕/g, '안녕하세요'],
     [/만나서 반갑습니다|만나서 반가워/g, '만나서 반가워요'],
@@ -314,29 +331,20 @@ const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
 const buildLocalSpeechMismatch = (text: string, expectedLevel?: string) => {
   const expectedCode = normalizeExpectedLevelCode(expectedLevel);
   if (!expectedCode) return null;
-
   const spellingFixedText = applyLocalSpellingFixes(text);
   const detectedCode = detectLikelySpeechLevel(spellingFixedText);
   if (!detectedCode || detectedCode === expectedCode) return null;
-
   const expectedLabel = LEVEL_LABELS[expectedCode];
   const detectedLabel = LEVEL_LABELS[detectedCode];
   const corrected = makeSpeechLevelSuggestion(text, expectedCode);
-
   return {
-    detectedCode,
-    expectedCode,
-    detectedLabel,
-    expectedLabel,
-    corrected,
+    detectedCode, expectedCode, detectedLabel, expectedLabel, corrected,
     score: expectedCode === 'formal' && detectedCode === 'polite' ? 75 : 60,
     summary: `추천 말투는 ${expectedLabel}인데, 이 문장은 ${detectedLabel}에 가까워요. ${expectedLabel} 상황에 맞게 문장 끝맺음을 바꿔 주세요.`,
     correction: {
-      original: text,
-      corrected,
+      original: text, corrected,
       explanation: `${detectedLabel} 표현이라 현재 상대에게 요구되는 ${expectedLabel}와 맞지 않습니다.`,
-      severity: 'warning' as const,
-      type: 'speech_level',
+      severity: 'warning' as const, type: 'speech_level',
       tip: `${expectedLabel} 예시: ${LEVEL_EXAMPLES[expectedCode]}`,
     },
   };
@@ -346,29 +354,17 @@ const getLocalInputOverride = (text: string) => {
   const normalized = normalizeInputToken(text);
   const compact = normalized.replace(/\s+/g, '');
   const speechTerm = SPEECH_LEVEL_TERMS[normalized] || SPEECH_LEVEL_TERMS[compact];
-
   if (!speechTerm) return null;
-
   return {
-    input_kind: 'speech_level_term',
-    verdict: 'speech_level_term',
+    input_kind: 'speech_level_term', verdict: 'speech_level_term',
     detected_speech_level: speechTerm.label,
     detected_speech_level_code: speechTerm.code,
     summary: `'${text.trim()}'은(는) 말투 이름이라 실제 대화 문장으로 점수를 매기기 어려워요.`,
-    natural_alternatives: [
-      {
-        expression: `${speechTerm.label}로 말해 볼게요.`,
-        explanation: '말투 이름만 말하는 것보다 자연스러운 연습 문장입니다.',
-      },
-    ],
+    natural_alternatives: [{ expression: `${speechTerm.label}로 말해 볼게요.`, explanation: '말투 이름만 말하는 것보다 자연스러운 연습 문장입니다.' }],
   };
 };
 
-const applyLocalFeedbackGuard = (
-  text: string,
-  feedback: SpeechAnalysis | null,
-  expectedLevel?: string,
-): SpeechAnalysis | null => {
+const applyLocalFeedbackGuard = (text: string, feedback: SpeechAnalysis | null, expectedLevel?: string): SpeechAnalysis | null => {
   const localOverride = getLocalInputOverride(text);
   if (localOverride) {
     return {
@@ -377,33 +373,22 @@ const applyLocalFeedbackGuard = (
       speech_level_correct: true,
       expected_speech_level: feedback?.expected_speech_level || '',
       expected_speech_level_code: feedback?.expected_speech_level_code,
-      input_kind: localOverride.input_kind,
-      verdict: localOverride.verdict,
-      has_errors: false,
-      accuracy_score: null,
-      scorable: false,
-      corrections: [],
-      natural_alternatives: localOverride.natural_alternatives,
-      encouragement: '',
-      summary: localOverride.summary,
+      input_kind: localOverride.input_kind, verdict: localOverride.verdict,
+      has_errors: false, accuracy_score: null, scorable: false,
+      corrections: [], natural_alternatives: localOverride.natural_alternatives,
+      encouragement: '', summary: localOverride.summary,
     };
   }
-
   const typoCorrections = getLocalTypoCorrections(text);
   const speechMismatch = buildLocalSpeechMismatch(text, expectedLevel);
-
   if (typoCorrections.length === 0 && !speechMismatch) return feedback;
-
   const spellingFixedText = applyLocalSpellingFixes(text);
   const fallbackExpectedCode = normalizeExpectedLevelCode(expectedLevel);
   const expectedCode = speechMismatch?.expectedCode || feedback?.expected_speech_level_code || fallbackExpectedCode;
   const detectedCode = speechMismatch?.detectedCode || feedback?.detected_speech_level_code || detectLikelySpeechLevel(text) || '';
-  const typoSummary = typoCorrections
-    .map(c => `'${c.original}'는 '${c.corrected}'`)
-    .join(', ');
+  const typoSummary = typoCorrections.map(c => `'${c.original}'는 '${c.corrected}'`).join(', ');
   const finalSpeechCorrection: Correction | null = speechMismatch ? {
-    original: text,
-    corrected: speechMismatch.corrected,
+    original: text, corrected: speechMismatch.corrected,
     explanation: typoCorrections.length > 0
       ? `먼저 ${typoSummary}로 고친 뒤, ${speechMismatch.detectedLabel} 표현을 ${speechMismatch.expectedLabel}에 맞게 바꿔야 합니다.`
       : `${speechMismatch.detectedLabel} 표현이라 현재 상대에게 요구되는 ${speechMismatch.expectedLabel}와 맞지 않습니다.`,
@@ -412,19 +397,10 @@ const applyLocalFeedbackGuard = (
     tip: `${speechMismatch.expectedLabel} 예시: ${LEVEL_EXAMPLES[speechMismatch.expectedCode]}`,
   } : null;
   const localCorrections = finalSpeechCorrection ? [finalSpeechCorrection] : typoCorrections;
-  const localScore = Math.min(
-    speechMismatch?.score ?? 100,
-    typoCorrections.length > 0 ? 70 : 100,
-  );
+  const localScore = Math.min(speechMismatch?.score ?? 100, typoCorrections.length > 0 ? 70 : 100);
   const backendScore = feedback?.accuracy_score ?? 100;
-  const summary = [
-    speechMismatch?.summary,
-    typoCorrections.length > 0 ? '오타가 보여서 자연스러운 표기로 고쳐 봤어요.' : '',
-  ].filter(Boolean).join(' ');
-  const localEncouragement = speechMismatch
-    ? '문장 끝맺음만 맞춰도 훨씬 자연스럽게 들려요.'
-    : '오타만 고치면 더 자연스럽게 들려요.';
-
+  const summary = [speechMismatch?.summary, typoCorrections.length > 0 ? '오타가 보여서 자연스러운 표기로 고쳐 봤어요.' : ''].filter(Boolean).join(' ');
+  const localEncouragement = speechMismatch ? '문장 끝맺음만 맞춰도 훨씬 자연스럽게 들려요.' : '오타만 고치면 더 자연스럽게 들려요.';
   return {
     detected_speech_level: detectedCode ? LEVEL_LABELS[detectedCode] : feedback?.detected_speech_level || '',
     detected_speech_level_code: detectedCode || feedback?.detected_speech_level_code,
@@ -432,39 +408,25 @@ const applyLocalFeedbackGuard = (
     expected_speech_level: expectedCode ? LEVEL_LABELS[expectedCode] : feedback?.expected_speech_level || '',
     expected_speech_level_code: expectedCode || feedback?.expected_speech_level_code,
     input_kind: feedback?.input_kind,
-    verdict: speechMismatch
-      ? typoCorrections.length > 0
-        ? 'speech_and_spelling'
-        : 'wrong_speech_level'
-      : 'spelling',
-    has_errors: true,
-    accuracy_score: Math.min(backendScore, localScore),
-    scorable: true,
+    verdict: speechMismatch ? (typoCorrections.length > 0 ? 'speech_and_spelling' : 'wrong_speech_level') : 'spelling',
+    has_errors: true, accuracy_score: Math.min(backendScore, localScore), scorable: true,
     corrections: localCorrections,
     natural_alternatives: speechMismatch
       ? [{ expression: speechMismatch.corrected, explanation: `${speechMismatch.expectedLabel}로 더 자연스럽게 바꾼 최종 문장입니다.` }]
-      : spellingFixedText !== text
-        ? [{ expression: spellingFixedText, explanation: '오타를 고친 자연스러운 문장입니다.' }]
-        : feedback?.natural_alternatives || [],
-    encouragement: localEncouragement,
-    summary: summary || feedback?.summary || '',
+      : spellingFixedText !== text ? [{ expression: spellingFixedText, explanation: '오타를 고친 자연스러운 문장입니다.' }]
+      : feedback?.natural_alternatives || [],
+    encouragement: localEncouragement, summary: summary || feedback?.summary || '',
   };
 };
 
 const isScorableFeedback = (fb: SpeechAnalysis) =>
-  fb.scorable !== false &&
-  fb.accuracy_score !== null &&
-  fb.accuracy_score !== undefined &&
-  fb.verdict !== 'speech_level_term' &&
-  fb.input_kind !== 'speech_level_term';
+  fb.scorable !== false && fb.accuracy_score !== null && fb.accuracy_score !== undefined
+  && fb.verdict !== 'speech_level_term' && fb.input_kind !== 'speech_level_term';
 
 const normalizeSpeechLevelCode = (level: any, explicitCode?: string) => {
   if (explicitCode) return explicitCode;
   if (typeof level === 'object' && level?.code) return String(level.code);
-  if (typeof level === 'string') {
-    const normalized = level.trim().toLowerCase();
-    return LEVEL_LABELS[normalized] ? normalized : '';
-  }
+  if (typeof level === 'string') { const n = level.trim().toLowerCase(); return LEVEL_LABELS[n] ? n : ''; }
   return '';
 };
 
@@ -475,10 +437,7 @@ const normalizeSpeechLevelLabel = (level: any, explicitLabel?: string) => {
     if (label) return String(label);
     if (level?.code) return LEVEL_LABELS[String(level.code).toLowerCase()] || String(level.code);
   }
-  if (typeof level === 'string') {
-    const normalized = level.trim().toLowerCase();
-    return LEVEL_LABELS[normalized] || level;
-  }
+  if (typeof level === 'string') { const n = level.trim().toLowerCase(); return LEVEL_LABELS[n] || level; }
   return '';
 };
 
@@ -494,48 +453,30 @@ const normalizeScore = (score: any) => {
   return Math.max(0, Math.min(100, Math.round(parsed)));
 };
 
-const getRecommendedExpression = (feedback?: SpeechAnalysis | null, fallback = '') => (
-  feedback?.natural_alternatives?.[0]?.expression ||
-  feedback?.corrections?.[0]?.corrected ||
-  fallback
-);
+const getRecommendedExpression = (feedback?: SpeechAnalysis | null, fallback = '') =>
+  feedback?.natural_alternatives?.[0]?.expression || feedback?.corrections?.[0]?.corrected || fallback;
 
 const buildRecentMistakeContext = (messages: Message[]) =>
-  messages
-    .filter(m => m.sender === 'user' && m.feedback?.has_errors)
-    .slice(-4)
-    .map(m => ({
-      message:   m.text,
-      corrected: getRecommendedExpression(m.feedback, m.text),
-      verdict:   m.feedback?.verdict,
-      summary:   m.feedback?.summary,
-    }));
+  messages.filter(m => m.sender === 'user' && m.feedback?.has_errors).slice(-4).map(m => ({
+    message: m.text, corrected: getRecommendedExpression(m.feedback, m.text),
+    verdict: m.feedback?.verdict, summary: m.feedback?.summary,
+  }));
 
-const buildCorrectionContext = (
-  sessionId: string,
-  text: string,
-  expectedSpeechLevel: string | undefined,
-  feedback: SpeechAnalysis | null,
-  messages: Message[],
-): CorrectionContext => {
+const buildCorrectionContext = (sessionId: string, text: string, expectedSpeechLevel: string | undefined, feedback: SpeechAnalysis | null, messages: Message[]): CorrectionContext => {
   const expectedCode = normalizeExpectedLevelCode(expectedSpeechLevel);
   const expectedLabel = expectedCode ? LEVEL_LABELS[expectedCode] : String(expectedSpeechLevel || '');
   const correctedUserMessage = getRecommendedExpression(feedback, applyLocalSpellingFixes(text));
-
   return {
     session_id: sessionId,
     expected_speech_level_code: expectedCode || String(expectedSpeechLevel || ''),
     expected_speech_level_label: expectedLabel,
-    latest_user_message: text,
-    corrected_user_message: correctedUserMessage,
+    latest_user_message: text, corrected_user_message: correctedUserMessage,
     latest_feedback: feedback ? {
-      verdict: feedback.verdict,
-      has_errors: feedback.has_errors,
+      verdict: feedback.verdict, has_errors: feedback.has_errors,
       accuracy_score: feedback.accuracy_score,
       detected_speech_level: feedback.detected_speech_level,
       detected_speech_level_code: feedback.detected_speech_level_code,
-      summary: feedback.summary,
-      corrections: feedback.corrections,
+      summary: feedback.summary, corrections: feedback.corrections,
     } : null,
     recent_mistakes: buildRecentMistakeContext(messages),
     response_guidance: [
@@ -549,20 +490,13 @@ const buildCorrectionContext = (
 
 const buildSituationPromptContext = (situation: any) => {
   if (!situation) return null;
-  if (typeof situation === 'string') {
-    const trimmed = situation.trim();
-    return trimmed || null;
-  }
-
+  if (typeof situation === 'string') return situation.trim() || null;
   const name = situation?.name_ko || situation?.title || situation?.name || '';
   const description = situation?.description_ko || situation?.description || '';
-  const contexts = Array.isArray(situation?.contexts)
-    ? situation.contexts.filter((item: any) => String(item).trim())
-    : [];
+  const contexts = Array.isArray(situation?.contexts) ? situation.contexts.filter((item: any) => String(item).trim()) : [];
   const categoryId = String(situation?.category || '').trim();
   const categoryLabel = SITUATION_CATEGORY_LABELS[categoryId] || categoryId;
   const isCustom = Boolean(situation?.isCustom);
-
   const parts = [
     name ? `상황 이름: ${name}` : '',
     description ? `상황 설명: ${description}` : '',
@@ -570,20 +504,15 @@ const buildSituationPromptContext = (situation: any) => {
     contexts.length > 0 ? `상황 맥락: ${contexts.join(', ')}` : '',
     isCustom ? '이 상황은 사용자가 직접 만든 맞춤 상황입니다.' : '',
   ].filter(Boolean);
-
   return parts.join('\n') || null;
 };
 
 const sanitizeAiReply = (message: string) =>
-  message
-    .replace(DECORATIVE_REPLY_SYMBOLS, '')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
+  message.replace(DECORATIVE_REPLY_SYMBOLS, '').replace(/[ \t]{2,}/g, ' ').trim();
 
 const isDiagnosticOrGenericReply = (message: string) => {
   const normalized = message.trim();
   if (!normalized) return true;
-
   return (
     /(polite|formal|informal|speech level|detected|accuracy|score)/i.test(normalized) ||
     /(감지|점수|정확도|분석 결과|말투 분석)/.test(normalized) ||
@@ -591,154 +520,25 @@ const isDiagnosticOrGenericReply = (message: string) => {
   );
 };
 
-const buildCorrectionAwareFallbackReply = (
-  originalText: string,
-  feedback?: SpeechAnalysis | null,
-) => {
+const buildCorrectionAwareFallbackReply = (originalText: string, feedback?: SpeechAnalysis | null) => {
   if (!feedback?.has_errors) return '';
-
   const corrected = getRecommendedExpression(feedback, originalText);
-
-  if (feedback.verdict === 'speech_and_spelling') {
-    return `"${corrected}"라고 하면 더 자연스러워. 좋아, 그 표현으로 다시 이어가 보자.`;
-  }
-
-  if (feedback.verdict === 'spelling') {
-    return `"${corrected}"가 맞는 표기야. 무슨 말인지 알겠어. 이어서 말해줘.`;
-  }
-
-  if (feedback.verdict === 'wrong_speech_level') {
-    return `"${corrected}"처럼 말하면 지금 관계에 더 잘 맞아. 그럼 계속 이야기해 보자.`;
-  }
-
+  if (feedback.verdict === 'speech_and_spelling') return `"${corrected}"라고 하면 더 자연스러워. 좋아, 그 표현으로 다시 이어가 보자.`;
+  if (feedback.verdict === 'spelling') return `"${corrected}"가 맞는 표기야. 무슨 말인지 알겠어. 이어서 말해줘.`;
+  if (feedback.verdict === 'wrong_speech_level') return `"${corrected}"처럼 말하면 지금 관계에 더 잘 맞아. 그럼 계속 이야기해 보자.`;
   return `"${corrected}"라고 하면 더 자연스러워. 계속 이어가 볼게.`;
 };
 
-const makeContextAwareAiReply = (
-  rawMessage: string,
-  originalText: string,
-  feedback?: SpeechAnalysis | null,
-) => {
+const makeContextAwareAiReply = (rawMessage: string, originalText: string, feedback?: SpeechAnalysis | null) => {
   const cleaned = sanitizeAiReply(rawMessage || '');
   if (!feedback?.has_errors) return cleaned || '좋아, 계속 이야기해 보자.';
   if (!isDiagnosticOrGenericReply(cleaned)) return cleaned;
   return buildCorrectionAwareFallbackReply(originalText, feedback) || cleaned;
 };
 
-const sendMessageToAI = async (
-  text:      string,
-  history:   HistoryItem[],
-  avatar:    any,
-  situation: any,
-  user_id:   string,
-  expectedSpeechLevel?: string,
-  sessionId?: string,
-  correctionContext?: CorrectionContext,
-) => {
-  const situationContext = buildSituationPromptContext(situation);
-  const legacyPayload = {
-    user_message:         text,
-    conversation_history: history,
-    avatar: {
-      id:                 avatar?.id                 || 'test',
-      name_ko:            avatar?.name_ko            || '아바타',
-      role:               avatar?.role               || 'friend',
-      personality_traits: avatar?.personality_traits || [],
-      interests:          avatar?.interests          || [],
-      dislikes:           avatar?.dislikes           || [],
-    },
-    situation: situationContext,
-    user_id,
-  };
-  const contextPayload = {
-    ...legacyPayload,
-    session_id: sessionId,
-    expected_speech_level: expectedSpeechLevel,
-    correction_context: correctionContext,
-    response_instruction: correctionContext?.response_guidance,
-  };
-  const postChat = (payload: typeof contextPayload | typeof legacyPayload) =>
-    fetch(`${AI_SERVER}/api/v1/chat`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-  let res = await postChat(contextPayload);
-
-  // Some backend validators reject unknown fields until the API contract is updated.
-  if ((res.status === 400 || res.status === 422) && correctionContext) {
-    res = await postChat(legacyPayload);
-  }
-
-  if (!res.ok) throw new Error(`AI server error: ${res.status}`);
-  const data = await res.json();
-
-  const correction = data.correction;
-  const detectedRaw = correction?.detected_speech_level || correction?.detected_level;
-  const expectedRaw = correction?.expected_speech_level || correction?.expected_level;
-  const speech_analysis: SpeechAnalysis | null = correction ? {
-    detected_speech_level: normalizeSpeechLevelLabel(
-      detectedRaw,
-      correction.detected_speech_level_label || correction.detected_level_label,
-    ),
-    detected_speech_level_code: normalizeSpeechLevelCode(
-      detectedRaw,
-      correction.detected_speech_level_code || correction.detected_level_code,
-    ),
-    detected_speech_confidence: normalizeConfidence(
-      detectedRaw,
-      correction.detected_speech_level_confidence || correction.detected_confidence,
-    ),
-    speech_level_correct: correction.speech_level_correct ?? true,
-    expected_speech_level: normalizeSpeechLevelLabel(
-      expectedRaw,
-      correction.expected_speech_level_label || correction.expected_level_label,
-    ),
-    expected_speech_level_code: normalizeSpeechLevelCode(
-      expectedRaw,
-      correction.expected_speech_level_code || correction.expected_level_code,
-    ),
-    input_kind: correction.input_kind || correction.inputKind,
-    verdict: correction.verdict,
-    has_errors: correction.has_errors ?? false,
-    accuracy_score: normalizeScore(correction.accuracy_score),
-    scorable: correction.scorable,
-    corrections: correction.corrections || [],
-    natural_alternatives: correction.natural_alternatives || [],
-    encouragement: correction.encouragement || '',
-    summary: correction.summary || correction.overall_feedback || '',
-  } : null;
-
-  const finalSpeechAnalysis = applyLocalFeedbackGuard(text, speech_analysis, expectedSpeechLevel);
-
-  return {
-    message:        makeContextAwareAiReply(data.message || data.response || data.reply || '', text, finalSpeechAnalysis),
-    speech_analysis: finalSpeechAnalysis,
-    mood_change:    data.mood_change    || 0,
-    current_mood:   data.current_mood   || 70,
-    mood_emoji:     data.mood_emoji     || '😊',
-    correct_streak: data.correct_streak || 0,
-  };
-};
-
-const analyzeSessionWithAI = async (avatar: any, history: HistoryItem[]) => {
-  const res = await fetch(`${AI_SERVER}/api/v1/chat/analyze`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ avatar, conversation_history: history }),
-  });
-  if (!res.ok) throw new Error(`Analyze error: ${res.status}`);
-  return res.json();
-};
-
-const severityColor = (s: string) =>
-  s === 'error' ? '#E53935' : s === 'warning' ? '#F4A261' : '#6C3BFF';
-
 const feedbackTitle = (fb: SpeechAnalysis) => {
   const detected = normalizeSpeechLevelLabel(fb.detected_speech_level);
   const expected = normalizeSpeechLevelLabel(fb.expected_speech_level);
-
   if (fb.verdict === 'speech_level_term' || fb.input_kind === 'speech_level_term') return '말투 이름만 입력됨';
   if (fb.verdict === 'not_scorable' || fb.scorable === false) return '분석 제외';
   if (fb.verdict === 'speech_and_spelling') return '말투와 오타 수정 필요';
@@ -748,20 +548,65 @@ const feedbackTitle = (fb: SpeechAnalysis) => {
   if (fb.verdict === 'wrong_speech_level') return detected ? `${detected}로 들려요` : '말투 수정 필요';
   if (fb.verdict === 'needs_revision') return '수정이 필요한 표현';
   if (fb.verdict === 'unclear') return '말투를 판단하기 어려워요';
-
   if (fb.input_kind === 'meta_practice') return `${detected || expected || '말투'} 연습 표현`;
   if (fb.input_kind === 'fragment') return '표현 조각';
   if (fb.input_kind === 'non_korean') return '한국어 표현 아님';
-
   if (!detected) return fb.expected_speech_level || '말투 분석';
-  if (detected.includes('연습 표현') || detected.includes('표현 분석')) {
-    return detected;
-  }
-  if (fb.detected_speech_confidence && fb.detected_speech_confidence < 0.75) {
-    return `${detected}에 가까워요`;
-  }
+  if (detected.includes('연습 표현') || detected.includes('표현 분석')) return detected;
+  if (fb.detected_speech_confidence && fb.detected_speech_confidence < 0.75) return `${detected}에 가까워요`;
   return `${detected} 표현이에요`;
 };
+
+// ─── API ─────────────────────────────────────────────────────────────────────
+
+const sendMessageToAI = async (
+  text: string, history: HistoryItem[], avatar: any, situation: any,
+  user_id: string, expectedSpeechLevel?: string, sessionId?: string, correctionContext?: CorrectionContext,
+) => {
+  const situationContext = buildSituationPromptContext(situation);
+  const legacyPayload = {
+    user_message: text, conversation_history: history,
+    avatar: { id: avatar?.id || 'test', name_ko: avatar?.name_ko || '아바타', role: avatar?.role || 'friend', personality_traits: avatar?.personality_traits || [], interests: avatar?.interests || [], dislikes: avatar?.dislikes || [] },
+    situation: situationContext, user_id,
+  };
+  const contextPayload = { ...legacyPayload, session_id: sessionId, expected_speech_level: expectedSpeechLevel, correction_context: correctionContext, response_instruction: correctionContext?.response_guidance };
+  const postChat = (payload: any) => fetch(`${AI_SERVER}/api/v1/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  let res = await postChat(contextPayload);
+  if ((res.status === 400 || res.status === 422) && correctionContext) res = await postChat(legacyPayload);
+  if (!res.ok) throw new Error(`AI server error: ${res.status}`);
+  const data = await res.json();
+  const correction = data.correction;
+  const detectedRaw = correction?.detected_speech_level || correction?.detected_level;
+  const expectedRaw = correction?.expected_speech_level || correction?.expected_level;
+  const speech_analysis: SpeechAnalysis | null = correction ? {
+    detected_speech_level: normalizeSpeechLevelLabel(detectedRaw, correction.detected_speech_level_label || correction.detected_level_label),
+    detected_speech_level_code: normalizeSpeechLevelCode(detectedRaw, correction.detected_speech_level_code || correction.detected_level_code),
+    detected_speech_confidence: normalizeConfidence(detectedRaw, correction.detected_speech_level_confidence || correction.detected_confidence),
+    speech_level_correct: correction.speech_level_correct ?? true,
+    expected_speech_level: normalizeSpeechLevelLabel(expectedRaw, correction.expected_speech_level_label || correction.expected_level_label),
+    expected_speech_level_code: normalizeSpeechLevelCode(expectedRaw, correction.expected_speech_level_code || correction.expected_level_code),
+    input_kind: correction.input_kind || correction.inputKind, verdict: correction.verdict,
+    has_errors: correction.has_errors ?? false, accuracy_score: normalizeScore(correction.accuracy_score),
+    scorable: correction.scorable, corrections: correction.corrections || [],
+    natural_alternatives: correction.natural_alternatives || [],
+    encouragement: correction.encouragement || '', summary: correction.summary || correction.overall_feedback || '',
+  } : null;
+  const finalSpeechAnalysis = applyLocalFeedbackGuard(text, speech_analysis, expectedSpeechLevel);
+  return {
+    message: makeContextAwareAiReply(data.message || data.response || data.reply || '', text, finalSpeechAnalysis),
+    speech_analysis: finalSpeechAnalysis,
+    mood_change: data.mood_change || 0, current_mood: data.current_mood || 70,
+    mood_emoji: data.mood_emoji || '😊', correct_streak: data.correct_streak || 0,
+  };
+};
+
+const analyzeSessionWithAI = async (avatar: any, history: HistoryItem[]) => {
+  const res = await fetch(`${AI_SERVER}/api/v1/chat/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar, conversation_history: history }) });
+  if (!res.ok) throw new Error(`Analyze error: ${res.status}`);
+  return res.json();
+};
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ChatScreen() {
   const navigation = useNavigation<any>();
@@ -771,9 +616,9 @@ export default function ChatScreen() {
   const situation        = route.params?.situation;
   const recommendedLevel = route.params?.recommendedLevel || avatar?.formality_from_user || 'polite';
   const profileName      = route.params?.name     || avatar?.name_ko || '아바타';
-  const profileBg        = route.params?.avatarBg || avatar?.avatar_bg || '#FFB6C1';
+  const profileBg        = route.params?.avatarBg || avatar?.avatar_bg || '#6C3BFF';
 
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef  = useRef<FlatList>(null);
   const sessionIdRef = useRef(`chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   const [messages,         setMessages]         = useState<Message[]>([]);
@@ -783,81 +628,35 @@ export default function ChatScreen() {
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
   const [correctStreak,    setCorrectStreak]    = useState(0);
+  // Default expanded = true so card opens immediately after send
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
 
-  const moodAnim    = useRef(new Animated.Value(70)).current;
-
-  useEffect(() => {
-    AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); });
-  }, []);
-
-  useEffect(() => {
-    if (messages.length > 0)
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-  }, [messages]);
-
-  useEffect(() => {
-    Animated.spring(moodAnim, { toValue: avatarMood, useNativeDriver: false, friction: 8 }).start();
-  }, [avatarMood, moodAnim]);
+  useEffect(() => { AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); }); }, []);
+  useEffect(() => { if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100); }, [messages]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
-
-    const text    = input.trim();
+    const text = input.trim();
     const userMsg: Message = { id: Date.now().toString(), text, sender: 'user' };
-
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
-
     try {
-      const history: HistoryItem[] = [
-        ...buildHistoryFromMessages(messages),
-        { role: 'user', content: text },
-      ];
+      const history: HistoryItem[] = [...buildHistoryFromMessages(messages), { role: 'user', content: text }];
       const localAnalysisHint = applyLocalFeedbackGuard(text, null, recommendedLevel);
-      const correctionContext = buildCorrectionContext(
-        sessionIdRef.current,
-        text,
-        recommendedLevel,
-        localAnalysisHint,
-        messages,
-      );
-
-      const data = await sendMessageToAI(
-        text,
-        history,
-        avatar,
-        situation,
-        userId,
-        recommendedLevel,
-        sessionIdRef.current,
-        correctionContext,
-      );
+      const correctionContext = buildCorrectionContext(sessionIdRef.current, text, recommendedLevel, localAnalysisHint, messages);
+      const data = await sendMessageToAI(text, history, avatar, situation, userId, recommendedLevel, sessionIdRef.current, correctionContext);
       const aiMsg: Message = { id: (Date.now() + 1).toString(), text: data.message, sender: 'ai' };
-
       setAvatarMood(data.current_mood);
       setCorrectStreak(data.correct_streak);
-
       setMessages(prev => {
-        const updated = prev.map(m =>
-          m.id === userMsg.id ? { ...m, feedback: data.speech_analysis ?? undefined } : m
-        );
+        const updated = prev.map(m => m.id === userMsg.id ? { ...m, feedback: data.speech_analysis ?? undefined } : m);
         return [...updated, aiMsg];
       });
-
-      // 피드백 있으면 항상 펼침
-      if (data.speech_analysis) {
-        setExpandedFeedback(prev => ({ ...prev, [userMsg.id]: true }));
-      }
-
+      if (data.speech_analysis) setExpandedFeedback(prev => ({ ...prev, [userMsg.id]: true }));
     } catch (error) {
       console.error('Chat error:', error);
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        text: '네, 그렇군요! 더 이야기해주세요.',
-        sender: 'ai',
-      }]);
+      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), text: '네, 그렇군요! 더 이야기해주세요.', sender: 'ai' }]);
     } finally {
       setLoading(false);
     }
@@ -867,153 +666,128 @@ export default function ChatScreen() {
     const duration    = Math.floor((Date.now() - startTime) / 1000);
     const durationStr = `${String(Math.floor(duration/60)).padStart(2,'0')}:${String(duration%60).padStart(2,'0')}`;
     const history     = buildHistoryFromMessages(messages);
-
-    const sessionCorrections = messages
-      .filter(m => m.sender === 'user' && m.feedback && isScorableFeedback(m.feedback))
-      .map(m => ({
-        message:        m.text,
-        accuracy_score: m.feedback!.accuracy_score,
-        has_errors:     m.feedback!.has_errors,
-        corrections:    m.feedback!.corrections,
-        detected_level: m.feedback!.detected_speech_level,
-        encouragement:  m.feedback!.encouragement,
-      }));
-
-    const avgScore = sessionCorrections.length > 0
-      ? Math.round(sessionCorrections.reduce((s, c) => s + (c.accuracy_score ?? 0), 0) / sessionCorrections.length)
-      : 100;
-
+    const sessionCorrections = messages.filter(m => m.sender === 'user' && m.feedback && isScorableFeedback(m.feedback)).map(m => ({
+      message: m.text, accuracy_score: m.feedback!.accuracy_score, has_errors: m.feedback!.has_errors,
+      corrections: m.feedback!.corrections, detected_level: m.feedback!.detected_speech_level, encouragement: m.feedback!.encouragement,
+    }));
+    const avgScore = sessionCorrections.length > 0 ? Math.round(sessionCorrections.reduce((s, c) => s + (c.accuracy_score ?? 0), 0) / sessionCorrections.length) : 100;
     let sessionReport = null;
     try { sessionReport = await analyzeSessionWithAI(avatar, history); } catch {}
-
-    navigation.navigate('ConversationSummary', {
-      avatar, duration: durationStr, situation,
-      conversationHistory: history, finalMood: avatarMood,
-      sessionReport, sessionCorrections, avgScore,
-    });
+    navigation.navigate('ConversationSummary', { avatar, duration: durationStr, situation, conversationHistory: history, finalMood: avatarMood, sessionReport, sessionCorrections, avgScore });
   };
 
-  // ── 피드백 카드 ───────────────────────────────────────────────
+  // ── Pip row ────────────────────────────────────────────────────────────────
+  const renderPips = (mood: number) => {
+    const col = moodColor(mood);
+    const filled = Math.floor(mood / 20);
+    const partial = (mood % 20) / 20;
+    return (
+      <View style={styles.pipsRow}>
+        {[0,1,2,3,4].map(i => (
+          <View
+            key={i}
+            style={[
+              styles.pip,
+              i < filled ? { backgroundColor: col } :
+              i === filled && partial > 0.2 ? { backgroundColor: col, opacity: 0.4 } :
+              { backgroundColor: '#E5E5EA' },
+            ]}
+          />
+        ))}
+      </View>
+    );
+  };
+
+  // ── Feedback card ──────────────────────────────────────────────────────────
   const renderFeedbackCard = (item: Message) => {
     if (!item.feedback) return null;
-
-    const fb           = item.feedback;
-    const expanded     = expandedFeedback[item.id] ?? true;
-    const hasError     = fb.has_errors;
-    const isScorable   = isScorableFeedback(fb);
-    const feedbackColor = hasError ? '#E53935' : isScorable ? '#4CAF50' : '#6C3BFF';
-    const alternatives = fb.natural_alternatives || [];
-    const hasAlts      = alternatives.length > 0;
-    const primaryCorrection = hasError && fb.corrections.length > 0 ? fb.corrections[0] : null;
+    const fb         = item.feedback;
+    const expanded   = expandedFeedback[item.id] ?? true;
+    const hasError   = fb.has_errors;
+    const isScorable = isScorableFeedback(fb);
+    const sc         = scoreColor(fb.accuracy_score);
     const scoreLabel = isScorable ? `${fb.accuracy_score}점` : '분석 제외';
+    const alternatives    = fb.natural_alternatives || [];
+    const hasAlts         = alternatives.length > 0;
+    const primaryCorrection = hasError && fb.corrections.length > 0 ? fb.corrections[0] : null;
 
     return (
-      <TouchableOpacity
-        style={[
-          styles.feedbackCard,
-          hasError ? styles.feedbackCardError : isScorable ? styles.feedbackCardOk : styles.feedbackCardInfo,
-        ]}
-        onPress={() => setExpandedFeedback(prev => ({ ...prev, [item.id]: !expanded }))}
-        activeOpacity={0.8}
-      >
-        {/* ── 요약 행 ── */}
-        <View style={styles.feedbackSummaryRow}>
-          <View style={[
-            styles.feedbackIconBadge,
-            hasError ? styles.feedbackIconBadgeError : styles.feedbackIconBadgeOk,
-          ]}>
+      <View style={styles.feedbackCard}>
+        {/* Header — always visible, tap to fold */}
+        <TouchableOpacity
+          style={styles.feedbackHeader}
+          onPress={() => setExpandedFeedback(prev => ({ ...prev, [item.id]: !expanded }))}
+          activeOpacity={0.7}
+        >
+          <View style={styles.feedbackDot}>
             {hasError
-              ? <AlertCircle size={15} color="#FFFFFF" />
-              : <CheckCircle size={15} color="#FFFFFF" />}
+              ? <AlertCircle size={12} color="#888" />
+              : <CheckCircle size={12} color="#888" />}
           </View>
           <View style={styles.feedbackTitleBlock}>
-            <Text style={[styles.feedbackSummaryText, { color: feedbackColor }]}>
-              {feedbackTitle(fb)}
-            </Text>
-            <Text style={styles.feedbackSubtitle}>
-              {hasError ? '아래 교정 문장을 먼저 확인해 보세요' : '자연스러운 표현이에요'}
-            </Text>
+            <Text style={styles.feedbackTitle}>{feedbackTitle(fb)}</Text>
+            <Text style={styles.feedbackSub}>{hasError ? '해요체로 바꿔 주세요' : '자연스러운 표현이에요'}</Text>
           </View>
-          <View style={[
-            styles.feedbackScorePill,
-            hasError ? styles.feedbackScorePillError : styles.feedbackScorePillOk,
-          ]}>
-            <Text style={[
-              styles.feedbackScore,
-              hasError && styles.feedbackScoreError,
-              !isScorable && styles.feedbackScoreMuted,
-            ]}>
-              {scoreLabel}
-            </Text>
-          </View>
-          <Text style={styles.feedbackExpand}>{expanded ? '▲' : '▼'}</Text>
-        </View>
+          {/* Score chip always visible */}
+          <Text style={[styles.scoreChip, { color: sc, backgroundColor: `${sc}14` }]}>
+            {scoreLabel}
+          </Text>
+          <ChevronDown
+            size={14}
+            color="#bbb"
+            style={{ transform: [{ rotate: expanded ? '180deg' : '0deg' }] }}
+          />
+        </TouchableOpacity>
 
+        {/* Body — collapsible */}
         {expanded && (
-          <View style={styles.feedbackDetail}>
+          <View style={styles.feedbackBody}>
+            {/* Score bar */}
+            <View style={styles.scoreRow}>
+              <Text style={[styles.scoreNum, { color: sc }]}>{isScorable ? fb.accuracy_score : '–'}</Text>
+              <View style={styles.scoreBarWrap}>
+                <View style={styles.scoreTrack}>
+                  <View style={[styles.scoreFill, { width: `${isScorable ? (fb.accuracy_score ?? 0) : 0}%`, backgroundColor: sc }]} />
+                </View>
+                <Text style={[styles.scoreHint, { color: sc }]}>
+                  {!isScorable ? '분석 제외' : (fb.accuracy_score ?? 0) >= 70 ? '완벽해요' : (fb.accuracy_score ?? 0) >= 40 ? '수정 추천' : '말투 오류 있음'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Correction compare boxes */}
             {primaryCorrection && (
-              <View style={styles.finalCorrectionPanel}>
-                <Text style={styles.finalCorrectionLabel}>추천 교정</Text>
-                <View style={styles.finalCorrectionCompare}>
-                  <View style={styles.finalOriginalBox}>
-                    <Text style={styles.finalBoxLabel}>입력</Text>
-                    <Text style={styles.finalOriginalText}>{primaryCorrection.original}</Text>
-                  </View>
-                  <Text style={styles.finalArrow}>→</Text>
-                  <View style={styles.finalFixedBox}>
-                    <Text style={styles.finalBoxLabelFixed}>수정</Text>
-                    <Text style={styles.finalFixedText}>{primaryCorrection.corrected}</Text>
-                  </View>
+              <View style={styles.cmpRow}>
+                <View style={styles.cmpSide}>
+                  <Text style={styles.cmpLabel}>입력</Text>
+                  <Text style={styles.cmpText}>{primaryCorrection.original}</Text>
+                </View>
+                <Text style={styles.cmpArrow}>→</Text>
+                <View style={[styles.cmpSide, styles.cmpSideFixed]}>
+                  <Text style={[styles.cmpLabel, styles.cmpLabelFixed]}>수정</Text>
+                  <Text style={[styles.cmpText, styles.cmpTextFixed]}>{primaryCorrection.corrected}</Text>
                 </View>
               </View>
             )}
 
-            {fb.summary ? (
-              <Text style={styles.feedbackSummaryNote}>{fb.summary}</Text>
-            ) : null}
+            {/* Note */}
+            {fb.summary ? <Text style={styles.fcNote}>{fb.summary}</Text> : null}
 
-            {/* ── 오류가 없을 때: 이렇게도 말할 수 있어요 우선 표시 ── */}
-            {!hasError && hasAlts && (
-              <View style={styles.alternativesSection}>
-                <View style={styles.alternativesHeader}>
-                  <Lightbulb size={14} color="#6C3BFF" />
-                  <Text style={styles.alternativesTitle}>이렇게도 말할 수 있어요</Text>
-                </View>
-                {alternatives.map((alt, i) => (
-                  <View key={i} style={[
-                    styles.alternativeItem,
-                    i < alternatives.length - 1 && styles.alternativeItemBorder,
-                  ]}>
-                    <Text style={styles.alternativeExpression}>"{alt.expression}"</Text>
-                    {alt.explanation ? (
-                      <Text style={styles.alternativeExplain}>{alt.explanation}</Text>
-                    ) : null}
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {/* 격려 메시지 — 대안 없을 때만 표시 */}
-            {(!hasAlts || hasError) && fb.encouragement ? (
-              <Text style={styles.feedbackEncouragement}>{fb.encouragement}</Text>
-            ) : null}
-
-            {/* ── 오류 있을 때: 교정 목록 ── */}
+            {/* All corrections detail */}
             {hasError && fb.corrections.length > 0 && (
               <View style={styles.correctionList}>
-                <Text style={styles.detailSectionTitle}>왜 고쳐야 하나요?</Text>
                 {fb.corrections.map((c, i) => (
-                  <View key={i} style={[styles.correctionItem, { borderLeftColor: severityColor(c.severity) }]}>
+                  <View key={i} style={styles.correctionItem}>
                     <View style={styles.correctionItemHeader}>
                       <Text style={styles.correctionTypeLabel}>
                         {c.type === 'spelling' || c.type === 'spelling_speech_level' ? '오타' : '말투'}
                       </Text>
-                      <Text style={styles.correctionSeverityText}>
+                      <Text style={styles.correctionSeverity}>
                         {c.severity === 'error' ? '꼭 수정' : '수정 추천'}
                       </Text>
                     </View>
-                    <View style={styles.correctionCompareRow}>
-                      <Text style={styles.correctionOriginal}>{c.original}</Text>
+                    <View style={styles.correctionCompare}>
+                      <Text style={styles.correctionOrig}>{c.original}</Text>
                       <Text style={styles.correctionArrow}>→</Text>
                       <Text style={styles.correctionFixed}>{c.corrected}</Text>
                     </View>
@@ -1024,33 +798,33 @@ export default function ChatScreen() {
               </View>
             )}
 
-            {/* 오류 있을 때도 대안 표현 */}
-            {hasError && hasAlts && (
-              <View style={[styles.alternativesSection, { marginTop: 10 }]}>
-                <View style={styles.alternativesHeader}>
-                  <Lightbulb size={14} color="#6C3BFF" />
-                  <Text style={styles.alternativesTitle}>이렇게도 말할 수 있어요</Text>
+            {/* Alternatives */}
+            {hasAlts && (
+              <View style={styles.altsSection}>
+                <View style={styles.altsHeader}>
+                  <Lightbulb size={12} color="#6C3BFF" />
+                  <Text style={styles.altsLabel}>이렇게도 말할 수 있어요</Text>
                 </View>
                 {alternatives.map((alt, i) => (
-                  <View key={i} style={[
-                    styles.alternativeItem,
-                    i < alternatives.length - 1 && styles.alternativeItemBorder,
-                  ]}>
-                    <Text style={styles.alternativeExpression}>"{alt.expression}"</Text>
-                    {alt.explanation ? (
-                      <Text style={styles.alternativeExplain}>{alt.explanation}</Text>
-                    ) : null}
+                  <View key={i} style={[styles.altItem, i < alternatives.length - 1 && styles.altItemBorder]}>
+                    <Text style={styles.altExpr}>{alt.expression}</Text>
+                    {alt.explanation ? <Text style={styles.altExpl}>{alt.explanation}</Text> : null}
                   </View>
                 ))}
               </View>
             )}
 
+            {/* Encouragement */}
+            {fb.encouragement && !hasAlts ? (
+              <Text style={styles.encouragement}>{fb.encouragement}</Text>
+            ) : null}
           </View>
         )}
-      </TouchableOpacity>
+      </View>
     );
   };
 
+  // ── Message row ────────────────────────────────────────────────────────────
   const renderMessage = ({ item }: { item: Message }) => (
     <View style={styles.messageWrapper}>
       <View style={[styles.bubbleRow, item.sender === 'user' ? styles.bubbleRowUser : styles.bubbleRowAi]}>
@@ -1062,10 +836,11 @@ export default function ChatScreen() {
         <View style={[
           styles.bubble,
           item.sender === 'user' ? styles.bubbleUser : styles.bubbleAi,
-          item.feedback?.has_errors && styles.bubbleWarning,
-          item.sender === 'user' && item.feedback?.has_errors && styles.bubbleUserWarning,
+          item.sender === 'user' && item.feedback?.has_errors && styles.bubbleUserError,
         ]}>
-          <Text style={[styles.bubbleText, item.sender === 'user' && styles.bubbleTextUser]}>
+          <Text style={[styles.bubbleText, item.sender === 'user' ? styles.bubbleTextUser : styles.bubbleTextAi,
+            item.sender === 'user' && item.feedback?.has_errors && styles.bubbleTextError,
+          ]}>
             {item.text}
           </Text>
         </View>
@@ -1074,14 +849,15 @@ export default function ChatScreen() {
     </View>
   );
 
-  const moodConfig = getMoodConfig(avatarMood);
-  const MoodIcon   = moodConfig.icon;
+  const moodState = getMoodState(avatarMood);
+  const mc        = moodColor(avatarMood);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <ChevronLeft size={24} color="#1A1A2E" />
+          <ChevronLeft size={22} color="#111" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <View style={[styles.headerAvatar, { backgroundColor: profileBg }]}>
@@ -1089,33 +865,40 @@ export default function ChatScreen() {
           </View>
           <View>
             <Text style={styles.headerName}>{profileName}</Text>
-            <Text style={styles.headerSituation}>{situation?.name_ko || '대화'}</Text>
+            <Text style={styles.headerSub}>{situation?.name_ko || '대화'}</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.headerBtn} onPress={handleEndChat}>
-          <X size={24} color="#E53935" />
+        <TouchableOpacity style={styles.headerEndBtn} onPress={handleEndChat}>
+          <Text style={styles.headerEndText}>종료</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.moodBarContainer}>
-        <MoodIcon size={18} color={moodConfig.color} />
-        <Text style={[styles.moodLabel, { color: moodConfig.color }]}>{moodConfig.label}</Text>
-        <View style={styles.moodBarTrack}>
-          <Animated.View style={[styles.moodBarFill, {
-            backgroundColor: moodConfig.color,
-            width: moodAnim.interpolate({ inputRange: [0,100], outputRange: ['0%','100%'] }),
-          }]} />
+      {/* Mood strip */}
+      <View style={styles.moodStrip}>
+        <View style={styles.moodFaceWrap}>
+          <MoodFace mood={avatarMood} />
+          <Text style={[styles.moodFaceLabel, { color: mc }]}>{moodState.label}</Text>
         </View>
-        <Text style={styles.moodPercent}>{avatarMood}%</Text>
-        {correctStreak >= 3 && (
-          <View style={styles.streakBadge}>
-            <Text style={styles.streakText}>🔥 {correctStreak}연속</Text>
+        <View style={styles.moodRight}>
+          <View style={styles.moodTopRow}>
+            <Text style={styles.moodPct}>{avatarMood}%</Text>
+            <View style={styles.moodMeta}>
+              <Text style={styles.moodHint}>기분</Text>
+              {correctStreak >= 3 && (
+                <View style={styles.streakBadge}>
+                  <StarIcon />
+                  <Text style={styles.streakText}>{correctStreak}연속</Text>
+                </View>
+              )}
+            </View>
           </View>
-        )}
+          {renderPips(avatarMood)}
+        </View>
       </View>
 
-      <View style={styles.levelBanner}>
-        <Text style={styles.levelLabel}>추천 말투:</Text>
+      {/* Level bar */}
+      <View style={styles.levelBar}>
+        <Text style={styles.levelHint}>추천 말투</Text>
         <SpeechLevelBadge level={recommendedLevel} size="small" />
       </View>
 
@@ -1156,7 +939,7 @@ export default function ChatScreen() {
             onPress={handleSend}
             disabled={loading || !input.trim()}
           >
-            <Send size={20} color="#FFFFFF" />
+            <Send size={18} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -1164,103 +947,116 @@ export default function ChatScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const BRAND  = '#6C3BFF';
+const GREY   = '#F2F2F7';
+const BORDER = '#E5E5EA';
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
 
-  header:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0F0F8', backgroundColor: '#FFFFFF' },
-  headerBtn:       { width: 40, alignItems: 'center' },
-  headerCenter:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerAvatar:    { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  headerName:      { fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
-  headerSituation: { fontSize: 11, color: '#6C6C80' },
+  // Header
+  header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: BORDER },
+  headerBtn:     { width: 36, alignItems: 'center' },
+  headerCenter:  { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, justifyContent: 'center' },
+  headerAvatar:  { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  headerName:    { fontSize: 15, fontWeight: '500', color: '#111' },
+  headerSub:     { fontSize: 11, color: '#999', marginTop: 1 },
+  headerEndBtn:  { paddingHorizontal: 12, paddingVertical: 5, backgroundColor: 'rgba(255,77,77,0.09)', borderRadius: 20 },
+  headerEndText: { fontSize: 12, fontWeight: '500', color: '#FF4D4D' },
 
-  moodBarContainer: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F7F7FB', paddingVertical: 10, paddingHorizontal: 16 },
-  moodLabel:        { fontSize: 12, fontWeight: '600', width: 80 },
-  moodBarTrack:     { flex: 1, height: 8, backgroundColor: '#E2E2EC', borderRadius: 4, overflow: 'hidden' },
-  moodBarFill:      { height: '100%', borderRadius: 4 },
-  moodPercent:      { fontSize: 12, fontWeight: '600', color: '#6C6C80', width: 36, textAlign: 'right' },
-  streakBadge:      { backgroundColor: '#FFF3E0', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  streakText:       { fontSize: 11, fontWeight: '600', color: '#E65100' },
+  // Mood strip
+  moodStrip:     { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: GREY },
+  moodFaceWrap:  { alignItems: 'center', gap: 4 },
+  moodFaceLabel: { fontSize: 11, fontWeight: '500' },
+  moodRight:     { flex: 1, gap: 6 },
+  moodTopRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  moodPct:       { fontSize: 13, fontWeight: '500', color: '#111' },
+  moodMeta:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  moodHint:      { fontSize: 11, color: '#999' },
+  streakBadge:   { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(108,59,255,0.12)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
+  streakText:    { fontSize: 11, fontWeight: '500', color: BRAND },
+  pipsRow:       { flexDirection: 'row', gap: 4 },
+  pip:           { flex: 1, height: 4, borderRadius: 2 },
 
-  levelBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F8', gap: 8 },
-  levelLabel:  { fontSize: 12, color: '#6C6C80' },
+  // Level bar
+  levelBar:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: BORDER },
+  levelHint: { fontSize: 11, color: '#999' },
 
-  messageList:    { padding: 16, gap: 4 },
+  // Messages
+  messageList:    { padding: 14, gap: 4 },
   messageWrapper: { marginBottom: 12 },
-
   bubbleRow:      { flexDirection: 'row', alignItems: 'flex-end' },
   bubbleRowAi:    { justifyContent: 'flex-start' },
   bubbleRowUser:  { justifyContent: 'flex-end' },
-  bubbleAvatar:   { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
-  bubble:         { maxWidth: '75%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
-  bubbleAi:       { backgroundColor: '#F5F5FA', borderBottomLeftRadius: 4 },
-  bubbleUser:     { backgroundColor: '#6C3BFF', borderBottomRightRadius: 4 },
-  bubbleWarning:  { borderWidth: 1.5, borderColor: '#E35D3E' },
-  bubbleUserWarning: { backgroundColor: '#CF493C' },
-  bubbleText:     { fontSize: 14, color: '#1A1A2E', lineHeight: 20 },
+  bubbleAvatar:   { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 7 },
+
+  bubble:         { maxWidth: '74%', paddingHorizontal: 13, paddingVertical: 10, borderRadius: 18 },
+  bubbleAi:       { backgroundColor: '#FFFFFF', borderRadius: 5, borderTopLeftRadius: 18, borderBottomLeftRadius: 18, borderBottomRightRadius: 18, borderWidth: 1, borderColor: BORDER },
+  bubbleUser:     { backgroundColor: BRAND, borderRadius: 18, borderTopRightRadius: 5 },
+  bubbleUserError:{ backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: 'rgba(108,59,255,0.35)' },
+  bubbleText:     { fontSize: 13.5, lineHeight: 21 },
+  bubbleTextAi:   { color: '#111' },
   bubbleTextUser: { color: '#FFFFFF' },
+  bubbleTextError:{ color: '#111' },
 
-  feedbackCard:      { marginTop: 8, marginLeft: 22, marginRight: 8, borderRadius: 20, padding: 13, borderWidth: 1.5, shadowColor: '#2B1B12', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.08, shadowRadius: 18, elevation: 3 },
-  feedbackCardOk:    { backgroundColor: '#F2FFF6', borderColor: '#9BD6AA' },
-  feedbackCardError: { backgroundColor: '#FFF7ED', borderColor: '#F08A62' },
-  feedbackCardInfo:  { backgroundColor: '#F5F2FF', borderColor: '#C8B4F8' },
+  // Feedback card
+  feedbackCard:   { marginTop: 8, marginLeft: 35, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: BORDER, overflow: 'hidden' },
+  feedbackHeader: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11 },
+  feedbackDot:    { width: 22, height: 22, borderRadius: 11, backgroundColor: GREY, borderWidth: 1, borderColor: BORDER, alignItems: 'center', justifyContent: 'center' },
+  feedbackTitleBlock: { flex: 1 },
+  feedbackTitle:  { fontSize: 12.5, fontWeight: '500', color: '#111' },
+  feedbackSub:    { fontSize: 10, color: '#999', marginTop: 1 },
+  scoreChip:      { fontSize: 11, fontWeight: '500', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 20, overflow: 'hidden' },
 
-  feedbackSummaryRow:  { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  feedbackIconBadge:   { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  feedbackIconBadgeError: { backgroundColor: '#E35D3E' },
-  feedbackIconBadgeOk:    { backgroundColor: '#42A66B' },
-  feedbackTitleBlock:  { flex: 1 },
-  feedbackSummaryText: { fontSize: 14, fontWeight: '900', letterSpacing: -0.2 },
-  feedbackSubtitle:    { marginTop: 2, fontSize: 11, fontWeight: '600', color: '#8A7D6A' },
-  feedbackScorePill:   { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
-  feedbackScorePillError: { backgroundColor: '#FFE4D8' },
-  feedbackScorePillOk:    { backgroundColor: '#DFF7E8' },
-  feedbackScore:       { fontSize: 12, fontWeight: '900', color: '#2E7D32' },
-  feedbackScoreError:  { color: '#C83F2E' },
-  feedbackScoreMuted:  { color: '#6C6C80' },
-  feedbackExpand:      { fontSize: 10, color: '#9F9384', marginLeft: 2 },
+  feedbackBody:   { borderTopWidth: 1, borderTopColor: BORDER },
+  scoreRow:       { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, paddingBottom: 8 },
+  scoreNum:       { fontSize: 22, fontWeight: '500', minWidth: 38, lineHeight: 26 },
+  scoreBarWrap:   { flex: 1, gap: 3 },
+  scoreTrack:     { height: 5, borderRadius: 3, backgroundColor: BORDER, overflow: 'hidden' },
+  scoreFill:      { height: '100%', borderRadius: 3 },
+  scoreHint:      { fontSize: 10 },
 
-  feedbackDetail:        { marginTop: 13, paddingTop: 13, borderTopWidth: 1, borderTopColor: '#F0D8C7' },
-  feedbackSummaryNote:   { fontSize: 12, color: '#5B4B3F', lineHeight: 18, marginBottom: 11, fontWeight: '600' },
-  feedbackEncouragement: { fontSize: 13, color: '#3D8B6D', lineHeight: 18, fontWeight: '700' },
+  cmpRow:         { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 10 },
+  cmpSide:        { flex: 1, padding: 9, borderRadius: 10, backgroundColor: GREY, borderWidth: 1, borderColor: BORDER },
+  cmpSideFixed:   { backgroundColor: '#FFFFFF', borderColor: 'rgba(108,59,255,0.30)' },
+  cmpLabel:       { fontSize: 9, fontWeight: '500', letterSpacing: 0.06, marginBottom: 3, color: '#999' },
+  cmpLabelFixed:  { color: BRAND },
+  cmpText:        { fontSize: 13, fontWeight: '500', color: '#555' },
+  cmpTextFixed:   { color: BRAND },
+  cmpArrow:       { fontSize: 12, color: '#bbb' },
 
-  finalCorrectionPanel: { backgroundColor: '#FFFFFF', borderRadius: 17, padding: 13, marginBottom: 11, borderWidth: 1, borderColor: '#F0D3BF' },
-  finalCorrectionLabel: { fontSize: 11, fontWeight: '900', color: '#C83F2E', marginBottom: 9, letterSpacing: 0.4 },
-  finalCorrectionCompare: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
-  finalOriginalBox: { flex: 1, borderRadius: 13, padding: 10, backgroundColor: '#FFF0EC', borderWidth: 1, borderColor: '#FFD2C4' },
-  finalFixedBox: { flex: 1, borderRadius: 13, padding: 10, backgroundColor: '#ECFFF3', borderWidth: 1, borderColor: '#BDE8C8' },
-  finalBoxLabel: { fontSize: 10, fontWeight: '800', color: '#C83F2E', marginBottom: 4 },
-  finalBoxLabelFixed: { fontSize: 10, fontWeight: '800', color: '#2E7D32', marginBottom: 4 },
-  finalOriginalText: { fontSize: 15, fontWeight: '800', color: '#B03326', lineHeight: 20 },
-  finalFixedText: { fontSize: 15, fontWeight: '900', color: '#1E7A45', lineHeight: 20 },
-  finalArrow: { alignSelf: 'center', fontSize: 17, fontWeight: '900', color: '#A78B74' },
+  fcNote:         { fontSize: 11, color: '#666', lineHeight: 17, paddingHorizontal: 12, paddingBottom: 10 },
 
-  correctionList: { gap: 9, marginBottom: 10 },
-  detailSectionTitle: { fontSize: 12, fontWeight: '900', color: '#3F3027', marginBottom: 1 },
-  correctionItem: { borderLeftWidth: 4, paddingLeft: 11, paddingVertical: 9, paddingRight: 9, backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: 13 },
-  correctionItemHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 },
-  correctionTypeLabel: { fontSize: 10, fontWeight: '900', color: '#6C3BFF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: '#F0ECFF' },
-  correctionSeverityText: { fontSize: 10, fontWeight: '800', color: '#A85A32' },
-  correctionCompareRow:  { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginBottom: 5 },
-  correctionOriginal: { fontSize: 13, color: '#C83F2E', textDecorationLine: 'line-through', fontWeight: '700' },
-  correctionArrow:    { fontSize: 13, color: '#9A8D7A', fontWeight: '900' },
-  correctionFixed:    { fontSize: 14, color: '#1E7A45', fontWeight: '900' },
-  correctionExplain:  { fontSize: 12, color: '#65584B', lineHeight: 18 },
-  correctionTip:      { fontSize: 11, color: '#6C3BFF', marginTop: 5, fontWeight: '700' },
+  correctionList:       { paddingHorizontal: 12, paddingBottom: 10, gap: 8 },
+  correctionItem:       { gap: 4 },
+  correctionItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  correctionTypeLabel:  { fontSize: 10, fontWeight: '500', color: BRAND, backgroundColor: 'rgba(108,59,255,0.10)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  correctionSeverity:   { fontSize: 10, color: '#999' },
+  correctionCompare:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  correctionOrig:       { fontSize: 13, fontWeight: '500', color: '#999', textDecorationLine: 'line-through' },
+  correctionArrow:      { fontSize: 12, color: '#bbb' },
+  correctionFixed:      { fontSize: 13, fontWeight: '500', color: BRAND },
+  correctionExplain:    { fontSize: 11, color: '#666', lineHeight: 17 },
+  correctionTip:        { fontSize: 11, color: BRAND, fontWeight: '500' },
 
-  alternativesSection:   { backgroundColor: '#F0ECFF', borderRadius: 14, padding: 12 },
-  alternativesHeader:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  alternativesTitle:     { fontSize: 12, fontWeight: '700', color: '#6C3BFF' },
-  alternativeItem:       { paddingBottom: 8 },
-  alternativeItemBorder: { borderBottomWidth: 1, borderBottomColor: '#DDD6FF', marginBottom: 8 },
-  alternativeExpression: { fontSize: 15, fontWeight: '700', color: '#3D1F8D', marginBottom: 2 },
-  alternativeExplain:    { fontSize: 11, color: '#7B6FB5', lineHeight: 16 },
+  altsSection:    { marginHorizontal: 12, marginBottom: 12, backgroundColor: GREY, borderRadius: 12, padding: 10 },
+  altsHeader:     { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
+  altsLabel:      { fontSize: 10, fontWeight: '500', color: BRAND },
+  altItem:        { paddingVertical: 5 },
+  altItemBorder:  { borderBottomWidth: 0.5, borderBottomColor: BORDER, marginBottom: 5 },
+  altExpr:        { fontSize: 13, fontWeight: '500', color: '#111' },
+  altExpl:        { fontSize: 10.5, color: '#999', marginTop: 2, lineHeight: 15 },
+  encouragement:  { fontSize: 12, color: '#22C55E', paddingHorizontal: 12, paddingBottom: 12 },
 
-  loadingRow:    { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 16, paddingBottom: 8 },
-  loadingBubble: { backgroundColor: '#F5F5FA', borderRadius: 18, paddingHorizontal: 20, paddingVertical: 12 },
+  // Loading
+  loadingRow:    { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 14, paddingBottom: 8 },
+  loadingBubble: { backgroundColor: GREY, borderRadius: 18, paddingHorizontal: 20, paddingVertical: 12 },
 
-  inputBar:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#F0F0F8', backgroundColor: '#FFFFFF', gap: 10 },
-  input:           { flex: 1, backgroundColor: '#F5F5FA', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: '#1A1A2E' },
-  sendBtn:         { width: 44, height: 44, borderRadius: 22, backgroundColor: '#6C3BFF', alignItems: 'center', justifyContent: 'center' },
-  sendBtnDisabled: { opacity: 0.5 },
+  // Input
+  inputBar:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: BORDER, backgroundColor: '#FFFFFF', gap: 8 },
+  input:           { flex: 1, backgroundColor: GREY, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: '#111' },
+  sendBtn:         { width: 40, height: 40, borderRadius: 20, backgroundColor: BRAND, alignItems: 'center', justifyContent: 'center' },
+  sendBtnDisabled: { opacity: 0.4 },
 });

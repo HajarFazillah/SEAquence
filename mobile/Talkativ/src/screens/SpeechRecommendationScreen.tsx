@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet,
   ScrollView, ActivityIndicator,
@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { MapPin, CheckCircle, XCircle, Lightbulb } from 'lucide-react-native';
-import { Header, Card, Button, SpeechLevelBadge, AvatarCircle, Icon } from '../components';
+import { Header, Card, Button, SpeechLevelBadge, Icon } from '../components';
 import { apiService } from '../services/api';
 
 interface ExampleExpression {
@@ -57,6 +57,54 @@ const LEVEL_INFO = {
   },
 };
 
+const buildScreenFallbackRecommendation = (
+  avatar: any,
+  situation: any
+): {
+  recommended_level: 'formal' | 'polite' | 'informal';
+  recommended_level_info: {
+    name_ko: string;
+    description: string;
+    endings: string[];
+  };
+  reason_ko: string;
+  example_expressions: ExampleExpression;
+  avoid_expressions: AvoidExpression[];
+  tips: string[];
+} => {
+  const storedLevel = avatar?.formality_from_user || avatar?.recommendedLevel;
+  const fallbackLevel: 'formal' | 'polite' | 'informal' =
+    storedLevel && LEVEL_INFO[storedLevel as keyof typeof LEVEL_INFO]
+      ? storedLevel
+      : ['professor', 'boss', 'ceo', 'client', 'doctor'].includes(avatar?.role)
+      ? 'formal'
+      : ['friend', 'close_friend', 'classmate', 'roommate', 'younger_sibling'].includes(avatar?.role)
+      ? 'informal'
+      : 'polite';
+
+  const info = LEVEL_INFO[fallbackLevel];
+
+  return {
+    recommended_level: fallbackLevel,
+    recommended_level_info: {
+      name_ko: info.name,
+      description: `${info.name}를 사용하세요.`,
+      endings: info.endings.split(', '),
+    },
+    reason_ko: `${avatar?.name_ko || '상대방'}${situation?.name_ko ? `와 ${situation.name_ko} 상황에서` : '와의 대화에서'} 적절한 말투입니다.`,
+    example_expressions: {
+      greetings: info.examples.slice(0, 2),
+      questions: [`${info.examples[0]}?`],
+      responses: info.examples.slice(0, 2),
+    },
+    avoid_expressions: info.avoid.slice(0, 2).map(w => ({
+      wrong: w,
+      reason: `${info.name} 대화에서는 어색한 표현입니다.`,
+    })),
+    tips: info.tips,
+  };
+};
+
 export default function SpeechRecommendationScreen() {
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
@@ -75,89 +123,26 @@ export default function SpeechRecommendationScreen() {
     avoid_expressions: AvoidExpression[];
     tips: string[];
   } | null>(null);
+  const safeRecommendation = recommendation || buildScreenFallbackRecommendation(avatar, situation);
 
-  useEffect(() => {
-    loadRecommendation();
-  }, []);
-
-  const loadRecommendation = async () => {
+  const loadRecommendation = useCallback(async () => {
     try {
       setLoading(true);
 
-      // ── 우선순위 1: avatar에 formality 정보가 이미 있으면 바로 사용 ──────────
-      const formalityKey = (
-        avatar?.formality_from_user ||
-        avatar?.recommendedLevel ||
-        null
-      ) as 'formal' | 'polite' | 'informal' | null;
-
-      if (formalityKey && LEVEL_INFO[formalityKey]) {
-        const info = LEVEL_INFO[formalityKey];
-        setRecommendation({
-          recommended_level: formalityKey,
-          recommended_level_info: {
-            name_ko:     info.name,
-            description: `${info.name}를 사용하세요. 어미: ${info.endings}`,
-            endings:     info.endings.split(', '),
-          },
-          reason_ko: `${avatar?.name_ko || '상대방'}과의 대화에서는 ${info.name}를 사용하는 것이 적절합니다.`,
-          example_expressions: {
-            greetings: info.examples.slice(0, 2),
-            questions: [`${info.examples[0]}?`, `${info.examples[1]}?`],
-            responses: info.examples.slice(2, 4),
-          },
-          avoid_expressions: info.avoid.slice(0, 3).map(w => ({
-            wrong:  w,
-            reason: `${info.name} 대화에서는 어색한 표현입니다.`,
-          })),
-          tips: info.tips,
-        });
-        return;
-      }
-
-      // ── 우선순위 2: AI 서버 호출 ─────────────────────────────────────────────
-      const avatarRole = avatar?.role || 'friend';
-      const data = await apiService.getSpeechRecommendation(
-        avatarRole,
-        situation?.id || 'cafe_chat'
-      );
+      const data = await apiService.getSpeechRecommendation(avatar || {}, situation);
       setRecommendation(data);
 
     } catch (error) {
       console.error('Failed to load recommendation:', error);
-
-      // ── 폴백: role 기반 추론 ────────────────────────────────────────────────
-      const fallbackLevel: 'formal' | 'polite' | 'informal' =
-        ['professor', 'boss', 'ceo', 'client', 'doctor'].includes(avatar?.role)
-          ? 'formal'
-          : ['friend', 'close_friend', 'classmate', 'roommate', 'younger_sibling'].includes(avatar?.role)
-          ? 'informal'
-          : 'polite';
-
-      const info = LEVEL_INFO[fallbackLevel];
-      setRecommendation({
-        recommended_level: fallbackLevel,
-        recommended_level_info: {
-          name_ko:     info.name,
-          description: `${info.name}를 사용하세요.`,
-          endings:     info.endings.split(', '),
-        },
-        reason_ko: `${avatar?.name_ko || '상대방'}과의 대화에서 적절한 말투입니다.`,
-        example_expressions: {
-          greetings: info.examples.slice(0, 2),
-          questions: [`${info.examples[0]}?`],
-          responses: info.examples.slice(0, 2),
-        },
-        avoid_expressions: info.avoid.slice(0, 2).map(w => ({
-          wrong:  w,
-          reason: `${info.name} 대화에서는 어색한 표현입니다.`,
-        })),
-        tips: info.tips,
-      });
+      setRecommendation(buildScreenFallbackRecommendation(avatar, situation));
     } finally {
       setLoading(false);
     }
-  };
+  }, [avatar, situation]);
+
+  useEffect(() => {
+    loadRecommendation();
+  }, [loadRecommendation]);
 
   const handleStartChat = () => {
     navigation.navigate('Chat', {
@@ -210,11 +195,11 @@ export default function SpeechRecommendationScreen() {
         <Card variant="elevated" style={styles.recommendCard}>
           <View style={styles.recommendCenter}>
             <SpeechLevelBadge
-              level={recommendation?.recommended_level || 'polite'}
+              level={safeRecommendation.recommended_level}
               size="large"
             />
           </View>
-          <Text style={styles.reasonText}>{recommendation?.reason_ko}</Text>
+          <Text style={styles.reasonText}>{safeRecommendation.reason_ko}</Text>
         </Card>
 
         {/* Example expressions */}
@@ -227,7 +212,7 @@ export default function SpeechRecommendationScreen() {
           <View style={styles.exampleSection}>
             <Text style={styles.exampleLabel}>인사</Text>
             <View style={styles.exampleList}>
-              {recommendation?.example_expressions.greetings.slice(0, 3).map((exp, i) => (
+              {safeRecommendation.example_expressions.greetings.slice(0, 3).map((exp, i) => (
                 <View key={i} style={styles.exampleItem}>
                   <Text style={styles.exampleText}>{exp}</Text>
                 </View>
@@ -238,7 +223,7 @@ export default function SpeechRecommendationScreen() {
           <View style={styles.exampleSection}>
             <Text style={styles.exampleLabel}>질문</Text>
             <View style={styles.exampleList}>
-              {recommendation?.example_expressions.questions.slice(0, 3).map((exp, i) => (
+              {safeRecommendation.example_expressions.questions.slice(0, 3).map((exp, i) => (
                 <View key={i} style={styles.exampleItem}>
                   <Text style={styles.exampleText}>{exp}</Text>
                 </View>
@@ -249,7 +234,7 @@ export default function SpeechRecommendationScreen() {
           <View style={styles.exampleSection}>
             <Text style={styles.exampleLabel}>대답</Text>
             <View style={styles.exampleList}>
-              {recommendation?.example_expressions.responses.slice(0, 3).map((exp, i) => (
+              {safeRecommendation.example_expressions.responses.slice(0, 3).map((exp, i) => (
                 <View key={i} style={styles.exampleItem}>
                   <Text style={styles.exampleText}>{exp}</Text>
                 </View>
@@ -265,7 +250,7 @@ export default function SpeechRecommendationScreen() {
         </View>
 
         <Card variant="elevated" style={styles.avoidCard}>
-          {recommendation?.avoid_expressions.slice(0, 3).map((item, i) => (
+          {safeRecommendation.avoid_expressions.slice(0, 3).map((item, i) => (
             <View key={i} style={styles.avoidItem}>
               <Text style={styles.avoidWrong}>{item.wrong}</Text>
               <Text style={styles.avoidReason}>{item.reason}</Text>
@@ -280,7 +265,7 @@ export default function SpeechRecommendationScreen() {
         </View>
 
         <Card variant="elevated" style={styles.tipsCard}>
-          {recommendation?.tips.slice(0, 4).map((tip, i) => (
+          {safeRecommendation.tips.slice(0, 4).map((tip, i) => (
             <View key={i} style={styles.tipItem}>
               <View style={styles.tipBullet} />
               <Text style={styles.tipText}>{tip}</Text>
