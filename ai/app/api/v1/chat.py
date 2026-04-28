@@ -74,6 +74,17 @@ class ChatAnalyzeRequest(BaseModel):
     conversation_history: List[ChatMessage]
 
 
+class ConversationAnalysisResponse(BaseModel):
+    """Conversation analysis with score provenance."""
+    scores: Dict[str, int]
+    mistakes: List[Dict[str, str]]
+    vocabulary_to_learn: List[Dict[str, str]]
+    phrases_to_learn: List[Dict[str, str]]
+    overall_feedback: str
+    score_details: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    used_fallback_scores: bool = False
+
+
 # Re-export response models for API docs
 class CorrectionResponse(BaseModel):
     """Inline correction detail"""
@@ -235,7 +246,7 @@ async def send_message(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/analyze", response_model=ConversationAnalysis)
+@router.post("/analyze", response_model=ConversationAnalysisResponse)
 async def analyze_conversation(request: ChatAnalyzeRequest):
     """
     Analyze a completed conversation.

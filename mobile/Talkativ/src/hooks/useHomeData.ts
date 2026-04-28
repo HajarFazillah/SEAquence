@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
 import { getActiveSessions, ActiveSession } from '../services/apiSession';
+import { ConversationPreview, getConversationPreviewMapByAvatar } from '../services/conversationPreview';
 
 export const useHomeData = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -8,20 +9,23 @@ export const useHomeData = () => {
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [conversationPreviews, setConversationPreviews] = useState<Record<string, ConversationPreview>>({});
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
         setLoading(true);
-        const [profileResult, statsResult, sessionsResult] = await Promise.allSettled([
+        const [profileResult, statsResult, sessionsResult, previewResult] = await Promise.allSettled([
           getMyProfile(),
           getUserStats(),
           getActiveSessions(),
+          getConversationPreviewMapByAvatar(),
         ]);
 
         if (profileResult.status === 'fulfilled') setProfile(profileResult.value);
         if (statsResult.status === 'fulfilled') setStats(statsResult.value);
         if (sessionsResult.status === 'fulfilled') setActiveSessions(sessionsResult.value);
+        if (previewResult.status === 'fulfilled') setConversationPreviews(previewResult.value);
 
       } catch (err) {
         setError('Failed to load home data');
@@ -33,5 +37,5 @@ export const useHomeData = () => {
     fetchAll();
   }, []);
 
-  return { profile, stats, activeSessions, loading, error };
+  return { profile, stats, activeSessions, conversationPreviews, loading, error };
 };

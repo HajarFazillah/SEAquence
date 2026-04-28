@@ -38,6 +38,7 @@ import ChatScreen from '../screens/ChatScreen';
 // Post-Chat Flow
 import ConversationSummaryScreen from '../screens/ConversationSummaryScreen';
 import AnalyticsScreen from '../screens/AnalyticsScreen';
+import ConversationHistoryScreen from '../screens/ConversationHistoryScreen';
 
 // Realtime Session
 import RealtimeSessionScreen from '../screens/RealtimeSessionScreen';
@@ -88,6 +89,7 @@ export type RootStackParamList = {
     avatar?: any;
     situation?: any;
     recommendedLevel?: string;
+    sessionId?: string;
   };
 
   // Post-Chat
@@ -105,6 +107,7 @@ export type RootStackParamList = {
     scores?: any;
     savedItems?: string[];
   };
+  ConversationHistory: undefined;
 
   // Realtime
   RealtimeSession: { avatar: any };
@@ -148,6 +151,7 @@ const ROUTE_TO_MENU: Record<string, string> = {
   Chat: 'Home',
   ConversationSummary: 'Home',
   Analytics: 'Home',
+  ConversationHistory: 'Home',
   SituationSelection: 'Home',
   CreateSituation: 'Home',
   SpeechRecommendation: 'Home',
@@ -257,6 +261,7 @@ export const AppNavigator: React.FC = () => {
             {/* Post-Chat Flow */}
             <Stack.Screen name="ConversationSummary" component={ConversationSummaryScreen} />
             <Stack.Screen name="Analytics" component={AnalyticsScreen} />
+            <Stack.Screen name="ConversationHistory" component={ConversationHistoryScreen} />
 
             {/* Realtime Session */}
             <Stack.Screen name="RealtimeSession" component={RealtimeSessionScreen} />
