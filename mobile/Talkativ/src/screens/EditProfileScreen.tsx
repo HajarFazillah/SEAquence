@@ -40,7 +40,7 @@ export default function EditProfileScreen() {
   const [gender, setGender] = useState(mockUser.gender);
   const [koreanLevel, setKoreanLevel] = useState(mockUser.koreanLevel);
   const [memo, setMemo] = useState(mockUser.memo);
-  const [avatarUrl, setAvatarUrl] = useState(mockUser.avatarUrl);
+  const [avatarUrl] = useState(mockUser.avatarUrl);
 
   const handleSave = () => {
     const profileData = {

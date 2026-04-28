@@ -5,13 +5,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User } from 'lucide-react-native';
+import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User, History } from 'lucide-react-native';
 import { Header, Card, SearchBar, StatusBadge, Tag, Icon, CompatibilityRing, IconName } from '../components';
 import { AVATAR_COLORS } from '../constants';
 import { apiService, CompatibilityAvatarInput } from '../services/api';
 import { getMyAvatars, deleteAvatar, getMyProfile, UserAvatar } from '../services/apiUser';
-import { ActiveSession, getActiveSessions } from '../services/apiSession';
-import { ConversationPreview, buildConversationPreviewText, getConversationPreviewMapByAvatar } from '../services/conversationPreview';
+import { ConversationPreview, getConversationPreviewMapByAvatar } from '../services/conversationPreview';
 
 type RandomGender = 'male' | 'female' | 'other';
 type RandomAvatarType = 'fictional' | 'real';
@@ -258,7 +257,6 @@ export default function AvatarScreen() {
   const [filterType,      setFilterType]      = useState<'all' | 'fictional' | 'real'>('all');
   const [compatScores,    setCompatScores]    = useState<Record<number, number>>({});
   const [compatBreakdowns, setCompatBreakdowns] = useState<Record<number, CompatibilityBreakdown>>({});
-  const [activeSessions, setActiveSessions] = useState<Record<number, ActiveSession>>({});
   const [conversationPreviews, setConversationPreviews] = useState<Record<string, ConversationPreview>>({});
 
   // ── 궁합 점수 로드 (컴포넌트 안에 정의) ───────────────────────────────────
@@ -299,10 +297,9 @@ export default function AvatarScreen() {
       const load = async () => {
         try {
           setLoading(true);
-          const [avatarsResult, profileResult, sessionsResult, previewsResult] = await Promise.allSettled([
+          const [avatarsResult, profileResult, previewsResult] = await Promise.allSettled([
             getMyAvatars(),
             getMyProfile(),
-            getActiveSessions(),
             getConversationPreviewMapByAvatar(),
           ]);
 
@@ -312,17 +309,6 @@ export default function AvatarScreen() {
 
           const data = avatarsResult.value;
           setAvatars(data);
-
-          if (sessionsResult.status === 'fulfilled') {
-            const mappedSessions = sessionsResult.value.reduce<Record<number, ActiveSession>>((acc, session) => {
-              const avatarId = Number(session.avatarId);
-              if (Number.isFinite(avatarId)) acc[avatarId] = session;
-              return acc;
-            }, {});
-            setActiveSessions(mappedSessions);
-          } else {
-            setActiveSessions({});
-          }
 
           if (previewsResult.status === 'fulfilled') {
             setConversationPreviews(previewsResult.value);
@@ -493,6 +479,19 @@ export default function AvatarScreen() {
           <ChevronRight size={20} color="#6C3BFF" />
         </TouchableOpacity>
 
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>내 아바타</Text>
+          <TouchableOpacity style={styles.sectionLink} onPress={() => navigation.navigate('ConversationHistory')}>
+            <History size={15} color="#6C3BFF" />
+            <Text style={styles.sectionLinkText}>View history</Text>
+            {Object.keys(conversationPreviews).length > 0 ? (
+              <View style={styles.historyCountBadge}>
+                <Text style={styles.historyCountText}>{Object.keys(conversationPreviews).length}</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        </View>
+
         {/* Avatar List */}
         <View style={styles.avatarList}>
           {loading ? (
@@ -501,8 +500,6 @@ export default function AvatarScreen() {
             <>
               {filteredAvatars.map((avatar) => {
                 const score = compatScores[avatar.id];
-                const activeSession = activeSessions[avatar.id];
-                const previewText = buildConversationPreviewText(conversationPreviews[String(avatar.id)]);
                 return (
                   <Card
                     key={avatar.id}
@@ -546,16 +543,6 @@ export default function AvatarScreen() {
                         </Text>
                       </View>
                     </View>
-
-                    {activeSession ? (
-                      <View style={styles.sessionCard}>
-                        <View style={styles.sessionBadge}>
-                          <Text style={styles.sessionBadgeText}>진행 중</Text>
-                        </View>
-                        <Text style={styles.sessionSituation}>{activeSession.situation}</Text>
-                        {previewText ? <Text style={styles.sessionPreview}>{previewText}</Text> : null}
-                      </View>
-                    ) : null}
 
                     {/* Interests */}
                     <View style={styles.interestsRow}>
@@ -656,6 +643,13 @@ const styles = StyleSheet.create({
   createTitle:         { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 2 },
   createSubtitle:      { fontSize: 12, color: '#6C6C80' },
 
+  sectionHeader:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  sectionTitle:        { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  sectionLink:         { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sectionLinkText:     { fontSize: 13, fontWeight: '600', color: '#6C3BFF' },
+  historyCountBadge:   { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEE8FF' },
+  historyCountText:    { fontSize: 10, fontWeight: '700', color: '#6C3BFF' },
+
   avatarList:    { gap: 14 },
   avatarCard:    { position: 'relative' },
   avatarRow:     { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
@@ -675,12 +669,6 @@ const styles = StyleSheet.create({
   typeBadgeText:          { fontSize: 11, fontWeight: '600' },
   typeBadgeTextFictional: { color: '#9C27B0' },
   typeBadgeTextReal:      { color: '#2196F3' },
-
-  sessionCard: { marginTop: 12, padding: 12, borderRadius: 14, backgroundColor: '#F8F7FF', borderWidth: 1, borderColor: '#ECE9FF' },
-  sessionBadge: { alignSelf: 'flex-start', backgroundColor: '#EEE8FF', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 8 },
-  sessionBadgeText: { fontSize: 10, fontWeight: '700', color: '#6C3BFF' },
-  sessionSituation: { fontSize: 12, fontWeight: '600', color: '#35354B', marginBottom: 6 },
-  sessionPreview: { fontSize: 11, lineHeight: 16, color: '#606079' },
 
   interestsRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
 

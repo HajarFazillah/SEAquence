@@ -83,3 +83,8 @@ export const makePreviewPayload = (params: {
   aiSnippet: clip(params.lastAiMessage),
   updatedAt: new Date().toISOString(),
 });
+
+export const getAllConversationPreviews = async (): Promise<ConversationPreview[]> => {
+  const items = await readAll();
+  return items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+};

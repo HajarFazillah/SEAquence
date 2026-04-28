@@ -25,7 +25,7 @@ export default function CreateProfileStep2Screen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   // ← FIXED: added email + password from params
-  const { name, age, gender, koreanLevel, email, password } = route.params || {};
+  const { name, age, koreanLevel, email, password } = route.params || {};
 
   const [interests, setInterests] = useState<string[]>([]);
   const [dislikes, setDislikes] = useState<string[]>([]);
