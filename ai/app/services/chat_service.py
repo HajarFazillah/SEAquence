@@ -914,7 +914,7 @@ def convert_hapsida_to_target(text: str, target: str) -> Optional[str]:
     return None
 
 
-def verify_with_rules(text: str, clova_detected: str) -> str:
+def verify_with_rules(text: str, clova_detected: str, konlpy_endings: List[str] = []) -> str:
     text = re.sub(r"[.!?…。？！\"')\]\s]+$", "", text.strip())
     clova_detected = LEVEL_MAP.get((clova_detected or "").strip().lower(), clova_detected or "")
     if ends_with_hapsida_formal(text):
@@ -929,6 +929,14 @@ def verify_with_rules(text: str, clova_detected: str) -> str:
         if text.endswith(e): return "polite"
     for e in _INFORMAL_ENDINGS:
         if text.endswith(e): return "informal"
+    # Use KoNLPy-extracted endings as a final deterministic layer.
+    # Okt decomposes contracted forms (e.g. "줘" → stem+"어", "봐" → stem+"아")
+    # so the extracted ending morpheme is already in the lists above.
+    if konlpy_endings:
+        _ending_set = set(konlpy_endings)
+        if _ending_set & set(_FORMAL_ENDINGS): return "formal"
+        if _ending_set & set(_POLITE_ENDINGS): return "polite"
+        if _ending_set & set(_INFORMAL_ENDINGS): return "informal"
     return clova_detected
 
 
@@ -2442,7 +2450,7 @@ class ChatService:
             konlpy_hints=konlpy_hints,
         )
 
-        result = await clova_service.analyze_json(prompt, temperature=0.2, max_tokens=1024)
+        result = await clova_service.analyze_json(prompt, temperature=0.1, max_tokens=1024)
 
         if not result:
             native_augmented = self._apply_native_analyzer_feedback(
@@ -2531,7 +2539,7 @@ class ChatService:
         # ── 하이브리드 발화 레벨 감지 ──────────────────────────────────────────
         clova_raw        = (result.get("detected_speech_level") or "").strip().lower()
         clova_norm       = LEVEL_MAP.get(clova_raw, clova_raw)
-        detected_norm    = verify_with_rules(apply_spelling_fixes(user_message), clova_norm)
+        detected_norm    = verify_with_rules(apply_spelling_fixes(user_message), clova_norm, konlpy_hints.get("endings", []))
         is_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
 
         # ── has_errors — info 제외 ────────────────────────────────────────────
