@@ -916,8 +916,11 @@ export default function ChatScreen() {
     const scoreLabel = isScorable ? `${fb.accuracy_score}점` : '분석 제외';
     const alternatives    = fb.natural_alternatives || [];
     const hasAlts         = alternatives.length > 0;
-    const primaryCorrection = hasError && fb.corrections.length > 0 ? fb.corrections[0] : null;
     const fullSentenceCorrection = hasError ? buildWholeSentenceCorrection(item.text, fb) : '';
+    const categoryMetas = Array.from(new Map(fb.corrections.map(c => {
+      const meta = correctionCategoryMeta(c);
+      return [meta.label, meta];
+    })).values());
 
     return (
       <View style={styles.feedbackCard}>
@@ -971,29 +974,12 @@ export default function ChatScreen() {
               </View>
             ) : null}
 
-            {primaryCorrection && (
-              <View style={styles.cmpRow}>
-                <View style={styles.cmpSide}>
-                  <Text style={styles.cmpLabel}>입력</Text>
-                  <Text style={styles.cmpText}>{primaryCorrection.original}</Text>
-                </View>
-                <Text style={styles.cmpArrow}>→</Text>
-                <View style={[styles.cmpSide, styles.cmpSideFixed]}>
-                  <Text style={[styles.cmpLabel, styles.cmpLabelFixed]}>수정</Text>
-                  <Text style={[styles.cmpText, styles.cmpTextFixed]}>{primaryCorrection.corrected}</Text>
-                </View>
-              </View>
-            )}
-
             {/* Note */}
             {fb.summary ? <Text style={styles.fcNote}>{fb.summary}</Text> : null}
 
-            {hasError && fb.corrections.length > 0 && (
+            {hasError && categoryMetas.length > 1 && (
               <View style={styles.categoryChipsRow}>
-                {Array.from(new Map(fb.corrections.map(c => {
-                  const meta = correctionCategoryMeta(c);
-                  return [meta.label, meta];
-                })).values()).map(meta => (
+                {categoryMetas.map(meta => (
                   <View key={meta.label} style={[styles.categoryChip, { backgroundColor: meta.tint }]}>
                     <Text style={[styles.categoryChipText, { color: meta.text }]}>{meta.label}</Text>
                   </View>

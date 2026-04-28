@@ -188,6 +188,45 @@ def build_human_encouragement(
     return "핵심 의미는 잘 전달됐어요. 표현만 조금 다듬어 보면 더 좋아져요."
 
 
+def apply_error_based_score_cap(
+    accuracy_score: int,
+    corrections: List[InlineCorrection],
+    speech_level_correct: bool,
+) -> int:
+    real_corrections = [
+        correction for correction in corrections
+        if correction.severity in {CorrectionSeverity.ERROR, CorrectionSeverity.WARNING}
+        and correction.original != correction.corrected
+    ]
+    if not real_corrections and speech_level_correct:
+        return accuracy_score
+
+    cap = 99
+    labels = {correction.type for correction in real_corrections}
+
+    if not speech_level_correct or CorrectionType.SPEECH_LEVEL in labels:
+        cap = min(cap, 60)
+    if CorrectionType.HONORIFIC in labels:
+        cap = min(cap, 72)
+    if CorrectionType.VOCABULARY in labels:
+        cap = min(cap, 78)
+
+    spelling_like = [c for c in real_corrections if c.type == CorrectionType.SPELLING]
+    if spelling_like:
+        spacing_only = all(
+            re.sub(r"\s+", "", correction.original) == re.sub(r"\s+", "", correction.corrected)
+            for correction in spelling_like
+        )
+        cap = min(cap, 92 if spacing_only else 88)
+
+    if len(real_corrections) >= 2:
+        cap = min(cap, 84)
+    if len(real_corrections) >= 3:
+        cap = min(cap, 78)
+
+    return min(accuracy_score, cap)
+
+
 # ============================================================================
 # 단답형 → 자연스러운 대안 맵
 # ============================================================================
@@ -817,6 +856,9 @@ def simple_convert_to_level(text: str, target: str) -> Optional[str]:
     for informal, formal in sorted(table.items(), key=lambda x: -len(x[0])):
         if text.endswith(informal):
             return text[: -len(informal)] + formal
+    if target == "polite":
+        best_effort = best_effort_informal_to_polite(text)
+        return best_effort if best_effort != text else None
     return None
 
 
@@ -903,6 +945,11 @@ def _prefer_rule_correction(
     if not clova_corrected:
         return rule_corrected
     if clova_corrected in _GENERIC_GREETING_CORRECTIONS and "안녕" not in user_message:
+        return rule_corrected
+    if (
+        clova_corrected in _GENERIC_GREETING_CORRECTIONS
+        and not re.search(r"(안녕|반가워|처음 뵙|오랜만)", user_message)
+    ):
         return rule_corrected
     if len(clova_corrected) <= 3 and len(rule_corrected) > len(clova_corrected):
         return rule_corrected
@@ -1142,6 +1189,30 @@ def infer_surface_correction_type(original: str, corrected: str) -> CorrectionTy
     corrected = (corrected or "").strip()
     if not original or not corrected:
         return CorrectionType.EXPRESSION
+    original_norm = re.sub(r"[.!?…\s]+$", "", original)
+    corrected_norm = re.sub(r"[.!?…\s]+$", "", corrected)
+    original_level = verify_with_rules(original_norm, "")
+    corrected_level = verify_with_rules(corrected_norm, "")
+    if (
+        original_level
+        and corrected_level
+        and original_level != corrected_level
+        and difflib.SequenceMatcher(
+            a=original_norm.replace(" ", ""),
+            b=corrected_norm.replace(" ", ""),
+        ).ratio() >= 0.55
+    ):
+        return CorrectionType.SPEECH_LEVEL
+    if any(
+        [
+            corrected_norm.endswith("까요") and original_norm.endswith("까"),
+            corrected_norm.endswith("래요") and original_norm.endswith("래"),
+            corrected_norm.endswith("어요") and original_norm.endswith("어"),
+            corrected_norm.endswith("아요") and original_norm.endswith("아"),
+            corrected_norm.endswith("해요") and original_norm.endswith("해"),
+        ]
+    ):
+        return CorrectionType.SPEECH_LEVEL
     if any(token in corrected for token in ["주세요", "주실", "드려", "해 주세요", "해주시"]):
         return CorrectionType.HONORIFIC
     if any(token in corrected for token in ["저", "저는", "제가", "저를", "저한테"]):
@@ -1152,6 +1223,8 @@ def infer_surface_correction_type(original: str, corrected: str) -> CorrectionTy
 
 
 def infer_surface_explanation(original: str, corrected: str, correction_type: CorrectionType) -> str:
+    if correction_type == CorrectionType.SPEECH_LEVEL:
+        return "같은 의미라도 지금 상황에 맞는 말투로 끝맺음을 바꾸는 것이 자연스럽습니다."
     if correction_type == CorrectionType.HONORIFIC:
         return "상황에 맞게 요청 표현을 더 공손하게 바꾸는 것이 자연스럽습니다."
     if correction_type == CorrectionType.VOCABULARY:
@@ -1345,7 +1418,8 @@ def prune_suspicious_corrections(
             and any(item.original == "안녕" and item.corrected in corrected_message for item in corrections)
         ):
             continue
-        key = (original, corrected)
+        normalized_corrected = re.sub(r"[.!?…]+$", "", corrected).strip()
+        key = (original, normalized_corrected)
         existing = ranked.get(key)
         if not existing:
             ranked[key] = correction
@@ -2633,6 +2707,7 @@ class ChatService:
             corrected_message = compose_corrected_message_from_corrections(user_message, corrections) or corrected_message
         verdict = result.get("verdict") or infer_verdict(has_errors, typo_count, is_level_correct)
         accuracy_score = max(0, min(100, int(accuracy_score)))
+        accuracy_score = apply_error_based_score_cap(accuracy_score, corrections, is_level_correct)
         human_summary = build_human_feedback_summary(
             has_errors=has_errors,
             corrections=corrections,
