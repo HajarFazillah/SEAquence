@@ -11,13 +11,12 @@ import {
   Award, Clock, TrendingUp, MessageCircle, MessageSquare,
   Camera,
 } from 'lucide-react-native';
+
 import { launchImageLibrary } from 'react-native-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Header, Card, Tag, ProgressBar } from '../components';
+import { Card, Tag, ProgressBar } from '../components';
 import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2;
 const CUSTOM_AVATAR_KEY = 'custom_avatar_url';
 
 const mockUser = {

@@ -16,84 +16,85 @@ import { AVATAR_COLORS, SPEECH_LEVELS } from '../constants';
 import { createAvatar, updateAvatar } from '../services/apiUser';
 import { Star } from 'lucide-react-native';
 
-// 5 Steps
+const AI_SERVER = 'http://10.0.2.2:8000';
+
 const STEPS = [
-  { id: 1, title: '기본 정보', subtitle: 'Basic Info' },
-  { id: 2, title: '관계 선택', subtitle: 'Relationship' },
-  { id: 3, title: '상세 설명', subtitle: 'Description' },
+  { id: 1, title: '기본 정보',    subtitle: 'Basic Info' },
+  { id: 2, title: '관계 선택',    subtitle: 'Relationship' },
+  { id: 3, title: '상세 설명',    subtitle: 'Description' },
   { id: 4, title: '성격 & 관심사', subtitle: 'Personality' },
-  { id: 5, title: '확인', subtitle: 'Preview' },
+  { id: 5, title: '확인',         subtitle: 'Preview' },
 ];
 
 const AVATAR_ICONS = [
-  { id: 'user', icon: User },
-  { id: 'users', icon: Users },
-  { id: 'smile', icon: Smile },
-  { id: 'userCircle', icon: User },
-  { id: 'crown', icon: Crown },
-  { id: 'baby', icon: Baby },
+  { id: 'user',          icon: User },
+  { id: 'users',         icon: Users },
+  { id: 'smile',         icon: Smile },
+  { id: 'userCircle',    icon: User },
+  { id: 'crown',         icon: Crown },
+  { id: 'baby',          icon: Baby },
   { id: 'graduationCap', icon: GraduationCap },
-  { id: 'briefcase', icon: Briefcase },
-  { id: 'building', icon: Building2 },
-  { id: 'heart', icon: Heart },
-  { id: 'star', icon: Star },
-  { id: 'sparkles', icon: Sparkles },
+  { id: 'briefcase',     icon: Briefcase },
+  { id: 'building',      icon: Building2 },
+  { id: 'heart',         icon: Heart },
+  { id: 'star',          icon: Star },
+  { id: 'sparkles',      icon: Sparkles },
 ];
 
 const RELATIONSHIP_CATEGORIES = [
   {
     category: '친구/동기',
     roles: [
-      { id: 'friend', label: '친구', speechToUser: 'informal', speechFromUser: 'informal' },
-      { id: 'close_friend', label: '절친', speechToUser: 'informal', speechFromUser: 'informal' },
-      { id: 'classmate', label: '동기', speechToUser: 'informal', speechFromUser: 'informal' },
-      { id: 'roommate', label: '룸메이트', speechToUser: 'informal', speechFromUser: 'informal' },
-      { id: 'club_member', label: '동아리 멤버', speechToUser: 'informal', speechFromUser: 'informal' },
+      { id: 'friend',       label: '친구',        speechToUser: 'informal', speechFromUser: 'informal' },
+      { id: 'close_friend', label: '절친',        speechToUser: 'informal', speechFromUser: 'informal' },
+      { id: 'classmate',    label: '동기',         speechToUser: 'informal', speechFromUser: 'informal' },
+      { id: 'roommate',     label: '룸메이트',    speechToUser: 'informal', speechFromUser: 'informal' },
+      { id: 'club_member',  label: '동아리 멤버', speechToUser: 'informal', speechFromUser: 'informal' },
     ],
   },
   {
     category: '가족',
     roles: [
-      { id: 'younger_sibling', label: '동생', speechToUser: 'informal', speechFromUser: 'informal' },
-      { id: 'older_brother', label: '형/오빠', speechToUser: 'informal', speechFromUser: 'polite' },
-      { id: 'older_sister', label: '누나/언니', speechToUser: 'informal', speechFromUser: 'polite' },
-      { id: 'cousin', label: '사촌', speechToUser: 'informal', speechFromUser: 'informal' },
-      { id: 'parent', label: '부모님', speechToUser: 'polite', speechFromUser: 'formal' },
-      { id: 'grandparent', label: '조부모님', speechToUser: 'polite', speechFromUser: 'formal' },
+      { id: 'younger_sibling', label: '동생',      speechToUser: 'informal', speechFromUser: 'informal' },
+      { id: 'older_brother',   label: '형/오빠',   speechToUser: 'informal', speechFromUser: 'polite' },
+      { id: 'older_sister',    label: '누나/언니', speechToUser: 'informal', speechFromUser: 'polite' },
+      { id: 'cousin',          label: '사촌',      speechToUser: 'informal', speechFromUser: 'informal' },
+      { id: 'parent',          label: '부모님',    speechToUser: 'polite',   speechFromUser: 'formal' },
+      { id: 'grandparent',     label: '조부모님',  speechToUser: 'polite',   speechFromUser: 'formal' },
     ],
   },
   {
     category: '학교',
     roles: [
-      { id: 'junior', label: '후배', speechToUser: 'polite', speechFromUser: 'informal' },
-      { id: 'senior', label: '선배', speechToUser: 'informal', speechFromUser: 'polite' },
-      { id: 'professor', label: '교수님', speechToUser: 'polite', speechFromUser: 'formal' },
-      { id: 'teacher', label: '선생님', speechToUser: 'polite', speechFromUser: 'formal' },
-      { id: 'tutor', label: '튜터/과외선생', speechToUser: 'polite', speechFromUser: 'polite' },
+      { id: 'junior',          label: '후배',          speechToUser: 'polite',   speechFromUser: 'informal' },
+      { id: 'senior',          label: '선배',          speechToUser: 'informal', speechFromUser: 'polite' },
+      { id: 'professor',       label: '교수님',        speechToUser: 'polite',   speechFromUser: 'formal' },
+      { id: 'teacher',         label: '선생님',        speechToUser: 'polite',   speechFromUser: 'formal' },
+      { id: 'tutor',           label: '튜터/과외선생', speechToUser: 'polite',   speechFromUser: 'polite' },
       { id: 'classmate_formal', label: '같은 반 친구', speechToUser: 'informal', speechFromUser: 'informal' },
     ],
   },
   {
     category: '직장',
     roles: [
-      { id: 'colleague', label: '동료', speechToUser: 'polite', speechFromUser: 'polite' },
-      { id: 'teammate', label: '팀원', speechToUser: 'polite', speechFromUser: 'polite' },
-      { id: 'team_leader', label: '팀장', speechToUser: 'polite', speechFromUser: 'formal' },
-      { id: 'boss', label: '상사/부장', speechToUser: 'polite', speechFromUser: 'formal' },
-      { id: 'ceo', label: '대표/사장님', speechToUser: 'formal', speechFromUser: 'formal' },
-      { id: 'intern', label: '인턴', speechToUser: 'polite', speechFromUser: 'informal' },
-      { id: 'client', label: '고객/클라이언트', speechToUser: 'formal', speechFromUser: 'formal' },
+      { id: 'colleague',   label: '동료',           speechToUser: 'polite', speechFromUser: 'polite' },
+      { id: 'teammate',    label: '팀원',           speechToUser: 'polite', speechFromUser: 'polite' },
+      { id: 'team_leader', label: '팀장',           speechToUser: 'polite', speechFromUser: 'formal' },
+      { id: 'boss',        label: '상사/부장',      speechToUser: 'polite', speechFromUser: 'formal' },
+      { id: 'ceo',         label: '대표/사장님',    speechToUser: 'formal', speechFromUser: 'formal' },
+      { id: 'intern',      label: '인턴',           speechToUser: 'polite', speechFromUser: 'informal' },
+      { id: 'client',      label: '고객/클라이언트', speechToUser: 'formal', speechFromUser: 'formal' },
     ],
   },
   {
     category: '서비스/기타',
     roles: [
-      { id: 'staff', label: '직원/점원', speechToUser: 'polite', speechFromUser: 'polite' },
-      { id: 'stranger', label: '처음 만난 사람', speechToUser: 'polite', speechFromUser: 'polite' },
-      { id: 'neighbor', label: '이웃', speechToUser: 'polite', speechFromUser: 'polite' },
-      { id: 'doctor', label: '의사', speechToUser: 'polite', speechFromUser: 'formal' },
-      { id: 'delivery', label: '배달원', speechToUser: 'polite', speechFromUser: 'polite' },
-      { id: 'taxi_driver', label: '택시기사', speechToUser: 'polite', speechFromUser: 'polite' },
+      { id: 'staff',       label: '직원/점원',      speechToUser: 'polite', speechFromUser: 'polite' },
+      { id: 'stranger',    label: '처음 만난 사람', speechToUser: 'polite', speechFromUser: 'polite' },
+      { id: 'neighbor',    label: '이웃',           speechToUser: 'polite', speechFromUser: 'polite' },
+      { id: 'doctor',      label: '의사',           speechToUser: 'polite', speechFromUser: 'formal' },
+      { id: 'delivery',    label: '배달원',         speechToUser: 'polite', speechFromUser: 'polite' },
+      { id: 'taxi_driver', label: '택시기사',       speechToUser: 'polite', speechFromUser: 'polite' },
     ],
   },
 ];
@@ -112,57 +113,69 @@ const INTEREST_OPTIONS = [
 ];
 
 interface AvatarFormData {
-  name_ko: string;
-  name_en: string;
-  age: string;
-  gender: 'male' | 'female' | 'other';
-  avatar_type: 'fictional' | 'real';      // was avatarType
-  role: string;
-  custom_role: string;                     // was customRole
+  name_ko:                  string;
+  name_en:                  string;
+  age:                      string;
+  gender:                   'male' | 'female' | 'other';
+  avatar_type:              'fictional' | 'real';
+  role:                     string;
+  custom_role:              string;
   relationship_description: string;
-  description: string;
-  personality_traits: string[];
-  speaking_style: string;
-  interests: string[];
-  dislikes: string[];
-  avatar_bg: string;                       // was avatarBg
-  icon: IconName;
-  difficulty: 'easy' | 'medium' | 'hard';
-  memo: string;
+  description:              string;
+  personality_traits:       string[];
+  speaking_style:           string;
+  interests:                string[];
+  dislikes:                 string[];
+  avatar_bg:                string;
+  icon:                     IconName;
+  difficulty:               'easy' | 'medium' | 'hard';
+  memo:                     string;
 }
+
+// ── 마크다운 기호 제거 ────────────────────────────────────────────────────────
+const stripMarkdown = (text: string): string =>
+  text
+    .replace(/\*\*(.*?)\*\*/g, '$1')   // **굵게** → 굵게
+    .replace(/\*(.*?)\*/g, '$1')        // *이탤릭* → 이탤릭
+    .replace(/^#{1,6}\s+/gm, '')        // ## 제목 → 제목
+    .replace(/^[\-\*]\s/gm, '• ')       // - 항목 → • 항목
+    .replace(/_{1,2}(.*?)_{1,2}/g, '$1') // _이탤릭_ → 이탤릭
+    .replace(/~~(.*?)~~/g, '$1')         // ~~취소선~~ → 취소선
+    .trim();
+
 
 export default function CreateAvatarScreen() {
   const navigation = useNavigation<any>();
-  const route = useRoute<any>();
+  const route      = useRoute<any>();
   const { avatar: existingAvatar, template, isEdit, mode } = route.params || {};
 
-  const [currentStep, setCurrentStep] = useState(1);
-  const [generatedBio, setGeneratedBio] = useState('');
+  const [currentStep,   setCurrentStep]   = useState(1);
+  const [generatedBio,  setGeneratedBio]  = useState('');
   const [generatingBio, setGeneratingBio] = useState(false);
-  const [saving, setSaving] = useState(false); // ← new
+  const [saving,        setSaving]        = useState(false);
 
-  const [customTrait, setCustomTrait] = useState('');
+  const [customTrait,    setCustomTrait]    = useState('');
   const [customInterest, setCustomInterest] = useState('');
-  const [customDislike, setCustomDislike] = useState('');
+  const [customDislike,  setCustomDislike]  = useState('');
 
   const initialData: AvatarFormData = {
-    name_ko: '',
-    name_en: '',
-    age: '',
-    gender: 'other',
-    avatar_type: 'fictional',                              // was avatarType
-    role: '',
-    custom_role: '',                                       // was customRole
+    name_ko:                  '',
+    name_en:                  '',
+    age:                      '',
+    gender:                   'other',
+    avatar_type:              'fictional',
+    role:                     '',
+    custom_role:              '',
     relationship_description: '',
-    description: '',
-    personality_traits: [],
-    speaking_style: '',
-    interests: [],
-    dislikes: [],
-    avatar_bg: Object.values(AVATAR_COLORS)[0],           // was avatarBg
-    icon: 'user' as IconName,
-    difficulty: 'medium',
-    memo: '',
+    description:              '',
+    personality_traits:       [],
+    speaking_style:           '',
+    interests:                [],
+    dislikes:                 [],
+    avatar_bg:                Object.values(AVATAR_COLORS)[0],
+    icon:                     'user' as IconName,
+    difficulty:               'medium',
+    memo:                     '',
     ...(existingAvatar || template || {}),
   };
 
@@ -174,16 +187,12 @@ export default function CreateAvatarScreen() {
 
   const toggleArrayItem = (key: 'personality_traits' | 'interests' | 'dislikes', item: string) => {
     const arr = formData[key];
-    if (arr.includes(item)) {
-      updateField(key, arr.filter(i => i !== item));
-    } else {
-      updateField(key, [...arr, item]);
-    }
+    updateField(key, arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
   };
 
   const addCustomItem = (
-    key: 'personality_traits' | 'interests' | 'dislikes',
-    value: string,
+    key:    'personality_traits' | 'interests' | 'dislikes',
+    value:  string,
     setter: (v: string) => void
   ) => {
     const trimmed = value.trim();
@@ -197,7 +206,7 @@ export default function CreateAvatarScreen() {
     const roleData = ALL_ROLES.find(r => r.id === formData.role);
     if (roleData) {
       return {
-        toUser: roleData.speechToUser as 'formal' | 'polite' | 'informal',
+        toUser:   roleData.speechToUser   as 'formal' | 'polite' | 'informal',
         fromUser: roleData.speechFromUser as 'formal' | 'polite' | 'informal',
       };
     }
@@ -210,32 +219,58 @@ export default function CreateAvatarScreen() {
     }
   }, [currentStep]);
 
-  const generateBio = () => {
+  // ── AI 서버로 대화 가이드 생성 ─────────────────────────────────────────────
+  const generateBio = async () => {
     setGeneratingBio(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch(`${AI_SERVER}/api/v1/chat/generate-bio`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          avatar: {
+            id:                 'preview',
+            name_ko:            formData.name_ko            || '아바타',
+            name_en:            formData.name_en            || '',
+            role:               formData.role               || formData.custom_role || 'friend',
+            custom_role:        formData.custom_role        || '',
+            personality_traits: formData.personality_traits || [],
+            interests:          formData.interests          || [],
+            dislikes:           formData.dislikes           || [],
+            speaking_style:     formData.speaking_style     || '',
+            description:        formData.description        || '',
+            memo:               formData.memo               || '',
+          },
+        }),
+      });
+
+      if (!res.ok) throw new Error(`Bio error: ${res.status}`);
+      const data = await res.json();
+
+      // 마크다운 기호 제거 후 저장
+      setGeneratedBio(stripMarkdown(data.bio || '대화 가이드를 생성하지 못했어요.'));
+
+    } catch (error) {
+      console.error('Bio generation error — using fallback:', error);
+      const speech    = getRecommendedSpeech();
       const roleLabel = ALL_ROLES.find(r => r.id === formData.role)?.label || formData.custom_role || '지인';
-      const traits = formData.personality_traits.slice(0, 3).join(', ') || '친절한';
-      const interests = formData.interests.slice(0, 3).join(', ') || '다양한 주제';
-      const avoidTopics = formData.dislikes.length > 0
-        ? formData.dislikes.join(', ')
-        : '특별히 없음';
+      const traits    = formData.personality_traits.slice(0, 3).join(', ') || '친절한';
+      const interests = formData.interests.slice(0, 3).join(', ')          || '다양한 주제';
+      const avoid     = formData.dislikes.length > 0 ? formData.dislikes.join(', ') : '특별히 없음';
+      const toLabel   = SPEECH_LEVELS[speech.toUser]?.name_ko   || '해요체';
+      const fromLabel = SPEECH_LEVELS[speech.fromUser]?.name_ko || '해요체';
 
-      const speech = getRecommendedSpeech();
-      const speechToUserLabel = SPEECH_LEVELS[speech.toUser]?.name_ko || '해요체';
-      const speechFromUserLabel = SPEECH_LEVELS[speech.fromUser]?.name_ko || '해요체';
-
-      const bio =
+      setGeneratedBio(
         `${formData.name_ko || '이 아바타'}는 ${roleLabel} 관계입니다. ` +
         `성격은 ${traits} 편이며, ${interests}에 관심이 많습니다.\n\n` +
-        `💬 대화 팁:\n` +
-        `• ${formData.name_ko || '아바타'}는 ${speechToUserLabel}(으)로 말합니다\n` +
-        `• 당신은 ${speechFromUserLabel}(으)로 대화하세요\n` +
+        `대화 팁:\n` +
+        `• ${formData.name_ko || '아바타'}는 ${toLabel}(으)로 말합니다\n` +
+        `• 당신은 ${fromLabel}(으)로 대화하세요\n` +
         `• ${formData.speaking_style || '자연스럽게 대화해도 좋습니다'}\n\n` +
-        `⚠️ 피해야 할 주제:\n${avoidTopics}`;
-
-      setGeneratedBio(bio);
+        `피해야 할 주제: ${avoid}`
+      );
+    } finally {
       setGeneratingBio(false);
-    }, 1000);
+    }
   };
 
   const handleNext = () => {
@@ -254,18 +289,16 @@ export default function CreateAvatarScreen() {
     }
   };
 
-  // ── UPDATED handleSave ────────────────────────────────────────────────────
   const handleSave = async () => {
-    const speech = getRecommendedSpeech();
+    const speech     = getRecommendedSpeech();
     const avatarData = {
       ...formData,
-      name_ko: formData.name_ko.trim(),
-      role: formData.role || formData.custom_role,
-      formality_to_user: speech.toUser,
+      name_ko:             formData.name_ko.trim(),
+      role:                formData.role || formData.custom_role,
+      formality_to_user:   speech.toUser,
       formality_from_user: speech.fromUser,
-      bio: generatedBio,
+      bio:                 generatedBio,
     };
-    console.log('🚀 Saving:', avatarData);
 
     try {
       setSaving(true);
@@ -275,14 +308,12 @@ export default function CreateAvatarScreen() {
         await createAvatar(avatarData);
       }
       navigation.navigate('Main', { screen: 'Avatar' });
-      // useFocusEffect in AvatarScreen auto-refreshes the list ✅
     } catch (e) {
       Alert.alert('오류', '저장에 실패했어요. 다시 시도해주세요.');
     } finally {
       setSaving(false);
     }
   };
-  // ─────────────────────────────────────────────────────────────────────────
 
   const isStepValid = () => {
     switch (currentStep) {
@@ -323,11 +354,7 @@ export default function CreateAvatarScreen() {
       <Text style={styles.fieldLabel}>성별</Text>
       <View style={styles.optionRow}>
         {['male', 'female', 'other'].map((g) => (
-          <TouchableOpacity
-            key={g}
-            style={[styles.optionButton, formData.gender === g && styles.optionButtonActive]}
-            onPress={() => updateField('gender', g as any)}
-          >
+          <TouchableOpacity key={g} style={[styles.optionButton, formData.gender === g && styles.optionButtonActive]} onPress={() => updateField('gender', g as any)}>
             <Text style={[styles.optionText, formData.gender === g && styles.optionTextActive]}>
               {g === 'male' ? '남성' : g === 'female' ? '여성' : '기타'}
             </Text>
@@ -337,11 +364,7 @@ export default function CreateAvatarScreen() {
       <Text style={styles.fieldLabel}>아바타 색상</Text>
       <View style={styles.colorGrid}>
         {colorPalette.map(([key, color]) => (
-          <TouchableOpacity
-            key={key}
-            style={[styles.colorButton, { backgroundColor: color }, formData.avatar_bg === color && styles.colorButtonActive]}
-            onPress={() => updateField('avatar_bg', color)}
-          >
+          <TouchableOpacity key={key} style={[styles.colorButton, { backgroundColor: color }, formData.avatar_bg === color && styles.colorButtonActive]} onPress={() => updateField('avatar_bg', color)}>
             {formData.avatar_bg === color && <Check size={16} color="#FFFFFF" />}
           </TouchableOpacity>
         ))}
@@ -349,11 +372,7 @@ export default function CreateAvatarScreen() {
       <Text style={styles.fieldLabel}>아바타 아이콘</Text>
       <View style={styles.iconGrid}>
         {AVATAR_ICONS.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={[styles.iconButton, formData.icon === item.id && styles.iconButtonActive]}
-            onPress={() => updateField('icon', item.id as IconName)}
-          >
+          <TouchableOpacity key={item.id} style={[styles.iconButton, formData.icon === item.id && styles.iconButtonActive]} onPress={() => updateField('icon', item.id as IconName)}>
             <item.icon size={22} color={formData.icon === item.id ? '#FFFFFF' : '#6C6C80'} />
           </TouchableOpacity>
         ))}
@@ -370,14 +389,8 @@ export default function CreateAvatarScreen() {
           <Text style={styles.roleCategoryTitle}>{category.category}</Text>
           <View style={styles.roleGrid}>
             {category.roles.map((role) => (
-              <TouchableOpacity
-                key={role.id}
-                style={[styles.roleButton, formData.role === role.id && styles.roleButtonActive]}
-                onPress={() => { updateField('role', role.id); updateField('custom_role', ''); }}
-              >
-                <Text style={[styles.roleButtonText, formData.role === role.id && styles.roleButtonTextActive]}>
-                  {role.label}
-                </Text>
+              <TouchableOpacity key={role.id} style={[styles.roleButton, formData.role === role.id && styles.roleButtonActive]} onPress={() => { updateField('role', role.id); updateField('custom_role', ''); }}>
+                <Text style={[styles.roleButtonText, formData.role === role.id && styles.roleButtonTextActive]}>{role.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -386,13 +399,7 @@ export default function CreateAvatarScreen() {
       <View style={styles.customRoleSection}>
         <Text style={styles.fieldLabel}>직접 입력</Text>
         <View style={styles.customRoleRow}>
-          <TextInput
-            style={styles.customRoleInput}
-            value={formData.custom_role}
-            onChangeText={(v) => { updateField('custom_role', v); if (v.trim()) updateField('role', ''); }}
-            placeholder="위에 없는 관계를 직접 입력하세요"
-            placeholderTextColor="#B0B0C5"
-          />
+          <TextInput style={styles.customRoleInput} value={formData.custom_role} onChangeText={(v) => { updateField('custom_role', v); if (v.trim()) updateField('role', ''); }} placeholder="위에 없는 관계를 직접 입력하세요" placeholderTextColor="#B0B0C5" />
         </View>
         {(formData.custom_role ?? '').trim().length > 0 && (
           <View style={styles.customRoleSelected}>
@@ -403,23 +410,9 @@ export default function CreateAvatarScreen() {
       </View>
       <Text style={styles.fieldLabel}>난이도</Text>
       <View style={styles.optionRow}>
-        {[
-          { id: 'easy', label: '쉬움', color: '#4CAF50' },
-          { id: 'medium', label: '보통', color: '#F4A261' },
-          { id: 'hard', label: '어려움', color: '#E53935' },
-        ].map((d) => (
-          <TouchableOpacity
-            key={d.id}
-            style={[
-              styles.optionButton,
-              formData.difficulty === d.id && styles.optionButtonActive,
-              formData.difficulty === d.id && { backgroundColor: d.color, borderColor: d.color },
-            ]}
-            onPress={() => updateField('difficulty', d.id as any)}
-          >
-            <Text style={[styles.optionText, formData.difficulty === d.id && styles.optionTextActive]}>
-              {d.label}
-            </Text>
+        {[{ id: 'easy', label: '쉬움', color: '#4CAF50' }, { id: 'medium', label: '보통', color: '#F4A261' }, { id: 'hard', label: '어려움', color: '#E53935' }].map((d) => (
+          <TouchableOpacity key={d.id} style={[styles.optionButton, formData.difficulty === d.id && styles.optionButtonActive, formData.difficulty === d.id && { backgroundColor: d.color, borderColor: d.color }]} onPress={() => updateField('difficulty', d.id as any)}>
+            <Text style={[styles.optionText, formData.difficulty === d.id && styles.optionTextActive]}>{d.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -431,27 +424,9 @@ export default function CreateAvatarScreen() {
       <Text style={styles.stepTitle}>아바타에 대해 설명해주세요</Text>
       <Text style={styles.stepSubtitle}>AI가 더 자연스러운 대화를 만드는 데 도움이 됩니다</Text>
       <Text style={styles.fieldLabel}>관계 설명</Text>
-      <TextInput
-        style={styles.descInput}
-        value={formData.relationship_description}
-        onChangeText={(v) => updateField('relationship_description', v)}
-        placeholder="이 아바타와 어떤 관계인지 설명해주세요&#10;&#10;예: 같은 동아리에서 만난 후배"
-        placeholderTextColor="#B0B0C5"
-        multiline
-        numberOfLines={3}
-        textAlignVertical="top"
-      />
+      <TextInput style={styles.descInput} value={formData.relationship_description} onChangeText={(v) => updateField('relationship_description', v)} placeholder="이 아바타와 어떤 관계인지 설명해주세요&#10;&#10;예: 같은 동아리에서 만난 후배" placeholderTextColor="#B0B0C5" multiline numberOfLines={3} textAlignVertical="top" />
       <Text style={styles.fieldLabel}>아바타 관련 설명 (AI 프롬프트)</Text>
-      <TextInput
-        style={styles.descInputLarge}
-        value={formData.description}
-        onChangeText={(v) => updateField('description', v)}
-        placeholder="이 아바타의 성격, 말투, 특징을 자세히 설명해주세요"
-        placeholderTextColor="#B0B0C5"
-        multiline
-        numberOfLines={5}
-        textAlignVertical="top"
-      />
+      <TextInput style={styles.descInputLarge} value={formData.description} onChangeText={(v) => updateField('description', v)} placeholder="이 아바타의 성격, 말투, 특징을 자세히 설명해주세요" placeholderTextColor="#B0B0C5" multiline numberOfLines={5} textAlignVertical="top" />
       <View style={styles.descHint}>
         <Sparkles size={14} color="#6C3BFF" />
         <Text style={styles.descHintText}>이 설명을 바탕으로 AI가 아바타의 말투와 성격을 표현합니다</Text>
@@ -505,7 +480,7 @@ export default function CreateAvatarScreen() {
   );
 
   const renderStep5 = () => {
-    const speech = getRecommendedSpeech();
+    const speech    = getRecommendedSpeech();
     const roleLabel = ALL_ROLES.find(r => r.id === formData.role)?.label || formData.custom_role || '지인';
     return (
       <View style={styles.stepContent}>
@@ -518,11 +493,10 @@ export default function CreateAvatarScreen() {
           <Text style={styles.previewName}>{formData.name_ko || '아바타'}</Text>
           <Text style={styles.previewRole}>{roleLabel} · {formData.age ? `${formData.age}세` : ''}</Text>
           <View style={styles.previewTypeBadge}>
-            {formData.avatar_type === 'fictional' ? (
-              <><Sparkles size={12} color="#9C27B0" /><Text style={[styles.previewTypeText, { color: '#9C27B0' }]}>가상 인물</Text></>
-            ) : (
-              <><User size={12} color="#2196F3" /><Text style={[styles.previewTypeText, { color: '#2196F3' }]}>실제 인물</Text></>
-            )}
+            {formData.avatar_type === 'fictional'
+              ? <><Sparkles size={12} color="#9C27B0" /><Text style={[styles.previewTypeText, { color: '#9C27B0' }]}>가상 인물</Text></>
+              : <><User size={12} color="#2196F3" /><Text style={[styles.previewTypeText, { color: '#2196F3' }]}>실제 인물</Text></>
+            }
           </View>
         </View>
         <Card variant="elevated" style={styles.speechCard}>
@@ -533,20 +507,27 @@ export default function CreateAvatarScreen() {
           <View style={styles.speechRow}>
             <View style={styles.speechItem}>
               <Text style={styles.speechLabel}>아바타 → 나</Text>
-              <View style={[styles.speechBadge, { backgroundColor: SPEECH_LEVELS[speech.toUser]?.color + '20' }]}>
-                <Text style={[styles.speechBadgeText, { color: SPEECH_LEVELS[speech.toUser]?.color }]}>{SPEECH_LEVELS[speech.toUser]?.name_ko}</Text>
+              <View style={[styles.speechBadge, { backgroundColor: (SPEECH_LEVELS[speech.toUser]?.color || '#6C3BFF') + '20' }]}>
+                <Text style={[styles.speechBadgeText, { color: SPEECH_LEVELS[speech.toUser]?.color || '#6C3BFF' }]}>
+                  {SPEECH_LEVELS[speech.toUser]?.name_ko || '해요체'}
+                </Text>
               </View>
             </View>
             <View style={styles.speechItem}>
               <Text style={styles.speechLabel}>나 → 아바타</Text>
-              <View style={[styles.speechBadge, { backgroundColor: SPEECH_LEVELS[speech.fromUser]?.color + '20' }]}>
-                <Text style={[styles.speechBadgeText, { color: SPEECH_LEVELS[speech.fromUser]?.color }]}>{SPEECH_LEVELS[speech.fromUser]?.name_ko}</Text>
+              <View style={[styles.speechBadge, { backgroundColor: (SPEECH_LEVELS[speech.fromUser]?.color || '#6C3BFF') + '20' }]}>
+                <Text style={[styles.speechBadgeText, { color: SPEECH_LEVELS[speech.fromUser]?.color || '#6C3BFF' }]}>
+                  {SPEECH_LEVELS[speech.fromUser]?.name_ko || '해요체'}
+                </Text>
               </View>
             </View>
           </View>
         </Card>
         <Card variant="elevated" style={styles.bioCard}>
-          <View style={styles.bioHeader}><Text style={styles.bioTitle}>대화 가이드</Text></View>
+          <View style={styles.bioHeader}>
+            <Text style={styles.bioTitle}>대화 가이드</Text>
+            <Text style={styles.bioSubtitle}>HyperCLOVA X가 분석했어요</Text>
+          </View>
           {generatingBio ? (
             <View style={styles.bioLoading}>
               <ActivityIndicator size="small" color="#6C3BFF" />
@@ -555,7 +536,7 @@ export default function CreateAvatarScreen() {
           ) : (
             <>
               <Text style={styles.bioText}>{generatedBio}</Text>
-              <TouchableOpacity style={styles.regenerateBtn} onPress={generateBio}>
+              <TouchableOpacity style={styles.regenerateBtn} onPress={() => { setGeneratedBio(''); generateBio(); }}>
                 <RefreshCw size={16} color="#6C3BFF" />
                 <Text style={styles.regenerateBtnText}>다시 생성</Text>
               </TouchableOpacity>
@@ -580,9 +561,7 @@ export default function CreateAvatarScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.headerBtn}>
-          <ChevronLeft size={24} color="#1A1A2E" />
-        </TouchableOpacity>
+        <TouchableOpacity onPress={handleBack} style={styles.headerBtn}><ChevronLeft size={24} color="#1A1A2E" /></TouchableOpacity>
         <Text style={styles.headerTitle}>{isEdit ? '아바타 수정' : '새 아바타 만들기'}</Text>
         <View style={styles.headerBtn} />
       </View>
@@ -590,15 +569,9 @@ export default function CreateAvatarScreen() {
         {STEPS.map((step, index) => (
           <View key={step.id} style={styles.stepIndicator}>
             <View style={[styles.stepDot, currentStep > step.id && styles.stepDotActive, currentStep === step.id && styles.stepDotCurrent]}>
-              {currentStep > step.id ? (
-                <Check size={14} color="#FFFFFF" />
-              ) : (
-                <Text style={[styles.stepNumber, currentStep >= step.id && styles.stepNumberActive]}>{step.id}</Text>
-              )}
+              {currentStep > step.id ? <Check size={14} color="#FFFFFF" /> : <Text style={[styles.stepNumber, currentStep >= step.id && styles.stepNumberActive]}>{step.id}</Text>}
             </View>
-            {index < STEPS.length - 1 && (
-              <View style={[styles.stepLine, currentStep > step.id && styles.stepLineActive]} />
-            )}
+            {index < STEPS.length - 1 && <View style={[styles.stepLine, currentStep > step.id && styles.stepLineActive]} />}
           </View>
         ))}
       </View>
@@ -611,16 +584,8 @@ export default function CreateAvatarScreen() {
           {renderCurrentStep()}
         </ScrollView>
         <View style={styles.footer}>
-          {/* Show spinner on final step while saving */}
-          {saving ? (
-            <ActivityIndicator size="large" color="#6C3BFF" />
-          ) : (
-            <Button
-              title={currentStep === STEPS.length ? '완료' : '다음'}
-              onPress={handleNext}
-              showArrow={currentStep < STEPS.length}
-              disabled={!isStepValid()}
-            />
+          {saving ? <ActivityIndicator size="large" color="#6C3BFF" /> : (
+            <Button title={currentStep === STEPS.length ? '완료' : '다음'} onPress={handleNext} showArrow={currentStep < STEPS.length} disabled={!isStepValid()} />
           )}
         </View>
       </KeyboardAvoidingView>
@@ -705,6 +670,7 @@ const styles = StyleSheet.create({
   bioCard: { marginBottom: 16 },
   bioHeader: { marginBottom: 12 },
   bioTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A2E' },
+  bioSubtitle: { fontSize: 11, color: '#6C3BFF', marginTop: 2 },
   bioLoading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 20 },
   bioLoadingText: { fontSize: 14, color: '#6C6C80' },
   bioText: { fontSize: 14, color: '#1A1A2E', lineHeight: 22 },

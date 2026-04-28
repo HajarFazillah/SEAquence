@@ -1,29 +1,23 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Home, Moon, Mic, User } from 'lucide-react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HomeScreen } from '../screens/HomeScreen';
 import AvatarScreen from '../screens/AvatarScreen';
 import RealtimeScreen from '../screens/RealtimeScreen';
-import { MyProfileScreen } from '../screens/MyProfileScreen';
+import MyProfileScreen from '../screens/MyProfileScreen';
 
 const Tab = createBottomTabNavigator();
 
 export const MainTabs: React.FC = () => {
-  const insets = useSafeAreaInsets();
-
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: false,
         tabBarActiveTintColor: '#6C3BFF',
         tabBarInactiveTintColor: '#B0B0C5',
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
-          borderTopColor: '#E8E8F0',
-          height: 64 + insets.bottom,   // expands to fit gesture bar
-          paddingBottom: 8 + insets.bottom, // pushes icons above gesture bar
-          paddingTop: 8,
+          display: 'none',
         },
         tabBarLabelStyle: {
           fontSize: 11,

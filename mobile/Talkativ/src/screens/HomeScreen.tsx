@@ -44,7 +44,7 @@ const CircularProgress = ({ percentage }: { percentage: number }) => {
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const { profile, stats, activeSessions, loading, error } = useHomeData();
+  const { profile, stats, activeSessions, loading } = useHomeData();
 
   const liveStats = [
     { id: '1', title: '완료한 대화', count: stats?.completedSessions ?? 0, icon: 'message' as const, color: '#6C3BFF' },
@@ -109,8 +109,8 @@ export const HomeScreen: React.FC = () => {
           </View>
           <View style={styles.ctaButtons}>
             <Button
-              title="대화 시작"
-              onPress={() => navigation.navigate('AvatarSelection')}
+              title="실수 분석"
+              onPress={() => navigation.navigate('Analytics', { source: 'home' })}
               variant="outline"
               size="medium"
               showArrow
