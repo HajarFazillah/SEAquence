@@ -33,6 +33,7 @@ interface NaturalAlternative {
 }
 
 interface SpeechAnalysis {
+  corrected_message?: string;
   detected_speech_level:      string;
   detected_speech_level_code?: string;
   detected_speech_confidence?: number;
@@ -302,6 +303,9 @@ const COMMON_TYPO_FIXES: Array<{ pattern: RegExp; original: string; corrected: s
   { pattern: /반가워여/, original: '반가워여', corrected: '반가워요', explanation: "'반가워여'는 채팅식 표기이고, 연습 문장에서는 '반가워요'가 자연스럽습니다." },
   { pattern: /고마워여/, original: '고마워여', corrected: '고마워요', explanation: "'고마워여'는 채팅식 표기이고, 연습 문장에서는 '고마워요'가 자연스럽습니다." },
   { pattern: /미안해여/, original: '미안해여', corrected: '미안해요', explanation: "'미안해여'는 채팅식 표기이고, 연습 문장에서는 '미안해요'가 자연스럽습니다." },
+  { pattern: /한잔/, original: '한잔', corrected: '한 잔', explanation: "'한잔'보다 '한 잔'처럼 띄어 쓰는 것이 자연스럽습니다." },
+  { pattern: /두개/, original: '두개', corrected: '두 개', explanation: "'두개'보다 '두 개'처럼 띄어 쓰는 것이 자연스럽습니다." },
+  { pattern: /세개/, original: '세개', corrected: '세 개', explanation: "'세개'보다 '세 개'처럼 띄어 쓰는 것이 자연스럽습니다." },
   { pattern: /갑시당/, original: '갑시당', corrected: '갑시다', explanation: "'갑시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '갑시다'가 자연스럽습니다." },
   { pattern: /봅시당/, original: '봅시당', corrected: '봅시다', explanation: "'봅시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '봅시다'가 자연스럽습니다." },
   { pattern: /합시당/, original: '합시당', corrected: '합시다', explanation: "'합시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '합시다'가 자연스럽습니다." },
@@ -319,6 +323,55 @@ const applyLocalSpellingFixes = (text: string) =>
 const replaceAll = (text: string, pairs: Array<[RegExp, string]>) =>
   pairs.reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), text);
 
+const bestEffortInformalToPolite = (text: string) => {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  const match = trimmed.match(/([.!?…。？！"')\]\s]*)$/);
+  const trailing = match?.[1] || '';
+  const core = trailing ? trimmed.slice(0, trimmed.length - trailing.length) : trimmed;
+
+  const replacements: Array<[RegExp, string]> = [
+    [/뭐해$/g, '뭐 해요'],
+    [/좋아해$/g, '좋아해요'],
+    [/싫어해$/g, '싫어해요'],
+    [/괜찮아$/g, '괜찮아요'],
+    [/좋아$/g, '좋아요'],
+    [/싫어$/g, '싫어요'],
+    [/있어$/g, '있어요'],
+    [/없어$/g, '없어요'],
+    [/맞아$/g, '맞아요'],
+    [/알아$/g, '알아요'],
+    [/몰라$/g, '몰라요'],
+    [/해$/g, '해요'],
+    [/가$/g, '가요'],
+    [/와$/g, '와요'],
+    [/봐$/g, '봐요'],
+    [/먹어$/g, '먹어요'],
+    [/마셔$/g, '마셔요'],
+    [/줘$/g, '주세요'],
+    [/주라$/g, '주세요'],
+    [/주면\s*돼$/g, '주세요'],
+    [/이야$/g, '이에요'],
+    [/야$/g, '예요'],
+  ];
+
+  let converted = core;
+  for (const [pattern, replacement] of replacements) {
+    const updated = converted.replace(pattern, replacement);
+    if (updated !== converted) {
+      converted = updated;
+      break;
+    }
+  }
+
+  if (converted === core && !/(요|니다|습니다|세요|까요)$/.test(core)) {
+    if (/(어|아|해)$/.test(core)) converted = `${core}요`;
+    else if (/(니|냐)$/.test(core)) converted = `${core.slice(0, -1)}나요`;
+  }
+
+  return `${converted}${trailing}`.trim();
+};
+
 const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
   const spellingFixedText = applyLocalSpellingFixes(text);
   if (expectedCode === 'informal') {
@@ -333,7 +386,7 @@ const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
       [/이에요/g, '이야'], [/예요/g, '야'], [/입니다/g, '이야'],
       [/([가-힣])요([.!?…。！]?)/g, '$1$2'], [/습니다/g, '어'], [/니다/g, '야'],
     ]).trim();
-    return changed && changed !== text ? changed : LEVEL_EXAMPLES.informal;
+    return changed && changed !== text ? changed : spellingFixedText;
   }
   if (expectedCode === 'formal') {
     const changed = replaceAll(spellingFixedText, [
@@ -344,7 +397,7 @@ const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
       [/어떻게 지내세요[?？]?|어떻게 지내요[?？]?|어떻게 지내[?？]?/g, '어떻게 지내십니까?'],
       [/이에요|예요/g, '입니다'],
     ]).trim();
-    return changed && changed !== text ? changed : LEVEL_EXAMPLES.formal;
+    return changed && changed !== text ? changed : spellingFixedText;
   }
   const changed = replaceAll(spellingFixedText, [
     [/안녕하십니까|안녕/g, '안녕하세요'],
@@ -353,7 +406,9 @@ const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
     [/죄송합니다|미안해/g, '미안해요'],
     [/어떻게 지내십니까[?？]?|어떻게 지내[?？]?/g, '어떻게 지내세요?'],
   ]).trim();
-  return changed && changed !== text ? changed : LEVEL_EXAMPLES.polite;
+  const bestEffort = bestEffortInformalToPolite(spellingFixedText);
+  if (bestEffort && bestEffort !== text) return bestEffort;
+  return changed && changed !== text ? changed : spellingFixedText;
 };
 
 const buildLocalSpeechMismatch = (text: string, expectedLevel?: string) => {
@@ -396,6 +451,7 @@ const applyLocalFeedbackGuard = (text: string, feedback: SpeechAnalysis | null, 
   const localOverride = getLocalInputOverride(text);
   if (localOverride) {
     return {
+      corrected_message: '',
       detected_speech_level: localOverride.detected_speech_level,
       detected_speech_level_code: localOverride.detected_speech_level_code,
       speech_level_correct: true,
@@ -433,6 +489,7 @@ const applyLocalFeedbackGuard = (text: string, feedback: SpeechAnalysis | null, 
 
     return {
       ...feedback,
+      corrected_message: feedback.corrected_message || applyLocalSpellingFixes(text),
       has_errors: true,
       verdict: feedback.speech_level_correct === false ? (feedback.verdict || 'wrong_speech_level') : 'spelling',
       accuracy_score: Math.min(feedback.accuracy_score ?? 100, 70),
@@ -462,6 +519,7 @@ const applyLocalFeedbackGuard = (text: string, feedback: SpeechAnalysis | null, 
   const summary = [speechMismatch?.summary, typoCorrections.length > 0 ? '오타가 보여서 자연스러운 표기로 고쳐 봤어요.' : ''].filter(Boolean).join(' ');
   const localEncouragement = speechMismatch ? '문장 끝맺음만 맞춰도 훨씬 자연스럽게 들려요.' : '오타만 고치면 더 자연스럽게 들려요.';
   return {
+    corrected_message: speechMismatch ? speechMismatch.corrected : (spellingFixedText !== text ? spellingFixedText : feedback?.corrected_message || ''),
     detected_speech_level: detectedCode ? LEVEL_LABELS[detectedCode] : feedback?.detected_speech_level || '',
     detected_speech_level_code: detectedCode || feedback?.detected_speech_level_code,
     speech_level_correct: speechMismatch ? false : feedback?.speech_level_correct ?? true,
@@ -532,7 +590,25 @@ const isValidAlternative = (
 };
 
 const getRecommendedExpression = (feedback?: SpeechAnalysis | null, fallback = '') =>
-  feedback?.natural_alternatives?.[0]?.expression || feedback?.corrections?.[0]?.corrected || fallback;
+  feedback?.corrected_message || feedback?.natural_alternatives?.[0]?.expression || feedback?.corrections?.[0]?.corrected || fallback;
+
+const buildWholeSentenceCorrection = (originalText: string, feedback?: SpeechAnalysis | null) => {
+  if (!feedback?.has_errors) return '';
+  if (feedback.corrected_message?.trim()) return feedback.corrected_message.trim();
+
+  const directWholeSentence = feedback.corrections?.find(c => c.original?.trim() === originalText.trim() && c.corrected?.trim());
+  if (directWholeSentence?.corrected) return directWholeSentence.corrected.trim();
+
+  let reconstructed = originalText;
+  for (const correction of feedback.corrections || []) {
+    if (!correction.original || !correction.corrected) continue;
+    if (correction.original === originalText) continue;
+    reconstructed = reconstructed.replace(correction.original, correction.corrected);
+  }
+  if (reconstructed.trim() && reconstructed.trim() !== originalText.trim()) return reconstructed.trim();
+
+  return feedback?.natural_alternatives?.[0]?.expression?.trim() || '';
+};
 
 const buildRecentMistakeContext = (messages: Message[]) =>
   messages.filter(m => m.sender === 'user' && m.feedback?.has_errors).slice(-4).map(m => ({
@@ -619,12 +695,12 @@ const feedbackTitle = (fb: SpeechAnalysis) => {
   const expected = normalizeSpeechLevelLabel(fb.expected_speech_level);
   if (fb.verdict === 'speech_level_term' || fb.input_kind === 'speech_level_term') return '말투 이름만 입력됨';
   if (fb.verdict === 'not_scorable' || fb.scorable === false) return '분석 제외';
-  if (fb.verdict === 'speech_and_spelling') return '말투와 오타 수정 필요';
+  if (fb.verdict === 'speech_and_spelling') return '여러 부분을 함께 다듬어 볼까요?';
   if (fb.verdict === 'practice_expression') return `${detected || expected || '말투'} 연습 표현`;
   if (fb.verdict === 'fragment') return '표현 조각';
-  if (fb.verdict === 'spelling' || fb.corrections.some(c => c.type === 'spelling')) return '오타 수정 필요';
-  if (fb.verdict === 'wrong_speech_level') return detected ? `${detected}로 들려요` : '말투 수정 필요';
-  if (fb.verdict === 'needs_revision') return '수정이 필요한 표현';
+  if (fb.verdict === 'spelling' || fb.corrections.some(c => c.type === 'spelling')) return '표기를 조금 다듬으면 더 좋아요';
+  if (fb.verdict === 'wrong_speech_level') return detected ? `${detected}보다 조금 더 맞춰 볼게요` : '말투를 조금 맞춰 볼게요';
+  if (fb.verdict === 'needs_revision') return '조금만 다듬으면 더 자연스러워요';
   if (fb.verdict === 'unclear') return '말투를 판단하기 어려워요';
   if (fb.input_kind === 'meta_practice') return `${detected || expected || '말투'} 연습 표현`;
   if (fb.input_kind === 'fragment') return '표현 조각';
@@ -633,6 +709,48 @@ const feedbackTitle = (fb: SpeechAnalysis) => {
   if (detected.includes('연습 표현') || detected.includes('표현 분석')) return detected;
   if (fb.detected_speech_confidence && fb.detected_speech_confidence < 0.75) return `${detected}에 가까워요`;
   return `${detected} 표현이에요`;
+};
+
+const correctionCategoryMeta = (correction: Correction) => {
+  const original = correction.original || '';
+  const corrected = correction.corrected || '';
+  const compactOriginal = original.replace(/\s+/g, '');
+  const compactCorrected = corrected.replace(/\s+/g, '');
+
+  if (correction.type === 'honorific') {
+    if (/주세|주실|드려|부탁/.test(corrected)) {
+      return { label: '요청 표현', tint: '#DBEAFE', text: '#1D4ED8' };
+    }
+    return { label: '호칭/높임', tint: '#DBEAFE', text: '#1D4ED8' };
+  }
+  if (correction.type === 'speech_level' || correction.type === 'spelling_speech_level') {
+    return { label: '말투', tint: '#EDE9FE', text: '#6D28D9' };
+  }
+  if (correction.type === 'vocabulary') {
+    return { label: '어휘', tint: '#FEF3C7', text: '#B45309' };
+  }
+  if (correction.type === 'grammar') {
+    return { label: '문법', tint: '#FCE7F3', text: '#BE185D' };
+  }
+  if (compactOriginal === compactCorrected && original !== corrected) {
+    return { label: '띄어쓰기', tint: '#DCFCE7', text: '#15803D' };
+  }
+  return { label: '오타', tint: '#FEE2E2', text: '#DC2626' };
+};
+
+const feedbackSubtitle = (fb: SpeechAnalysis) => {
+  if (!fb.has_errors) return '지금 문장도 충분히 자연스러워요';
+  const labels = Array.from(new Set((fb.corrections || []).map(c => correctionCategoryMeta(c).label)));
+  if (labels.length === 0) {
+    return fb.summary || '조금만 다듬으면 더 자연스러워요';
+  }
+  if (labels.length === 1) {
+    return `${labels[0]}만 다듬으면 훨씬 자연스러워져요`;
+  }
+  if (labels.length === 2) {
+    return `${labels[0]}와 ${labels[1]}을 함께 보면 좋아요`;
+  }
+  return `${labels.slice(0, 3).join(' · ')}를 함께 다듬어 볼게요`;
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -657,6 +775,7 @@ const sendMessageToAI = async (
   const detectedRaw = correction?.detected_speech_level || correction?.detected_level;
   const expectedRaw = correction?.expected_speech_level || correction?.expected_level;
   const speech_analysis: SpeechAnalysis | null = correction ? {
+    corrected_message: correction.corrected_message || '',
     detected_speech_level: normalizeSpeechLevelLabel(detectedRaw, correction.detected_speech_level_label || correction.detected_level_label),
     detected_speech_level_code: normalizeSpeechLevelCode(detectedRaw, correction.detected_speech_level_code || correction.detected_level_code),
     detected_speech_confidence: normalizeConfidence(detectedRaw, correction.detected_speech_level_confidence || correction.detected_confidence),
@@ -798,6 +917,7 @@ export default function ChatScreen() {
     const alternatives    = fb.natural_alternatives || [];
     const hasAlts         = alternatives.length > 0;
     const primaryCorrection = hasError && fb.corrections.length > 0 ? fb.corrections[0] : null;
+    const fullSentenceCorrection = hasError ? buildWholeSentenceCorrection(item.text, fb) : '';
 
     return (
       <View style={styles.feedbackCard}>
@@ -814,7 +934,7 @@ export default function ChatScreen() {
           </View>
           <View style={styles.feedbackTitleBlock}>
             <Text style={styles.feedbackTitle}>{feedbackTitle(fb)}</Text>
-            <Text style={styles.feedbackSub}>{hasError ? '해요체로 바꿔 주세요' : '자연스러운 표현이에요'}</Text>
+            <Text style={styles.feedbackSub}>{feedbackSubtitle(fb)}</Text>
           </View>
           {/* Score chip always visible */}
           <Text style={[styles.scoreChip, { color: sc, backgroundColor: `${sc}14` }]}>
@@ -844,6 +964,13 @@ export default function ChatScreen() {
             </View>
 
             {/* Correction compare boxes */}
+            {fullSentenceCorrection ? (
+              <View style={styles.fullSentenceBox}>
+                <Text style={styles.fullSentenceLabel}>전체 문장 수정</Text>
+                <Text style={styles.fullSentenceText}>{fullSentenceCorrection}</Text>
+              </View>
+            ) : null}
+
             {primaryCorrection && (
               <View style={styles.cmpRow}>
                 <View style={styles.cmpSide}>
@@ -861,14 +988,29 @@ export default function ChatScreen() {
             {/* Note */}
             {fb.summary ? <Text style={styles.fcNote}>{fb.summary}</Text> : null}
 
+            {hasError && fb.corrections.length > 0 && (
+              <View style={styles.categoryChipsRow}>
+                {Array.from(new Map(fb.corrections.map(c => {
+                  const meta = correctionCategoryMeta(c);
+                  return [meta.label, meta];
+                })).values()).map(meta => (
+                  <View key={meta.label} style={[styles.categoryChip, { backgroundColor: meta.tint }]}>
+                    <Text style={[styles.categoryChipText, { color: meta.text }]}>{meta.label}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {/* All corrections detail */}
             {hasError && fb.corrections.length > 0 && (
               <View style={styles.correctionList}>
-                {fb.corrections.map((c, i) => (
+                {fb.corrections.map((c, i) => {
+                  const meta = correctionCategoryMeta(c);
+                  return (
                   <View key={i} style={styles.correctionItem}>
                     <View style={styles.correctionItemHeader}>
-                      <Text style={styles.correctionTypeLabel}>
-                        {c.type === 'spelling' || c.type === 'spelling_speech_level' ? '오타' : '말투'}
+                      <Text style={[styles.correctionTypeLabel, { backgroundColor: meta.tint, color: meta.text }]}>
+                        {meta.label}
                       </Text>
                       <Text style={styles.correctionSeverity}>
                         {c.severity === 'error' ? '꼭 수정' : '수정 추천'}
@@ -882,7 +1024,8 @@ export default function ChatScreen() {
                     <Text style={styles.correctionExplain}>{c.explanation}</Text>
                     {c.tip ? <Text style={styles.correctionTip}>Tip: {c.tip}</Text> : null}
                   </View>
-                ))}
+                  );
+                })}
               </View>
             )}
 
@@ -1107,6 +1250,10 @@ const styles = StyleSheet.create({
   scoreFill:      { height: '100%', borderRadius: 3 },
   scoreHint:      { fontSize: 10 },
 
+  fullSentenceBox:{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 12, backgroundColor: '#F7F4FF', borderWidth: 1, borderColor: 'rgba(108,59,255,0.18)' },
+  fullSentenceLabel:{ fontSize: 10, fontWeight: '600', color: BRAND, marginBottom: 6 },
+  fullSentenceText:{ fontSize: 14, lineHeight: 21, fontWeight: '600', color: '#2D1B69' },
+
   cmpRow:         { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 10 },
   cmpSide:        { flex: 1, padding: 9, borderRadius: 10, backgroundColor: GREY, borderWidth: 1, borderColor: BORDER },
   cmpSideFixed:   { backgroundColor: '#FFFFFF', borderColor: 'rgba(108,59,255,0.30)' },
@@ -1117,6 +1264,9 @@ const styles = StyleSheet.create({
   cmpArrow:       { fontSize: 12, color: '#bbb' },
 
   fcNote:         { fontSize: 11, color: '#666', lineHeight: 17, paddingHorizontal: 12, paddingBottom: 10 },
+  categoryChipsRow:{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 12, paddingBottom: 10 },
+  categoryChip:   { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999 },
+  categoryChipText:{ fontSize: 11, fontWeight: '600' },
 
   correctionList:       { paddingHorizontal: 12, paddingBottom: 10, gap: 8 },
   correctionItem:       { gap: 4 },

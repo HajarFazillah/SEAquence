@@ -94,6 +94,24 @@ REQUIRES_HONORIFIC_VERBS = {
     "줘요":"드려요","봐요":"뵈어요",
 }
 
+SERVICE_REQUEST_PATTERNS = [
+    {
+        "pattern": re.compile(r"주면\s*돼"),
+        "expected": "주세요",
+        "explanation": "주문이나 요청 상황에서는 '주면 돼'보다 '주세요'가 더 자연스럽고 공손합니다.",
+    },
+    {
+        "pattern": re.compile(r"주라"),
+        "expected": "주세요",
+        "explanation": "가게 직원이나 처음 만난 사람에게는 명령형 대신 '주세요'를 쓰는 편이 자연스럽습니다.",
+    },
+    {
+        "pattern": re.compile(r"줘\b"),
+        "expected": "주세요",
+        "explanation": "서비스 상황에서는 '줘'보다 '주세요'가 더 자연스럽습니다.",
+    },
+]
+
 HONORIFIC_SI_PATTERNS = [
     r'[가-힣]+시[고는도며서]',r'[가-힣]+세요',r'[가-힣]+셨',
     r'[가-힣]+시겠',r'[가-힣]+으시',r'계세요',r'계십니',r'드세요',r'드셨',
@@ -289,6 +307,10 @@ class NativeSpeechAnalyzer:
             msg = f" 또한 한 메시지 안에서 말투가 섞여 있습니다: {result.mixed_detail}"
             result.feedback_ko = (result.feedback_ko or "") + msg
 
+        service_request_errors = self._check_service_request_style(text, exp, avatar_role)
+        if service_request_errors:
+            result.word_errors.extend(service_request_errors)
+
         return result
 
     def _analyze_sentence(self, s: str) -> SentenceResult:
@@ -382,6 +404,25 @@ class NativeSpeechAnalyzer:
                     "severity":    "error",
                 })
         return missing
+
+    def _check_service_request_style(self, text: str, expected_level: str, avatar_role: str = None) -> List[dict]:
+        role_text = avatar_role or ""
+        if expected_level not in {"polite", "formal"} and not any(keyword in role_text for keyword in ["직원", "점원", "사장", "교수", "선생", "의사", "손님"]):
+            return []
+
+        errors = []
+        for rule in SERVICE_REQUEST_PATTERNS:
+            match = rule["pattern"].search(text)
+            if not match:
+                continue
+            errors.append({
+                "original": match.group(0),
+                "expected": rule["expected"],
+                "type": ErrorType.WORD_CHOICE.value,
+                "explanation": rule["explanation"],
+                "severity": "error",
+            })
+        return errors
 
     def _detect_dialect(self, text: str) -> List[str]:
         return [

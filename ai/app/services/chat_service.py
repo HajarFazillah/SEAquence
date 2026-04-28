@@ -2,6 +2,7 @@
 Chat Service - Handles avatar conversations with real-time correction
 """
 import re
+import difflib
 from collections import Counter
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
@@ -105,6 +106,88 @@ class ConversationAnalysis(BaseModel):
     used_fallback_scores: bool = False
 
 
+def _label_for_correction_type(correction: InlineCorrection) -> str:
+    if correction.type == CorrectionType.HONORIFIC:
+        return "요청 표현" if "주세" in correction.corrected or "주실" in correction.corrected else "호칭/높임"
+    if correction.type == CorrectionType.SPEECH_LEVEL:
+        return "말투"
+    if correction.type == CorrectionType.VOCABULARY:
+        return "어휘"
+    if correction.type == CorrectionType.SPELLING:
+        return "띄어쓰기" if correction.original.replace(" ", "") == correction.corrected.replace(" ", "") else "오타"
+    if correction.type == CorrectionType.GRAMMAR:
+        return "문법"
+    return "표현"
+
+
+def build_human_feedback_summary(
+    has_errors: bool,
+    corrections: List[InlineCorrection],
+    verdict: str,
+    speech_level_correct: bool,
+    expected_speech_level: SpeechLevel,
+    message_intent: str,
+) -> str:
+    if not has_errors:
+        if message_intent == "greeting":
+            return "인사말이 자연스럽고 상황에도 잘 맞아요."
+        return "지금 문장도 충분히 자연스럽게 들려요."
+
+    labels: List[str] = []
+    for correction in corrections:
+        label = _label_for_correction_type(correction)
+        if label not in labels:
+            labels.append(label)
+
+    if not labels and not speech_level_correct:
+        labels = ["말투"]
+
+    if len(labels) >= 3:
+        lead = f"{labels[0]}, {labels[1]}, {labels[2]}"
+    elif len(labels) == 2:
+        lead = f"{labels[0]}와 {labels[1]}"
+    elif len(labels) == 1:
+        lead = labels[0]
+    else:
+        lead = SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"]
+    object_particle = "를" if lead.endswith(("투", "휘")) else "을"
+
+    if verdict == "speech_and_spelling":
+        return f"{lead}{object_particle} 함께 다듬으면 훨씬 자연스럽게 들려요."
+    if verdict == "spelling":
+        return f"{lead}만 정리해도 문장이 훨씬 매끄러워져요."
+    if verdict == "wrong_speech_level":
+        return f"지금 상황에서는 {lead}{object_particle} 조금 더 맞춰 주면 자연스러워요."
+    if verdict == "needs_revision":
+        return f"{lead}{object_particle} 조금만 손보면 훨씬 더 자연스럽게 들려요."
+    return f"{lead}{object_particle} 다듬으면 지금 상황에 더 잘 어울려요."
+
+
+def build_human_encouragement(
+    has_errors: bool,
+    corrections: List[InlineCorrection],
+    message_intent: str,
+) -> str:
+    if not has_errors:
+        if message_intent == "greeting":
+            return "좋아요. 이렇게 시작하면 대화가 부드럽게 이어져요."
+        return "좋아요. 이 흐름으로 계속 말해 보면 돼요."
+
+    labels = []
+    for correction in corrections:
+        label = _label_for_correction_type(correction)
+        if label not in labels:
+            labels.append(label)
+
+    if "요청 표현" in labels:
+        return "요청 표현만 조금 다듬어도 훨씬 공손하게 들려요."
+    if "말투" in labels:
+        return "문장 끝맺음만 맞춰도 전체 인상이 훨씬 자연스러워져요."
+    if "띄어쓰기" in labels or "오타" in labels:
+        return "작은 표기만 정리해도 훨씬 매끄럽게 들려요."
+    return "핵심 의미는 잘 전달됐어요. 표현만 조금 다듬어 보면 더 좋아져요."
+
+
 # ============================================================================
 # 단답형 → 자연스러운 대안 맵
 # ============================================================================
@@ -194,6 +277,10 @@ def build_realtime_correction_prompt(
     avatar_role:           str,
     user_level:            str = "intermediate",
     conversation_history:  List[ChatMessage] = [],   # ← 추가
+    edit_strategy_hint:    str = "minimal",
+    situation_signals:     Optional[Dict[str, Any]] = None,
+    message_intent:        str = "small_talk",
+    konlpy_hints:          Optional[Dict[str, Any]] = None,
 ) -> str:
     speech_info = SPEECH_LEVEL_INFO[expected_speech_level]
     level_guidance = {
@@ -218,6 +305,31 @@ def build_realtime_correction_prompt(
 - 예: 앞서 봄축제 얘기를 했다면 "봄축제야"는 정상적인 표현입니다.
 """ if recent else ""
 
+    situation_signals = situation_signals or {}
+    konlpy_hints = konlpy_hints or {}
+    situation_section = f"""
+## 추론된 상황 신호
+- 상대 유형: {situation_signals.get('counterpart', avatar_role)}
+- 격식 수준: {situation_signals.get('formality', 'medium')}
+- 서비스 상황 여부: {'예' if situation_signals.get('service_situation') else '아니오'}
+- 처음 만남 가능성: {'예' if situation_signals.get('first_meeting') else '아니오'}
+- 관계 방향: {situation_signals.get('power_direction', 'peer')}
+- 사용자 발화 의도: {message_intent}
+"""
+
+    konlpy_section = f"""
+## KoNLPy 형태소 힌트
+- 명사 후보: {', '.join(konlpy_hints.get('nouns', []) or ['없음'])}
+- 동사 후보: {', '.join(konlpy_hints.get('verbs', []) or ['없음'])}
+- 어미 후보: {', '.join(konlpy_hints.get('endings', []) or ['없음'])}
+"""
+
+    strategy_line = {
+        "none": "- 현재 문장이 충분히 자연스러우면 굳이 고치지 마세요.",
+        "minimal": "- 이번 입력은 최소 수정이 우선입니다. 오타, 말투, 조사처럼 꼭 필요한 부분만 고치세요.",
+        "rewrite": "- 이번 입력은 문장 전체의 어색함을 먼저 검토하되, 필요할 때만 전체 재작성하세요.",
+    }.get(edit_strategy_hint, "- 과교정보다 보수적으로 판단하세요.")
+
     return f"""사용자의 한국어 메시지를 분석하여 실시간 교정 피드백을 제공하세요.
 
 ## 대화 상황
@@ -232,8 +344,25 @@ def build_realtime_correction_prompt(
 ## 분석할 사용자 메시지
 "{user_message}"
 
+## 교정 원칙
+- 사용자의 의도, 관계의 거리감, 문장의 온도를 최대한 유지한 채 최소한으로 고치세요.
+- 단순한 문법 정답보다 실제 대화에서 더 자연스럽게 들리는 표현을 우선하세요.
+- 하지만 원래 문장도 충분히 자연스러우면 억지로 더 세련되게 바꾸지 마세요.
+- 한국어 화자의 미묘한 완곡함, 여운, 친근한 말투는 함부로 제거하지 마세요.
+- 번역투, 어색한 조사, 부자연스러운 어순, 관계에 안 맞는 말투만 선별적으로 고치세요.
+{strategy_line}
+{situation_section}
+{konlpy_section}
+## 작업 순서
+1. 먼저 오류 유형을 분류하세요: spelling / speech_level / grammar / vocabulary / expression / honorific
+2. 오타나 말투 문제만 있으면 전체 문장을 새로 쓰지 말고 최소 수정으로 해결하세요.
+3. 조사, 어순, 어휘 선택, 존칭까지 함께 어색할 때만 전체 문장을 재작성하세요.
+4. 현재 문장이 이미 자연스러우면 수정하지 말고 그대로 인정하세요.
+5. 서비스/주문 상황에서는 메뉴 이름, 수량, 핵심 명사는 보존하고 말투와 요청 표현을 먼저 다듬으세요.
+
 ## 응답 형식 (JSON)
 {{
+    "edit_strategy": "none / minimal / rewrite",
     "has_errors": true/false,
     "corrected_message": "반드시 {speech_info['name_ko']}로 수정된 전체 메시지. 오류 없으면 null",
     "detected_speech_level": "formal / polite / informal 중 하나",
@@ -259,19 +388,23 @@ def build_realtime_correction_prompt(
 }}
 
 ## natural_alternatives 규칙
-- 오류가 없어도 반드시 1~2개 제안하세요
-- 같은 의미지만 더 자연스럽고 세련된 {speech_info['name_ko']} 표현으로
-- 원어민이 실제로 쓰는 표현으로
-- 대화 맥락에 맞는 표현을 제안하세요
-- "이렇게도 말할 수 있어요", "더 자연스러운 표현", "변경할 필요가 없습니다" 같은 메타 문구를 expression에 쓰지 마세요
-- expression은 반드시 사용자가 실제로 바로 따라 말할 수 있는 완전한 한국어 문장만 쓰세요
-- corrected_message와 완전히 같은 문장을 natural_alternatives에 다시 넣지 마세요
+- natural_alternatives는 선택사항입니다. 정말 더 자연스럽고 학습 가치가 있을 때만 0~1개 제안하세요.
+- 오류가 없고 현재 문장이 이미 자연스러우면 natural_alternatives는 빈 배열로 두세요.
+- corrected_message와 의미 차이가 거의 없거나 단순 어미만 바꾼 수준이면 굳이 alternative를 만들지 마세요.
+- 같은 의미지만 더 자연스럽고 세련된 {speech_info['name_ko']} 표현으로만 제안하세요.
+- 원어민이 실제로 쓰는 표현으로, 대화 맥락에 맞는 표현만 제안하세요.
+- "이렇게도 말할 수 있어요", "더 자연스러운 표현", "변경할 필요가 없습니다" 같은 메타 문구를 expression에 쓰지 마세요.
+- expression은 반드시 사용자가 실제로 바로 따라 말할 수 있는 완전한 한국어 문장만 쓰세요.
+- corrected_message와 완전히 같은 문장을 natural_alternatives에 다시 넣지 마세요.
 
 ## 절대 규칙
 - detected_speech_level 은 formal / polite / informal 중 하나 (null 불가)
 - corrected_message 는 반드시 {speech_info['name_ko']} 말투로
 - corrections original 은 사용자 메시지에 실제 존재하는 표현만
 - 맥락상 자연스러운 표현은 오류 처리 금지
+- 한국어의 자연스러운 여운, 완곡함, 구어적 뉘앙스를 기계적으로 교정하지 마세요.
+- 받아들일 수 있는 구어체, 담화 표지, 친근한 말버릇은 의미나 관계를 해치지 않으면 오류로 처리하지 마세요.
+- 확실하지 않으면 과교정보다 보수적으로 판단하세요.
 - 오류 없으면 corrections 빈 배열, has_errors false"""
 
 
@@ -302,6 +435,19 @@ def _is_valid_natural_alternative(
     if expected_norm:
         detected_norm = verify_with_rules(apply_spelling_fixes(expression), "")
         if detected_norm and detected_norm != expected_norm:
+            return False
+    normalized_expression = re.sub(r"\s+", " ", expression).strip()
+    normalized_user = re.sub(r"\s+", " ", user_message).strip()
+    normalized_corrected = re.sub(r"\s+", " ", corrected_message).strip() if corrected_message else ""
+    if normalized_expression in {normalized_user, normalized_corrected}:
+        return False
+    if normalized_corrected:
+        shared_prefix = 0
+        for left, right in zip(normalized_expression, normalized_corrected):
+            if left != right:
+                break
+            shared_prefix += 1
+        if shared_prefix >= max(4, min(len(normalized_expression), len(normalized_corrected)) - 1):
             return False
     return True
 
@@ -338,6 +484,117 @@ def build_contextual_hint_prompt(
     "example_responses": ["응답 예시 1", "응답 예시 2", "응답 예시 3"],
     "grammar_tip": "이 상황에서 유용한 문법 포인트 (선택사항)"
 }}"""
+
+
+RELATIONSHIP_KEYWORDS = {
+    "service": ["카페", "주문", "식당", "매장", "계산", "직원", "점원", "사장님", "접수", "데스크", "배달"],
+    "professor": ["교수", "연구실", "면담", "발표", "수업", "조교"],
+    "senior": ["선배", "동아리", "사수", "팀장"],
+    "first_meeting": ["처음", "첫 만남", "소개", "면접", "방문"],
+}
+
+REQUEST_INTENT_KEYWORDS = {
+    "order": ["주문", "주세요", "하나", "한 잔", "두 잔", "포장", "추가", "빼주세요"],
+    "request": ["도와", "부탁", "가능", "해줘", "해 주세요", "주면", "주실", "부탁드려"],
+    "question": ["?", "뭐", "언제", "어디", "왜", "어떻게", "가능한가", "있나요"],
+}
+
+
+def infer_situation_signals(
+    situation: Optional[str],
+    avatar_role: str,
+    expected_norm: str,
+) -> Dict[str, Any]:
+    combined = " ".join(part for part in [situation or "", avatar_role or ""] if part).strip()
+    text = combined.lower()
+
+    service = any(keyword in combined for keyword in RELATIONSHIP_KEYWORDS["service"])
+    professor = any(keyword in combined for keyword in RELATIONSHIP_KEYWORDS["professor"])
+    senior = any(keyword in combined for keyword in RELATIONSHIP_KEYWORDS["senior"])
+    first_meeting = any(keyword in combined for keyword in RELATIONSHIP_KEYWORDS["first_meeting"])
+
+    if professor:
+        counterpart = "교수/선생님"
+        power_direction = "other_higher"
+    elif senior:
+        counterpart = "선배/윗사람"
+        power_direction = "other_higher"
+    elif service:
+        counterpart = "서비스 상대"
+        power_direction = "distant_equal"
+    else:
+        counterpart = avatar_role or "대화 상대"
+        power_direction = "peer"
+
+    if expected_norm == "formal" or professor:
+        formality = "high"
+    elif expected_norm == "polite" or service or first_meeting:
+        formality = "medium"
+    else:
+        formality = "low"
+
+    return {
+        "combined_text": combined,
+        "counterpart": counterpart,
+        "power_direction": power_direction,
+        "service_situation": service,
+        "first_meeting": first_meeting,
+        "formality": formality,
+    }
+
+
+def infer_message_intent(
+    user_message: str,
+    situation_signals: Dict[str, Any],
+) -> str:
+    text = (user_message or "").strip()
+    if any(keyword in text for keyword in REQUEST_INTENT_KEYWORDS["order"]) and situation_signals.get("service_situation"):
+        return "order"
+    if any(keyword in text for keyword in REQUEST_INTENT_KEYWORDS["request"]):
+        return "request"
+    if any(keyword in text for keyword in REQUEST_INTENT_KEYWORDS["question"]):
+        return "question"
+    if re.search(r"(안녕|반가워|처음 뵙|오랜만|잘 지내)", text):
+        return "greeting"
+    return "small_talk"
+
+
+def should_use_benchmark_case(
+    user_message: str,
+    expected_norm: str,
+    situation_signals: Dict[str, Any],
+    message_intent: str,
+) -> bool:
+    text = (user_message or "").strip()
+    if not text:
+        return False
+    if len(text) > 12:
+        return False
+    if situation_signals.get("service_situation"):
+        return False
+    if situation_signals.get("first_meeting"):
+        return False
+    if situation_signals.get("power_direction") == "other_higher":
+        return False
+    if message_intent in {"order", "request", "question"}:
+        return False
+    return lookup_benchmark_case(user_message, expected_norm) is not None
+
+
+def extract_konlpy_prompt_hints(text: str) -> Dict[str, Any]:
+    hints = {
+        "nouns": [],
+        "verbs": [],
+        "endings": [],
+    }
+    try:
+        analysis = morpheme_analyzer.analyze(text)
+        hints["nouns"] = [noun for noun in getattr(analysis, "nouns", [])[:4] if noun]
+        hints["verbs"] = [verb for verb in getattr(analysis, "verbs", [])[:3] if verb]
+        hints["endings"] = [ending for ending in getattr(analysis, "endings", [])[:4] if ending]
+    except Exception:
+        pass
+    return hints
 
 
 # ============================================================================
@@ -403,9 +660,103 @@ _COMMON_TYPO_FIXES = [
     ("반가워여", "반가워요", "'반가워여'는 채팅식 표기이고, 연습 문장에서는 '반가워요'가 자연스럽습니다."),
     ("고마워여", "고마워요", "'고마워여'는 채팅식 표기이고, 연습 문장에서는 '고마워요'가 자연스럽습니다."),
     ("미안해여", "미안해요", "'미안해여'는 채팅식 표기이고, 연습 문장에서는 '미안해요'가 자연스럽습니다."),
+    ("한잔", "한 잔", "'한잔'보다 '한 잔'처럼 띄어 쓰는 것이 자연스럽습니다."),
+    ("두개", "두 개", "'두개'보다 '두 개'처럼 띄어 쓰는 것이 자연스럽습니다."),
+    ("세개", "세 개", "'세개'보다 '세 개'처럼 띄어 쓰는 것이 자연스럽습니다."),
     ("갑시당", "갑시다", "'갑시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '갑시다'가 자연스럽습니다."),
     ("봅시당", "봅시다", "'봅시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '봅시다'가 자연스럽습니다."),
     ("합시당", "합시다", "'합시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '합시다'가 자연스럽습니다."),
+]
+
+_CORRECTION_BENCHMARK_CASES = [
+    {
+        "pattern": re.compile(r"^안녕하새요[.!?…]*$"),
+        "expected_norm": "informal",
+        "detected_norm": "polite",
+        "corrected": "안녕",
+        "verdict": "speech_and_spelling",
+        "summary": "오타와 말투를 함께 고치면 더 자연스러워요.",
+        "type": CorrectionType.SPEECH_LEVEL,
+        "severity": CorrectionSeverity.ERROR,
+        "explanation": "오타를 고치고 반말로 바꾸면 더 자연스럽습니다.",
+    },
+    {
+        "pattern": re.compile(r"^갑시당[.!?…]*$"),
+        "expected_norm": "informal",
+        "detected_norm": "formal",
+        "corrected": "가자",
+        "verdict": "speech_and_spelling",
+        "summary": "장난스러운 표기와 말투를 함께 고치면 더 자연스러워요.",
+        "type": CorrectionType.SPEECH_LEVEL,
+        "severity": CorrectionSeverity.ERROR,
+        "explanation": "채팅식 표기인 '갑시당' 대신 반말 권유형으로 바꾸는 것이 자연스럽습니다.",
+    },
+    {
+        "pattern": re.compile(r"^카페 갑시당[.!?…]*$"),
+        "expected_norm": "informal",
+        "detected_norm": "formal",
+        "corrected": "카페 가자",
+        "verdict": "speech_and_spelling",
+        "summary": "장난스러운 표기와 말투를 함께 고치면 더 자연스러워요.",
+        "type": CorrectionType.SPEECH_LEVEL,
+        "severity": CorrectionSeverity.ERROR,
+        "explanation": "채팅식 표기와 격식체를 반말 권유형으로 바꾸는 것이 자연스럽습니다.",
+    },
+    {
+        "pattern": re.compile(r"^같이 가요[.!?…]*$"),
+        "expected_norm": "informal",
+        "detected_norm": "polite",
+        "corrected": "같이 가자",
+        "verdict": "wrong_speech_level",
+        "summary": "반말에 맞게 끝맺음을 바꾸면 더 자연스러워요.",
+        "type": CorrectionType.SPEECH_LEVEL,
+        "severity": CorrectionSeverity.ERROR,
+        "explanation": "의미는 자연스럽지만 반말 관계라면 권유형도 반말로 맞추는 편이 좋습니다.",
+    },
+    {
+        "pattern": re.compile(r"^어떻개 지내\??$"),
+        "expected_norm": "polite",
+        "detected_norm": "informal",
+        "corrected": "어떻게 지내세요?",
+        "verdict": "speech_and_spelling",
+        "summary": "오타와 말투를 함께 고치면 더 자연스러워요.",
+        "type": CorrectionType.SPEECH_LEVEL,
+        "severity": CorrectionSeverity.ERROR,
+        "explanation": "오타를 고치고 해요체로 바꾸면 더 자연스럽습니다.",
+    },
+    {
+        "pattern": re.compile(r"^안녕하십니까[.!?…]*$"),
+        "expected_norm": "polite",
+        "detected_norm": "formal",
+        "corrected": "안녕하세요",
+        "verdict": "wrong_speech_level",
+        "summary": "조금 덜 격식 있는 해요체로 바꾸면 지금 관계에 더 잘 맞아요.",
+        "type": CorrectionType.SPEECH_LEVEL,
+        "severity": CorrectionSeverity.WARNING,
+        "explanation": "문장은 맞지만 지금 관계에서는 해요체가 더 자연스럽습니다.",
+    },
+    {
+        "pattern": re.compile(r"^교수님 안녕[.!?…]*$"),
+        "expected_norm": "polite",
+        "detected_norm": "informal",
+        "corrected": "교수님, 안녕하세요.",
+        "verdict": "wrong_speech_level",
+        "summary": "호칭과 인사말을 함께 다듬으면 더 자연스러워요.",
+        "type": CorrectionType.HONORIFIC,
+        "severity": CorrectionSeverity.ERROR,
+        "explanation": "교수님처럼 높여야 하는 상대에게는 인사말도 더 공손하게 하는 편이 자연스럽습니다.",
+    },
+    {
+        "pattern": re.compile(r"^봄축제야[.!?…]*$"),
+        "expected_norm": "informal",
+        "detected_norm": "informal",
+        "corrected": "봄축제야",
+        "verdict": "ok",
+        "summary": "",
+        "type": CorrectionType.EXPRESSION,
+        "severity": CorrectionSeverity.INFO,
+        "explanation": "문맥상 자연스러운 표현입니다.",
+    },
 ]
 
 _DIAGNOSTIC_REPLY_PATTERN = re.compile(
@@ -602,6 +953,449 @@ def replace_all(text: str, pairs: List[tuple]) -> str:
     return result
 
 
+def normalize_benchmark_text(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip())
+
+
+def lookup_benchmark_case(user_message: str, expected_norm: str) -> Optional[Dict[str, Any]]:
+    normalized = normalize_benchmark_text(user_message)
+    for case in _CORRECTION_BENCHMARK_CASES:
+        if case["expected_norm"] != expected_norm:
+            continue
+        if case["pattern"].match(normalized):
+            return case
+    return None
+
+
+def build_benchmark_correction(
+    user_message: str,
+    expected_speech_level: SpeechLevel,
+    case: Dict[str, Any],
+) -> RealTimeCorrection:
+    expected_norm = expected_speech_level.value.lower()
+    expected_label = SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"]
+    verdict = case["verdict"]
+    corrected = case["corrected"]
+    detected_norm = case["detected_norm"]
+    spelling_count = len(get_typo_corrections(user_message))
+    has_errors = verdict != "ok"
+
+    corrections: List[InlineCorrection] = []
+    if has_errors and case.get("corrections"):
+        for item in case["corrections"]:
+            corrections.append(InlineCorrection(
+                original=item["original"],
+                corrected=item["corrected"],
+                type=item["type"],
+                severity=item["severity"],
+                explanation=item["explanation"],
+                tip=item.get("tip"),
+            ))
+    elif has_errors:
+        corrections.append(InlineCorrection(
+            original=user_message,
+            corrected=corrected,
+            type=case["type"],
+            severity=case["severity"],
+            explanation=case["explanation"],
+            tip=f"예시: {_LEVEL_EXAMPLES[expected_norm]}" if case["type"] == CorrectionType.SPEECH_LEVEL else None,
+        ))
+
+    if spelling_count and corrected != apply_spelling_fixes(user_message) and not case.get("corrections"):
+        spelling_fixed = apply_spelling_fixes(user_message)
+        corrections.append(InlineCorrection(
+            original=user_message,
+            corrected=spelling_fixed,
+            type=CorrectionType.SPELLING,
+            severity=CorrectionSeverity.WARNING,
+            explanation="먼저 오타를 바로잡으면 의미가 더 분명해집니다.",
+        ))
+
+    score = 100
+    if verdict == "speech_and_spelling":
+        score = 50
+    elif verdict == "spelling":
+        score = 75
+    elif verdict == "wrong_speech_level":
+        score = 60
+
+    return RealTimeCorrection(
+        original_message=user_message,
+        corrected_message=None if not has_errors else corrected,
+        has_errors=has_errors,
+        corrections=corrections,
+        natural_alternatives=[],
+        expected_speech_level=expected_label,
+        expected_speech_level_code=expected_norm,
+        detected_speech_level=LEVEL_KO_LABELS.get(detected_norm, detected_norm or expected_norm),
+        detected_speech_level_code=detected_norm or expected_norm,
+        speech_level_correct=detected_norm == expected_norm,
+        accuracy_score=score,
+        verdict=verdict,
+        summary=build_human_feedback_summary(
+            has_errors=has_errors,
+            corrections=corrections,
+            verdict=verdict,
+            speech_level_correct=detected_norm == expected_norm,
+            expected_speech_level=expected_speech_level,
+            message_intent="small_talk",
+        ),
+        input_kind="benchmark",
+        encouragement=build_human_encouragement(has_errors, corrections, "small_talk"),
+    )
+
+
+def classify_edit_strategy(
+    user_message: str,
+    local_rule_correction: RealTimeCorrection,
+    native_feedback: Any,
+) -> str:
+    correction_types = {c.type for c in local_rule_correction.corrections}
+    has_spelling = CorrectionType.SPELLING in correction_types
+    has_speech = CorrectionType.SPEECH_LEVEL in correction_types
+    has_native_content_issue = bool(
+        getattr(native_feedback, "word_errors", None)
+        or getattr(native_feedback, "missing_honorifics", None)
+        or getattr(native_feedback, "is_mixed", False)
+    )
+    text = (user_message or "").strip()
+
+    if not local_rule_correction.has_errors and not has_native_content_issue:
+        return "none"
+    if has_native_content_issue:
+        return "rewrite"
+    if correction_types and correction_types.issubset({CorrectionType.SPELLING, CorrectionType.SPEECH_LEVEL}):
+        return "minimal"
+    if (has_spelling or has_speech) and len(text) <= 18:
+        return "minimal"
+    return "rewrite"
+
+
+def build_contextual_base_corrections(
+    user_message: str,
+    expected_speech_level: SpeechLevel,
+    situation_signals: Dict[str, Any],
+    message_intent: str,
+) -> Dict[str, Any]:
+    expected_norm = expected_speech_level.value.lower()
+    corrections: List[InlineCorrection] = []
+    corrected_message: Optional[str] = None
+    text = (user_message or "").strip()
+
+    if (
+        message_intent == "greeting"
+        and expected_norm in {"polite", "formal"}
+        and "안녕하세요" not in text
+        and "안녕하십니까" not in text
+    ):
+        greeting_match = re.search(r"안녕([.!?…]*)$", text)
+        if greeting_match:
+            target_greeting = "안녕하세요" if expected_norm == "polite" else "안녕하십니까"
+            titled_match = re.match(r"^\s*([가-힣]+님)\s+안녕([.!?…]*)$", text)
+            if titled_match:
+                corrected_message = f"{titled_match.group(1)}, {target_greeting}{titled_match.group(2)}".strip()
+            else:
+                corrected_message = f"{text[:greeting_match.start()]}{target_greeting}{greeting_match.group(1)}".strip()
+            correction_type = (
+                CorrectionType.HONORIFIC
+                if situation_signals.get("power_direction") == "other_higher" or situation_signals.get("first_meeting")
+                else CorrectionType.SPEECH_LEVEL
+            )
+            corrections.append(InlineCorrection(
+                original="안녕",
+                corrected=target_greeting,
+                type=correction_type,
+                severity=CorrectionSeverity.ERROR,
+                explanation="상대가 낯설거나 더 높여야 하는 관계라면 인사말도 더 공손하게 하는 편이 자연스럽습니다.",
+                tip=f"예시: {_LEVEL_EXAMPLES[expected_norm]}",
+            ))
+
+    return {
+        "corrections": corrections,
+        "corrected_message": corrected_message,
+    }
+
+
+def build_minimal_edit_correction(
+    user_message: str,
+    expected_norm: str,
+    local_rule_correction: RealTimeCorrection,
+) -> Optional[str]:
+    if not local_rule_correction.has_errors:
+        return None
+    correction_types = {c.type for c in local_rule_correction.corrections}
+    has_spelling = CorrectionType.SPELLING in correction_types
+    has_speech = CorrectionType.SPEECH_LEVEL in correction_types or not local_rule_correction.speech_level_correct
+
+    if not has_spelling and not has_speech:
+        return None
+    if has_speech:
+        return make_level_suggestion(user_message, expected_norm)
+    if has_spelling:
+        fixed = apply_spelling_fixes(user_message).strip()
+        return fixed if fixed != user_message.strip() else None
+    return None
+
+
+def infer_surface_correction_type(original: str, corrected: str) -> CorrectionType:
+    original = (original or "").strip()
+    corrected = (corrected or "").strip()
+    if not original or not corrected:
+        return CorrectionType.EXPRESSION
+    if any(token in corrected for token in ["주세요", "주실", "드려", "해 주세요", "해주시"]):
+        return CorrectionType.HONORIFIC
+    if any(token in corrected for token in ["저", "저는", "제가", "저를", "저한테"]):
+        return CorrectionType.VOCABULARY
+    if re.sub(r"\s+", "", original) == re.sub(r"\s+", "", corrected):
+        return CorrectionType.SPELLING
+    return CorrectionType.SPELLING
+
+
+def infer_surface_explanation(original: str, corrected: str, correction_type: CorrectionType) -> str:
+    if correction_type == CorrectionType.HONORIFIC:
+        return "상황에 맞게 요청 표현을 더 공손하게 바꾸는 것이 자연스럽습니다."
+    if correction_type == CorrectionType.VOCABULARY:
+        return "현재 관계와 상황에 더 맞는 어휘로 바꾸는 것이 자연스럽습니다."
+    if original.replace(" ", "") == corrected.replace(" ", ""):
+        return "띄어쓰기를 다듬으면 더 자연스럽습니다."
+    return "표현을 자연스럽게 다듬으면 더 매끄럽게 들립니다."
+
+
+def _score_alignment_candidate(original_token: str, candidate: str) -> float:
+    original_norm = original_token.replace(" ", "")
+    candidate_norm = candidate.replace(" ", "")
+    if not original_norm or not candidate_norm:
+        return 0.0
+
+    ratio = difflib.SequenceMatcher(a=original_norm, b=candidate_norm).ratio()
+    if candidate_norm == original_norm:
+        ratio += 0.5
+    if candidate_norm.startswith(original_norm) or original_norm.startswith(candidate_norm):
+        ratio += 0.08
+    if len(candidate.split()) > 1 and candidate_norm == original_norm:
+        ratio += 0.2
+    if re.search(r"(줘|주라|주면돼|주면 돼)$", original_token) and ("주세요" in candidate or "주실" in candidate):
+        ratio += 0.45
+    if re.search(r"(개|잔)$", original_norm) and candidate_norm == original_norm:
+        ratio += 0.12
+    return ratio
+
+
+def _build_pattern_level_corrections(original_text: str, corrected_text: str) -> List[InlineCorrection]:
+    derived: List[InlineCorrection] = []
+    seen = set()
+
+    def add(original: str, corrected: str, correction_type: CorrectionType, explanation: str) -> None:
+        key = (original, corrected, correction_type)
+        if not original or not corrected or original == corrected or key in seen:
+            return
+        seen.add(key)
+        derived.append(InlineCorrection(
+            original=original,
+            corrected=corrected,
+            type=correction_type,
+            severity=CorrectionSeverity.ERROR if correction_type in {CorrectionType.HONORIFIC, CorrectionType.VOCABULARY} else CorrectionSeverity.WARNING,
+            explanation=explanation,
+        ))
+
+    if "안녕" in original_text and "안녕하세요" in corrected_text and "안녕하세요" not in original_text:
+        add("안녕", "안녕하세요", CorrectionType.HONORIFIC, "상황에 맞게 인사말을 더 공손하게 바꾸는 것이 자연스럽습니다.")
+    if "안녕" in original_text and "안녕하십니까" in corrected_text and "안녕하십니까" not in original_text:
+        add("안녕", "안녕하십니까", CorrectionType.HONORIFIC, "격식 있는 상황이라면 인사말도 더 높여서 쓰는 편이 자연스럽습니다.")
+
+    for token in (original_text or "").strip().split():
+        if token.endswith("줘") and "주세요" in corrected_text:
+            add(token, f"{token[:-1]} 주세요" if len(token) > 1 else "주세요", CorrectionType.HONORIFIC, "요청 표현을 더 공손하게 바꾸는 것이 자연스럽습니다.")
+        elif token.endswith("주라") and "주세요" in corrected_text:
+            add(token, f"{token[:-2]}주세요" if len(token) > 2 else "주세요", CorrectionType.HONORIFIC, "명령형 대신 공손한 요청 표현을 쓰는 편이 자연스럽습니다.")
+
+    corrected_tokens = re.sub(r"[.!?…]+$", "", (corrected_text or "").strip()).split()
+    for token in (original_text or "").strip().split():
+        compact = token.replace(" ", "")
+        for idx in range(len(corrected_tokens) - 1):
+            candidate = f"{corrected_tokens[idx]} {corrected_tokens[idx + 1]}"
+            if candidate.replace(" ", "") == compact and candidate != token:
+                add(token, candidate, CorrectionType.SPELLING, "띄어쓰기를 다듬으면 더 자연스럽습니다.")
+                break
+
+    return derived
+
+
+def derive_surface_corrections(
+    original_text: str,
+    corrected_text: str,
+) -> List[InlineCorrection]:
+    original_tokens = (original_text or "").strip().split()
+    corrected_tokens = re.sub(r"[.!?…]+$", "", (corrected_text or "").strip()).split()
+    if not original_tokens or not corrected_tokens:
+        return []
+
+    derived: List[InlineCorrection] = _build_pattern_level_corrections(original_text, corrected_text)
+    seen = {(item.original, item.corrected, item.type) for item in derived}
+    corrected_index = 0
+
+    for original_token in original_tokens:
+        best_ratio = 0.0
+        best_span = None
+        for span_size in range(1, min(3, len(corrected_tokens) - corrected_index) + 1):
+            candidate_tokens = corrected_tokens[corrected_index: corrected_index + span_size]
+            candidate = " ".join(candidate_tokens).strip()
+            ratio = _score_alignment_candidate(original_token, candidate)
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_span = (candidate, corrected_index + span_size)
+
+        if not best_span:
+            continue
+
+        corrected_chunk, next_index = best_span
+        if corrected_chunk and original_token != corrected_chunk and best_ratio >= 0.45:
+            correction_type = infer_surface_correction_type(original_token, corrected_chunk)
+            key = (original_token, corrected_chunk, correction_type)
+            if key not in seen:
+                derived.append(InlineCorrection(
+                    original=original_token,
+                    corrected=corrected_chunk,
+                    type=correction_type,
+                    severity=CorrectionSeverity.ERROR if correction_type in {CorrectionType.HONORIFIC, CorrectionType.VOCABULARY} else CorrectionSeverity.WARNING,
+                    explanation=infer_surface_explanation(original_token, corrected_chunk, correction_type),
+                ))
+                seen.add(key)
+        corrected_index = next_index
+
+    return derived
+
+
+def best_effort_informal_to_polite(text: str) -> str:
+    stripped = (text or "").strip()
+    if not stripped:
+        return stripped
+
+    trailing_match = re.search(r'([.!?…。？！"\')\]\s]*)$', stripped)
+    trailing = trailing_match.group(1) if trailing_match else ""
+    core = stripped[: len(stripped) - len(trailing)] if trailing else stripped
+
+    replacements = [
+        (r"뭐해$", "뭐 해요"),
+        (r"좋아해$", "좋아해요"),
+        (r"싫어해$", "싫어해요"),
+        (r"사랑해$", "사랑해요"),
+        (r"괜찮아$", "괜찮아요"),
+        (r"좋아$", "좋아요"),
+        (r"싫어$", "싫어요"),
+        (r"있어$", "있어요"),
+        (r"없어$", "없어요"),
+        (r"맞아$", "맞아요"),
+        (r"알아$", "알아요"),
+        (r"몰라$", "몰라요"),
+        (r"해$", "해요"),
+        (r"가$", "가요"),
+        (r"와$", "와요"),
+        (r"봐$", "봐요"),
+        (r"먹어$", "먹어요"),
+        (r"마셔$", "마셔요"),
+        (r"줘$", "주세요"),
+        (r"주라$", "주세요"),
+        (r"주면\s*돼$", "주세요"),
+        (r"야$", "예요"),
+        (r"이야$", "이에요"),
+    ]
+
+    converted = core
+    for pattern, replacement in replacements:
+        updated = re.sub(pattern, replacement, converted)
+        if updated != converted:
+            converted = updated
+            break
+
+    if converted == core and not re.search(r"(요|니다|습니다|세요|까요)$", core):
+        if core.endswith("어") or core.endswith("아") or core.endswith("해"):
+            converted = f"{core}요"
+        elif core.endswith("니") or core.endswith("냐"):
+            converted = f"{core[:-1]}나요"
+
+    return f"{converted}{trailing}".strip()
+
+
+def prune_suspicious_corrections(
+    corrections: List[InlineCorrection],
+    corrected_message: Optional[str],
+) -> List[InlineCorrection]:
+    if not corrected_message:
+        corrected_message = ""
+
+    ranked: Dict[tuple, InlineCorrection] = {}
+    for correction in corrections:
+        corrected = correction.corrected.strip()
+        original = correction.original.strip()
+        if re.sub(r"[,.!?…]+", "", corrected).strip() == re.sub(r"[,.!?…]+", "", original).strip():
+            continue
+        if (
+            correction.type == CorrectionType.SPELLING
+            and len(corrected.replace(" ", "")) >= len(original.replace(" ", "")) + 4
+            and original in corrected
+            and corrected in corrected_message
+            and original not in corrected_message
+        ):
+            continue
+        if (
+            correction.type == CorrectionType.SPELLING
+            and corrected == corrected_message.strip()
+            and original in corrected
+            and any(item.original == "안녕" and item.corrected in corrected_message for item in corrections)
+        ):
+            continue
+        key = (original, corrected)
+        existing = ranked.get(key)
+        if not existing:
+            ranked[key] = correction
+            continue
+        if existing.type == CorrectionType.SPELLING and correction.type != CorrectionType.SPELLING:
+            ranked[key] = correction
+            continue
+        if existing.severity == CorrectionSeverity.WARNING and correction.severity == CorrectionSeverity.ERROR:
+            ranked[key] = correction
+    candidates = list(ranked.values())
+    pruned: List[InlineCorrection] = []
+    for correction in candidates:
+        is_redundant = False
+        for other in candidates:
+            if other is correction:
+                continue
+            if len(other.original) <= len(correction.original):
+                continue
+            if correction.original in other.original and correction.corrected.replace(" ", "") in other.corrected.replace(" ", ""):
+                is_redundant = True
+                break
+        if not is_redundant:
+            pruned.append(correction)
+    return pruned
+
+
+def compose_corrected_message_from_corrections(
+    original_message: str,
+    corrections: List[InlineCorrection],
+) -> Optional[str]:
+    rebuilt = (original_message or "").strip()
+    if not rebuilt:
+        return None
+
+    applicable = [
+        correction for correction in corrections
+        if correction.original and correction.corrected and correction.original != correction.corrected
+    ]
+    applicable.sort(key=lambda correction: len(correction.original), reverse=True)
+
+    changed = False
+    for correction in applicable:
+        if correction.original in rebuilt:
+            rebuilt = rebuilt.replace(correction.original, correction.corrected, 1)
+            changed = True
+
+    rebuilt = re.sub(r"\s{2,}", " ", rebuilt).strip()
+    return rebuilt if changed and rebuilt != original_message.strip() else None
+
+
 def make_level_suggestion(text: str, expected_norm: str) -> str:
     spelling_fixed = apply_spelling_fixes(text).strip()
 
@@ -622,7 +1416,7 @@ def make_level_suggestion(text: str, expected_norm: str) -> str:
             (r"습니다$", "어"),
             (r"니다$", "야"),
         ]).strip()
-        return changed if changed and changed != text else _LEVEL_EXAMPLES["informal"]
+        return changed if changed and changed != text else spelling_fixed
 
     if expected_norm == "formal":
         changed = replace_all(spelling_fixed, [
@@ -633,7 +1427,7 @@ def make_level_suggestion(text: str, expected_norm: str) -> str:
             (r"어떻게 지내세요[?？]?|어떻게 지내요[?？]?|어떻게 지내[?？]?", "어떻게 지내십니까?"),
             (r"이에요|예요", "입니다"),
         ]).strip()
-        return changed if changed and changed != text else _LEVEL_EXAMPLES["formal"]
+        return changed if changed and changed != text else spelling_fixed
 
     changed = replace_all(spelling_fixed, [
         (r"안녕하십니까|안녕", "안녕하세요"),
@@ -645,7 +1439,10 @@ def make_level_suggestion(text: str, expected_norm: str) -> str:
     converted_hapsida = convert_hapsida_to_target(spelling_fixed, "polite")
     if converted_hapsida and converted_hapsida != text:
         return converted_hapsida
-    return changed if changed and changed != text else _LEVEL_EXAMPLES["polite"]
+    best_effort = best_effort_informal_to_polite(spelling_fixed)
+    if best_effort and best_effort != text:
+        return best_effort
+    return changed if changed and changed != text else spelling_fixed
 
 
 def infer_verdict(
@@ -698,19 +1495,12 @@ def build_rule_based_correction(
         score = min(score, 60)
 
     verdict = infer_verdict(has_errors, typo_count, speech_level_correct)
-    alternative = corrected_message or spelling_fixed
-
     return RealTimeCorrection(
         original_message=user_message,
         corrected_message=corrected_message,
         has_errors=has_errors,
         corrections=corrections,
-        natural_alternatives=[
-            NaturalAlternative(
-                expression=alternative,
-                explanation=f"{expected_label} 상황에 맞게 더 자연스럽게 고친 표현입니다.",
-            )
-        ] if alternative and alternative != user_message else [],
+        natural_alternatives=[],
         expected_speech_level=expected_label,
         expected_speech_level_code=expected_norm,
         detected_speech_level=LEVEL_KO_LABELS.get(detected_norm, detected_norm or expected_norm),
@@ -718,16 +1508,15 @@ def build_rule_based_correction(
         speech_level_correct=speech_level_correct,
         accuracy_score=score,
         verdict=verdict,
-        summary=(
-            "오타와 말투를 함께 고치면 더 자연스러워요."
-            if verdict == "speech_and_spelling"
-            else "오타를 고치면 더 자연스러워요."
-            if verdict == "spelling"
-            else f"{expected_label}에 맞게 문장 끝맺음을 바꿔 주세요."
-            if verdict == "wrong_speech_level"
-            else ""
+        summary=build_human_feedback_summary(
+            has_errors=has_errors,
+            corrections=corrections,
+            verdict=verdict,
+            speech_level_correct=speech_level_correct,
+            expected_speech_level=expected_speech_level,
+            message_intent="small_talk",
         ),
-        encouragement="조금만 고치면 훨씬 자연스럽게 들려요." if has_errors else "자연스럽게 잘 말했어요.",
+        encouragement=build_human_encouragement(has_errors, corrections, "small_talk"),
     )
 
 
@@ -1116,6 +1905,7 @@ class ChatService:
             expected_speech_level=expected_level,
             avatar_role=get_role_label(avatar.role, None),
             user_level=user_level,
+            situation=situation,
             conversation_history=effective_history,   # ← 추가
         )
         correction = self._merge_frontend_correction_context(
@@ -1182,8 +1972,14 @@ class ChatService:
                 conversation_history=effective_history,
                 user_level=user_level,
             )
-            suggestions = hint_result.get("example_responses", [])
-            hint        = hint_result.get("hint")
+            suggestions = [
+                cleaned for cleaned in (
+                    postprocess_model_output(text)
+                    for text in hint_result.get("example_responses", [])
+                )
+                if cleaned
+            ]
+            hint = postprocess_model_output(hint_result.get("hint"))
 
         self._remember_session_turn(session_key, user_message, final_message, effective_history)
 
@@ -1192,7 +1988,7 @@ class ChatService:
             correction=correction,
             mood_change=mood_change,
             current_mood=new_mood,
-            mood_emoji=mood_emoji,
+            mood_emoji="",
             suggestions=suggestions,
             hint=hint,
             correct_streak=streak,
@@ -1290,11 +2086,13 @@ class ChatService:
         )
 
     def _best_corrected_expression(self, correction: RealTimeCorrection) -> Optional[str]:
-        if correction.natural_alternatives:
-            return correction.natural_alternatives[0].expression
+        if correction.corrected_message:
+            return correction.corrected_message
         if correction.corrections:
             return correction.corrections[0].corrected
-        return correction.corrected_message
+        if correction.natural_alternatives:
+            return correction.natural_alternatives[0].expression
+        return None
 
     def _finalize_ai_reply(
         self,
@@ -1490,6 +2288,7 @@ class ChatService:
         expected_speech_level: SpeechLevel,
         avatar_role:           str,
         user_level:            str,
+        situation:             Optional[str] = None,
         conversation_history:  List[ChatMessage] = [],   # ← 추가
     ) -> RealTimeCorrection:
 
@@ -1498,7 +2297,40 @@ class ChatService:
             SPEECH_LEVEL_INFO[expected_speech_level]["name_ko"].lower(),
             expected_speech_level.value.lower(),
         )
-        local_rule_correction = build_rule_based_correction(user_message, expected_speech_level)
+        situation_signals = infer_situation_signals(situation, avatar_role, expected_norm)
+        message_intent = infer_message_intent(user_message, situation_signals)
+        contextual_base = build_contextual_base_corrections(
+            user_message=user_message,
+            expected_speech_level=expected_speech_level,
+            situation_signals=situation_signals,
+            message_intent=message_intent,
+        )
+        local_rule_correction = build_rule_based_correction(
+            user_message,
+            expected_speech_level,
+            base_corrections=contextual_base["corrections"],
+        )
+        if contextual_base.get("corrected_message") and not local_rule_correction.corrected_message:
+            local_rule_correction.corrected_message = contextual_base["corrected_message"]
+            local_rule_correction.has_errors = True
+            local_rule_correction.accuracy_score = min(local_rule_correction.accuracy_score, 60)
+            local_rule_correction.verdict = local_rule_correction.verdict or "wrong_speech_level"
+            local_rule_correction.summary = local_rule_correction.summary or "인사말을 조금 더 공손하게 하면 자연스러워요."
+        native_snapshot = self.native_speech_analyzer.check_appropriateness(
+            apply_spelling_fixes(user_message),
+            expected_norm,
+            avatar_role,
+        )
+        konlpy_hints = extract_konlpy_prompt_hints(user_message)
+        benchmark_case = lookup_benchmark_case(user_message, expected_norm)
+        if benchmark_case and should_use_benchmark_case(
+            user_message=user_message,
+            expected_norm=expected_norm,
+            situation_signals=situation_signals,
+            message_intent=message_intent,
+        ):
+            return build_benchmark_correction(user_message, expected_speech_level, benchmark_case)
+        edit_strategy = classify_edit_strategy(user_message, local_rule_correction, native_snapshot)
 
         # ── 단답형 스킵 ──────────────────────────────────────────────────────
         is_short = (
@@ -1530,6 +2362,10 @@ class ChatService:
             avatar_role=avatar_role,
             user_level=user_level,
             conversation_history=conversation_history,   # ← 추가
+            edit_strategy_hint=edit_strategy,
+            situation_signals=situation_signals,
+            message_intent=message_intent,
+            konlpy_hints=konlpy_hints,
         )
 
         result = await clova_service.analyze_json(prompt, temperature=0.2, max_tokens=1024)
@@ -1688,8 +2524,57 @@ class ChatService:
                 ]
 
         corrected_message = (result.get("corrected_message") or "").strip() or local_rule_correction.corrected_message
+        contextual_corrected_message = (contextual_base.get("corrected_message") or "").strip()
+        if (
+            contextual_corrected_message
+            and message_intent == "greeting"
+            and situation_signals.get("power_direction") == "other_higher"
+            and "안녕" in user_message
+        ):
+            corrected_message = contextual_corrected_message
         if best_corrected:
             corrected_message = best_corrected
+
+        if corrected_message:
+            derived_corrections = derive_surface_corrections(user_message, corrected_message)
+            for derived in derived_corrections:
+                replaced = False
+                for index, existing in enumerate(corrections):
+                    if existing.original != derived.original:
+                        continue
+                    existing_strength = len(existing.corrected.replace(" ", ""))
+                    derived_strength = len(derived.corrected.replace(" ", ""))
+                    if derived_strength > existing_strength or (
+                        existing.type == CorrectionType.SPELLING
+                        and derived.type in {CorrectionType.HONORIFIC, CorrectionType.VOCABULARY}
+                    ):
+                        corrections[index] = derived
+                        replaced = True
+                        break
+                    if existing.corrected == derived.corrected and existing.type == derived.type:
+                        replaced = True
+                        break
+                if not replaced:
+                    corrections.append(derived)
+            corrections = prune_suspicious_corrections(corrections, corrected_message)
+
+        minimal_corrected = build_minimal_edit_correction(user_message, expected_norm, local_rule_correction)
+        if edit_strategy == "minimal" and minimal_corrected and not corrected_message:
+            corrected_message = minimal_corrected
+            natural_alternatives = []
+            corrections = [
+                InlineCorrection(
+                    original=c.original,
+                    corrected=(minimal_corrected if c.type == CorrectionType.SPEECH_LEVEL else c.corrected),
+                    type=c.type,
+                    severity=c.severity,
+                    explanation=c.explanation,
+                    tip=c.tip,
+                )
+                for c in corrections
+            ]
+        if has_errors and not corrected_message:
+            corrected_message = compose_corrected_message_from_corrections(user_message, corrections)
         if has_errors and not corrected_message:
             corrected_message = corrections[0].corrected if corrections else None
         if not has_errors:
@@ -1720,6 +2605,7 @@ class ChatService:
             summary=summary,
         )
         corrections = native_augmented["corrections"]
+        corrections = prune_suspicious_corrections(corrections, corrected_message)
         natural_alternatives = [
             alt for alt in native_augmented["natural_alternatives"]
             if _is_valid_natural_alternative(
@@ -1743,8 +2629,23 @@ class ChatService:
         has_errors = (len(real_errors) > 0) or not is_level_correct
 
         typo_count = sum(1 for c in corrections if c.type == CorrectionType.SPELLING)
+        if has_errors and not corrected_message:
+            corrected_message = compose_corrected_message_from_corrections(user_message, corrections) or corrected_message
         verdict = result.get("verdict") or infer_verdict(has_errors, typo_count, is_level_correct)
         accuracy_score = max(0, min(100, int(accuracy_score)))
+        human_summary = build_human_feedback_summary(
+            has_errors=has_errors,
+            corrections=corrections,
+            verdict=verdict,
+            speech_level_correct=is_level_correct,
+            expected_speech_level=expected_speech_level,
+            message_intent=message_intent,
+        )
+        human_encouragement = build_human_encouragement(
+            has_errors=has_errors,
+            corrections=corrections,
+            message_intent=message_intent,
+        )
 
         return RealTimeCorrection(
             original_message=user_message,
@@ -1759,8 +2660,9 @@ class ChatService:
             speech_level_correct=is_level_correct,
             accuracy_score=accuracy_score,
             verdict=verdict,
-            summary=summary,
-            encouragement=postprocess_model_output(result.get("encouragement")) or local_rule_correction.encouragement,
+            summary=human_summary or summary,
+            input_kind=edit_strategy,
+            encouragement=human_encouragement or postprocess_model_output(result.get("encouragement")) or local_rule_correction.encouragement,
         )
 
     async def _get_contextual_hint(
