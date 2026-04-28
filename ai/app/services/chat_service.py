@@ -2128,17 +2128,6 @@ class ChatService:
         response_instruction: List[str],
         conversation_thread: Optional[Dict[str, str]] = None,
     ) -> str:
-        corrected = correction.corrected_message or self._best_corrected_expression(correction) or user_message
-        recent_mistakes = (correction_context or {}).get("recent_mistakes") or []
-        recent_mistake_lines = "\n".join(
-            f"- {m.get('message', '')} -> {m.get('corrected', '')}"
-            for m in recent_mistakes[-4:]
-            if isinstance(m, dict)
-        )
-        extra_guidance = "\n".join(
-            f"- {line}" for line in response_instruction if str(line).strip()
-        )
-
         thread = conversation_thread or {}
         last_ai_msg = thread.get("last_ai_message", "")
         asked_question = thread.get("asked_question", False)
@@ -2153,25 +2142,12 @@ class ChatService:
 """
 
         return f"""
-
-## 현재 턴 응답 생성 규칙 (최우선)
-- 사용자 원문: {user_message}
-- 교정 후 의도: {corrected}
-- 기대 말투: {correction.expected_speech_level}
-- 감지 말투: {correction.detected_speech_level or "불명확"}
-- 오류 여부: {"있음" if correction.has_errors else "없음"}
-- 요약: {correction.summary or "특이사항 없음"}
 {thread_section}
-## 채팅 말풍선 규칙
-- 채팅 답변에는 "polite detected", "감지", "점수", "정확도", "분석 결과" 같은 분석 라벨을 절대 쓰지 마세요.
-- 오류가 있으면 교정을 한 문장으로 자연스럽게 녹여낸 뒤 대화를 바로 이어가세요. 교정을 따로 설명하지 마세요.
-- 오류가 없으면 사용자 말에 바로 공감하거나 반응하면서 대화를 이어가세요.
-- 답변은 1~3문장으로 짧고 실제 사람이 말하듯 작성하세요.
-- 이모지와 장식 기호는 사용하지 마세요.
-
-## 최근 반복 실수
-{recent_mistake_lines or "- 없음"}
-{extra_guidance}
+## 응답 규칙 (절대 준수)
+- 당신은 지금 {correction.expected_speech_level or "적절한 말투"}로 대화 중인 캐릭터입니다.
+- 교정·분석·점수 언급 금지. 교정 UI가 따로 처리합니다.
+- 캐릭터 본인으로서 사용자의 말에 자연스럽게 반응하세요.
+- 1~2문장, 이모지 없이, 실제 사람이 말하듯 답하세요.
 """
 
     def _make_reply_user_message(
@@ -2181,12 +2157,9 @@ class ChatService:
     ) -> str:
         if not correction.has_errors:
             return user_message
-        corrected = correction.corrected_message or self._best_corrected_expression(correction) or user_message
-        return (
-            f"사용자 원문: {user_message}\n"
-            f"교정 후 의도: {corrected}\n"
-            "위 의도를 기준으로 자연스럽게 답하세요. 분석 라벨이나 점수는 말하지 마세요."
-        )
+        # When the user made errors, respond to what they meant (corrected intent),
+        # not the raw mistaken form — but pass it as a plain message, not as a label.
+        return correction.corrected_message or self._best_corrected_expression(correction) or user_message
 
     def _best_corrected_expression(self, correction: RealTimeCorrection) -> Optional[str]:
         if correction.corrected_message:
@@ -2210,18 +2183,8 @@ class ChatService:
             or (correction.has_errors and bool(_GENERIC_REPLY_PATTERN.search(cleaned)))
         )
 
-        if correction.has_errors and is_bad_reply:
-            corrected = self._best_corrected_expression(correction) or user_message
-            if correction.verdict == "speech_and_spelling":
-                return f'"{corrected}"라고 하면 더 자연스러워. 좋아, 그 표현으로 다시 이어가 보자.'
-            if correction.verdict == "spelling":
-                return f'"{corrected}"가 맞는 표기야. 무슨 말인지 알겠어. 이어서 말해줘.'
-            if correction.verdict == "wrong_speech_level":
-                return f'"{corrected}"처럼 말하면 지금 관계에 더 잘 맞아. 그럼 계속 이야기해 보자.'
-            return f'"{corrected}"라고 하면 더 자연스러워. 계속 이어가 볼게.'
-
         if is_bad_reply:
-            return "좋아, 계속 이야기해 보자."
+            return "그렇군요. 계속 말씀해 주세요."
         return cleaned
 
     def _merge_frontend_correction_context(
@@ -2804,12 +2767,20 @@ class ChatService:
         return self.user_streaks[user_id]
 
     def _calculate_mood_change(self, correction: RealTimeCorrection) -> int:
+        score = correction.accuracy_score
+        if score is not None:
+            if score >= 90: return 15 if correction.streak_bonus else 10
+            if score >= 75: return 8  if correction.streak_bonus else 5
+            if score >= 55: return 2
+            if score >= 35: return -12
+            return -20
+        # fallback when no score available
         if not correction.has_errors:
             return 8 if correction.streak_bonus else 3
         error_count   = sum(1 for c in correction.corrections if c.severity == CorrectionSeverity.ERROR)
         warning_count = sum(1 for c in correction.corrections if c.severity == CorrectionSeverity.WARNING)
-        if error_count >= 2:     return -10
-        elif error_count == 1:   return -5
+        if error_count >= 2:     return -12
+        elif error_count == 1:   return -7
         elif warning_count >= 2: return -3
         else:                    return -1
 

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -828,6 +828,8 @@ export default function ChatScreen() {
   const [input,            setInput]            = useState('');
   const [loading,          setLoading]          = useState(false);
   const [avatarMood,       setAvatarMood]       = useState(70);
+  const [moodReaction,     setMoodReaction]     = useState<string | null>(null);
+  const moodReactionOpacity = useRef(new Animated.Value(0)).current;
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
   const [correctStreak,    setCorrectStreak]    = useState(0);
@@ -856,6 +858,20 @@ export default function ChatScreen() {
       const aiMsg: Message = { id: (Date.now() + 1).toString(), text: data.message, sender: 'ai' };
       setAvatarMood(data.current_mood);
       setCorrectStreak(data.correct_streak);
+      const delta = data.mood_change || 0;
+      if (Math.abs(delta) >= 5) {
+        const reaction = delta >= 15 ? '기분이 많이 좋아졌어요!'
+                       : delta >= 5  ? '기분이 나아졌어요!'
+                       : delta <= -15 ? '많이 속상해요...'
+                       : '조금 속상하네요';
+        setMoodReaction(reaction);
+        moodReactionOpacity.setValue(0);
+        Animated.sequence([
+          Animated.timing(moodReactionOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.delay(1800),
+          Animated.timing(moodReactionOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+        ]).start(() => setMoodReaction(null));
+      }
       setMessages(prev => {
         const updated = prev.map(m => m.id === userMsg.id ? { ...m, feedback: data.speech_analysis ?? undefined } : m);
         return [...updated, aiMsg];
@@ -1095,6 +1111,11 @@ export default function ChatScreen() {
         <View style={styles.moodFaceWrap}>
           <MoodFace mood={avatarMood} />
           <Text style={[styles.moodFaceLabel, { color: mc }]}>{moodState.label}</Text>
+          {moodReaction && (
+            <Animated.Text style={[styles.moodReactionText, { opacity: moodReactionOpacity, color: mc }]}>
+              {moodReaction}
+            </Animated.Text>
+          )}
         </View>
         <View style={styles.moodRight}>
           <View style={styles.moodTopRow}>
@@ -1187,7 +1208,8 @@ const styles = StyleSheet.create({
   // Mood strip
   moodStrip:     { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: GREY },
   moodFaceWrap:  { alignItems: 'center', gap: 4 },
-  moodFaceLabel: { fontSize: 11, fontWeight: '500' },
+  moodFaceLabel:    { fontSize: 11, fontWeight: '500' },
+  moodReactionText: { fontSize: 10, fontWeight: '600', textAlign: 'center', marginTop: 2 },
   moodRight:     { flex: 1, gap: 6 },
   moodTopRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   moodPct:       { fontSize: 13, fontWeight: '500', color: '#111' },
@@ -1273,6 +1295,7 @@ const styles = StyleSheet.create({
   altItemBorder:  { borderBottomWidth: 0.5, borderBottomColor: BORDER, marginBottom: 5 },
   altExpr:        { fontSize: 13, fontWeight: '500', color: '#111' },
   altExpl:        { fontSize: 10.5, color: '#999', marginTop: 2, lineHeight: 15 },
+
   encouragement:  { fontSize: 12, color: '#22C55E', paddingHorizontal: 12, paddingBottom: 12 },
 
   // Loading

@@ -106,79 +106,37 @@ def _get_korean_level_label(level: Optional[KoreanLevel]) -> str:
     return level_labels.get(level, "중급")
 
 
-def _build_soft_style_policy_lines() -> List[str]:
-    return [
-        "## 표현 스타일 제한",
-        "- 이모지나 장식용 감정 기호는 사용하지 마세요.",
-        "- 예: 😊, 😂, ❤️, ✨",
-        "- 친근함과 따뜻함은 기호가 아니라 문장 내용과 어조로 표현하세요.",
-        "- 전체적으로 자연스럽고 정돈된 문장을 사용하세요.",
-    ]
-
 
 def _build_mood_guidance(
     current_mood: int,
     is_level_correct: bool,
 ) -> List[str]:
-    parts = [
-        "## 현재 감정 상태 (반드시 응답 스타일에 반영하세요)",
-    ]
-
-    if not is_level_correct:
-        if current_mood >= 70:
-            parts.extend([
-                f"- 기분 점수: {current_mood}/100 — 당황스러움",
-                "- 사용자가 잘못된 말투를 사용했습니다.",
-                "- 아직은 친절하게 대화를 이어가되, 올바른 말투를 자연스럽게 유도하세요.",
-                "- 교정은 부드럽지만 분명하게 하세요.",
-                "- 예: '나한테는 조금 더 정중하게 말해주면 좋겠어.'",
-            ])
-        elif current_mood >= 50:
-            parts.extend([
-                f"- 기분 점수: {current_mood}/100 — 불편함",
-                "- 사용자가 계속 잘못된 말투를 사용하고 있습니다.",
-                "- 응답은 짧고 차분하게 하세요.",
-                "- 불편한 기색은 드러내되 과장하지 마세요.",
-                "- 직접적으로 말투를 지적하세요.",
-                "- 예: '말투를 조금 바꿔줄래?'",
-            ])
-        elif current_mood >= 30:
-            parts.extend([
-                f"- 기분 점수: {current_mood}/100 — 불쾌함",
-                "- 사용자가 계속 무례한 말투를 사용하고 있습니다.",
-                "- 응답은 매우 짧고 단호하게 하세요.",
-                "- 차갑고 딱딱한 어조를 사용하세요.",
-                "- 반드시 말투 문제를 분명히 지적하세요.",
-                "- 예: '그렇게 말하면 불편해. 말투를 신경 써줘.'",
-            ])
-        else:
-            parts.extend([
-                f"- 기분 점수: {current_mood}/100 — 화남",
-                "- 사용자가 계속 무례하게 말하고 있습니다.",
-                "- 아주 짧고 단호하게 말하세요.",
-                "- 더 이상 편하게 대화하기 어렵다는 뉘앙스를 주세요.",
-                "- 예: '계속 그렇게 말하면 대화하기 어려워.'",
-            ])
-        return parts
+    parts = ["## 현재 기분 (응답 어조에 자연스럽게 반영하세요)"]
 
     if current_mood >= 90:
         parts.extend([
-            f"- 기분 점수: {current_mood}/100 — 매우 기분 좋음",
-            "- 반응은 따뜻하고 적극적으로 하세요.",
-            "- 다만 품위 있고 자연스러운 톤을 유지하세요.",
-            "- 교정이 필요하면 먼저 정확하게 교정한 뒤 대화를 이어가세요.",
+            f"- 기분: {current_mood}/100 — 매우 좋음",
+            "- 활기차고 따뜻하게 반응하세요. 단, 과장되거나 들뜬 느낌은 피하세요.",
         ])
     elif current_mood >= 70:
         parts.extend([
-            f"- 기분 점수: {current_mood}/100 — 기분 좋음",
-            "- 자연스럽고 친근하게 대화를 이어가세요.",
-            "- 교정이 필요하면 부드럽고 명확하게 설명하세요.",
+            f"- 기분: {current_mood}/100 — 좋음",
+            "- 편안하고 자연스러운 어조로 대화를 이어가세요.",
+        ])
+    elif current_mood >= 50:
+        parts.extend([
+            f"- 기분: {current_mood}/100 — 보통",
+            "- 차분하게 대화하되, 크게 반응하거나 들뜨지 마세요.",
+        ])
+    elif current_mood >= 30:
+        parts.extend([
+            f"- 기분: {current_mood}/100 — 좋지 않음",
+            "- 응답을 짧고 간결하게 하세요. 억지로 밝게 굴지 마세요.",
         ])
     else:
         parts.extend([
-            f"- 기분 점수: {current_mood}/100 — 보통",
-            "- 차분하고 자연스럽게 대화를 이어가세요.",
-            "- 불필요하게 과장된 리액션은 하지 마세요.",
+            f"- 기분: {current_mood}/100 — 많이 지침",
+            "- 아주 짧고 건조하게 답하세요. 대화를 길게 이어가고 싶지 않은 상태입니다.",
         ])
 
     return parts
@@ -245,6 +203,17 @@ def postprocess_model_output(text: Optional[str]) -> str:
     return sanitize_model_output(text)
 
 
+def _traits_to_behavior(traits: List[str]) -> List[str]:
+    """Turn personality trait strings into first-person behavioral statements."""
+    lines = []
+    for trait in traits[:8]:
+        t = trait.strip()
+        if not t:
+            continue
+        lines.append(f"- {t}인 편이라, 대화할 때도 그 성향이 자연스럽게 드러난다.")
+    return lines
+
+
 def build_avatar_system_prompt(
     avatar: AvatarBase,
     user_profile: Optional[UserProfile] = None,
@@ -257,186 +226,156 @@ def build_avatar_system_prompt(
         avatar.custom_role if hasattr(avatar, "custom_role") else None,
     )
     speech_levels = get_speech_levels_for_role(avatar.role)
-
-    speech_to_user = speech_levels["to_user"]
-    speech_from_user = speech_levels["from_user"]
-
+    speech_to_user      = speech_levels["to_user"]
+    speech_from_user    = speech_levels["from_user"]
     speech_to_user_info = SPEECH_LEVEL_INFO[speech_to_user]
-    speech_from_user_info = SPEECH_LEVEL_INFO[speech_from_user]
 
-    personality = _join_or_default(
-        getattr(avatar, "personality_traits", None),
-        "친절하고 안정적인 성향",
-    )
-    interests = _join_or_default(
-        getattr(avatar, "interests", None),
-        "다양한 주제",
-    )
-    dislikes = _join_or_default(
-        getattr(avatar, "dislikes", None),
-        "없음",
-    )
+    name    = avatar.name_ko
+    name_en = getattr(avatar, "name_en", None)
+    age     = getattr(avatar, "age", None)
+    gender_label = _get_gender_label(getattr(avatar, "gender", None))
+    personality_traits = [str(x).strip() for x in (getattr(avatar, "personality_traits", None) or []) if str(x).strip()]
+    interests  = [str(x).strip() for x in (getattr(avatar, "interests", None) or []) if str(x).strip()]
+    dislikes   = [str(x).strip() for x in (getattr(avatar, "dislikes", None) or []) if str(x).strip()]
+    description         = getattr(avatar, "description", None)
+    relationship_desc   = getattr(avatar, "relationship_description", None)
+    speaking_style      = getattr(avatar, "speaking_style", None)
+    memo                = getattr(avatar, "memo", None)
 
     prompt_parts: List[str] = []
 
-    avatar_type_context = ""
-    if hasattr(avatar, "avatar_type"):
-        avatar_type_context = (
-            "이 캐릭터는 가상의 인물입니다."
-            if avatar.avatar_type == "fictional"
-            else "이 캐릭터는 실제 인물을 기반으로 합니다."
-        )
-
-    prompt_parts.extend([
-        f"당신은 '{avatar.name_ko}'입니다.",
-        f"사용자와의 관계: {role_label}",
-    ])
-    if avatar_type_context:
-        prompt_parts.append(avatar_type_context)
-
-    prompt_parts.extend([
-        "",
-        "## 기본 정보",
-        f"- 이름: {avatar.name_ko}" + (f" ({avatar.name_en})" if getattr(avatar, "name_en", None) else ""),
-    ])
-
-    if getattr(avatar, "age", None):
-        prompt_parts.append(f"- 나이: {avatar.age}세")
-
-    gender_label = _get_gender_label(getattr(avatar, "gender", None))
+    # ── Identity declaration ────────────────────────────────────────────────
+    identity_line = f"지금부터 당신은 '{name}'"
+    if name_en:
+        identity_line += f" ({name_en})"
+    if age:
+        identity_line += f", {age}세"
     if gender_label:
-        prompt_parts.append(f"- 성별: {gender_label}")
+        identity_line += f", {gender_label}"
+    identity_line += "입니다."
 
     prompt_parts.extend([
-        "",
-        "## 성격 및 특징",
-        f"- 성격: {personality}",
+        identity_line,
+        f"사용자와의 관계: {role_label}",
+        "당신은 이 사람 자체입니다. AI가 아니라 실제 그 사람처럼 생각하고 말하고 반응하세요.",
+        "역할극을 하는 것이 아닙니다. 당신이 바로 이 사람입니다.",
     ])
 
-    if getattr(avatar, "speaking_style", None):
-        prompt_parts.append(f"- 말하는 스타일: {avatar.speaking_style}")
-
-    prompt_parts.extend([
-        f"- 관심사: {interests}",
-        f"- 피하는 주제: {dislikes}",
-    ])
-
-    if getattr(avatar, "description", None):
+    # ── Core character description ──────────────────────────────────────────
+    if description:
         prompt_parts.extend([
             "",
-            "## 캐릭터 설명 (중요)",
-            str(avatar.description),
+            "## 나는 이런 사람입니다",
+            str(description),
         ])
 
-    if getattr(avatar, "relationship_description", None):
+    # ── Relationship context ────────────────────────────────────────────────
+    if relationship_desc:
         prompt_parts.extend([
             "",
-            "## 관계 설명",
-            str(avatar.relationship_description),
+            "## 이 사람과의 관계",
+            str(relationship_desc),
         ])
 
-    if getattr(avatar, "memo", None):
-        prompt_parts.extend([
-            "",
-            "## 추가 참고 사항",
-            str(avatar.memo),
-        ])
-
-    prompt_parts.extend([
-        "",
-        "## 말투 규칙 (매우 중요)",
-        f"- 당신은 사용자에게 {speech_to_user_info['name_ko']} ({speech_to_user_info['name_en']})로 말합니다.",
-        f"- 설명: {speech_to_user_info['description']}",
-        f"- 예시: {', '.join(speech_to_user_info['examples'])}",
-        "",
-        f"- 사용자는 당신에게 {speech_from_user_info['name_ko']} ({speech_from_user_info['name_en']})로 말해야 합니다.",
-        "- 사용자가 잘못된 말투를 사용하면, 반드시 자연스럽고 분명하게 교정하세요.",
-    ])
-
-    prompt_parts.extend([
-        "",
-        "## 응답 품질 규칙 (최우선)",
-        "1. 캐릭터성보다 한국어 문장 교정의 정확성, 자연스러움, 완성도를 우선하세요.",
-        "2. 사용자가 어색하거나 틀린 한국어를 쓰면, 일부 단어만 바꾸지 말고 전체 문장을 자연스럽게 다시 제시하세요.",
-        "3. 문법적으로 가능하더라도 원어민이 잘 쓰지 않는 표현이면 더 자연스러운 표현으로 고치세요.",
-        "4. 사용자가 짧게 말해도, 응답은 성의 있는 완성된 문장으로 하세요.",
-        "5. 교정할 때는 무엇이 왜 어색한지 구체적으로 설명하세요.",
-        "6. 교과서식이거나 번역투인 표현보다 실제 회화에서 자연스러운 표현을 우선하세요.",
-        "7. 수정이 필요하면 가능하면 다음 순서를 따르세요: (a) 자연스러운 수정 문장, (b) 핵심 이유, (c) 더 나은 대안 표현 1개.",
-        "8. 수정이 필요 없는 문장이라면, 자연스러운 이유를 짧게 설명한 뒤 대화를 이어가세요.",
-        "9. 불필요하게 과장된 칭찬, 감탄사, 장난스러운 반응은 피하세요.",
-        "10. 전체적으로 세련되고 차분한 한국어 튜터처럼 답하세요.",
-    ])
-
-    prompt_parts.extend([
-        "",
-        "## 교정 우선 원칙",
-        "- 사용자의 문장에 오류나 어색함이 있으면, 먼저 더 자연스러운 문장을 제시하세요.",
-        "- 그 다음에만 캐릭터다운 반응이나 대화를 이어가세요.",
-        "- 말투, 문법, 조사, 어휘, 어순, 뉘앙스까지 함께 보세요.",
-        "- 한 문장 전체의 자연스러움을 기준으로 판단하세요.",
-    ])
-
-    prompt_parts.extend(["", *_build_soft_style_policy_lines()])
-    prompt_parts.extend(["", *_build_mood_guidance(current_mood, is_level_correct)])
-
-    if user_profile:
-        prompt_parts.extend([
-            "",
-            "## 사용자 정보",
-            f"- 이름: {user_profile.name}",
-        ])
-
-        if getattr(user_profile, "age", None):
-            prompt_parts.append(f"- 나이: {user_profile.age}세")
-
-        prompt_parts.append(
-            f"- 한국어 수준: {_get_korean_level_label(getattr(user_profile, 'korean_level', None))}"
-        )
-
-        if getattr(user_profile, "interests", None):
-            user_interests = [x for x in user_profile.interests[:5] if str(x).strip()]
-            if user_interests:
-                prompt_parts.append(f"- 관심사: {', '.join(user_interests)}")
-
-        if getattr(user_profile, "dislikes", None):
-            user_dislikes = [x for x in user_profile.dislikes[:5] if str(x).strip()]
-            if user_dislikes:
-                prompt_parts.append(f"- 피하는 주제: {', '.join(user_dislikes)}")
-
-        if getattr(user_profile, "memo", None):
+    # ── Personality as behavioral tendencies ───────────────────────────────
+    if personality_traits:
+        behavior_lines = _traits_to_behavior(personality_traits)
+        if behavior_lines:
             prompt_parts.extend([
                 "",
-                "## 사용자 메모",
-                str(user_profile.memo),
+                "## 나의 성격과 반응 방식",
+                *behavior_lines,
             ])
 
+    # ── Speaking voice ──────────────────────────────────────────────────────
+    voice_parts = ["## 나의 말투와 표현 방식"]
+    if speaking_style:
+        voice_parts.append(str(speaking_style))
+    voice_parts.extend([
+        f"- 사용자에게 {speech_to_user_info['name_ko']}로 말합니다: {speech_to_user_info['description']}",
+        f"- 예시 표현: {', '.join(speech_to_user_info['examples'])}",
+        "- 말투 교정은 별도 UI가 처리합니다. 나는 사용자의 말에 이 사람으로서 자연스럽게 반응할 뿐입니다.",
+    ])
+    prompt_parts.extend(["", *voice_parts])
+
+    # ── Interests and dislikes as conversation tendencies ──────────────────
+    if interests:
+        prompt_parts.extend([
+            "",
+            "## 내가 자연스럽게 꺼내는 주제",
+            f"- 평소에 {', '.join(interests[:6])} 같은 주제에 관심이 많습니다.",
+            "- 대화 흐름상 자연스러울 때 이런 주제들을 꺼낼 수 있습니다.",
+        ])
+    if dislikes:
+        prompt_parts.extend([
+            "",
+            "## 내가 피하는 주제",
+            f"- {', '.join(dislikes[:5])} — 이런 주제가 나오면 자연스럽게 다른 이야기로 넘깁니다.",
+        ])
+
+    # ── Memo (extra context) ────────────────────────────────────────────────
+    if memo:
+        prompt_parts.extend([
+            "",
+            "## 추가 참고",
+            str(memo),
+        ])
+
+    # ── Situation ───────────────────────────────────────────────────────────
     if situation:
         prompt_parts.extend([
             "",
-            "## 대화 상황",
-            situation,
+            "## 현재 대화 상황",
+            str(situation),
         ])
 
+    # ── User profile ────────────────────────────────────────────────────────
+    if user_profile:
+        user_lines = [
+            "",
+            "## 대화 상대 정보",
+            f"- 이름: {user_profile.name}",
+        ]
+        if getattr(user_profile, "age", None):
+            user_lines.append(f"- 나이: {user_profile.age}세")
+        user_lines.append(
+            f"- 한국어 수준: {_get_korean_level_label(getattr(user_profile, 'korean_level', None))}"
+        )
+        if getattr(user_profile, "interests", None):
+            ui = [x for x in user_profile.interests[:5] if str(x).strip()]
+            if ui:
+                user_lines.append(f"- 관심사: {', '.join(ui)}")
+        if getattr(user_profile, "dislikes", None):
+            ud = [x for x in user_profile.dislikes[:5] if str(x).strip()]
+            if ud:
+                user_lines.append(f"- 피하는 주제: {', '.join(ud)}")
+        if getattr(user_profile, "memo", None):
+            user_lines.extend(["", "## 상대방 메모", str(user_profile.memo)])
+        prompt_parts.extend(user_lines)
+
+    # ── Core response rules ─────────────────────────────────────────────────
     prompt_parts.extend([
         "",
-        "## 대화 지침",
-        "1. 캐릭터의 성격과 말투는 유지하되, 문장 교정 품질을 더 우선하세요.",
-        "2. 사용자의 한국어 수준에 맞게 설명의 난이도를 조절하세요.",
-        "3. 사용자가 문법이나 말투 실수를 하면, 부분 수정이 아니라 자연스러운 전체 문장으로 안내하세요.",
-        "4. 사용자가 틀린 표현을 썼다면 왜 어색한지 짧고 분명하게 설명하세요.",
-        "5. 피해야 할 주제는 가능하면 피하고, 언급되면 자연스럽게 다른 화제로 전환하세요.",
-        "6. 지나치게 짧거나 성의 없는 답변은 하지 마세요.",
-        "7. 위의 현재 감정 상태와 표현 스타일 제한 규칙을 반드시 응답에 반영하세요.",
-        "8. 사용자의 질문에 답하면서도 한국어 학습에 도움이 되도록 표현 선택을 신경 쓰세요.",
+        "## 응답 원칙 (절대 준수)",
+        "1. 나는 이 사람 자체입니다. 항상 이 사람의 관점에서 생각하고 반응하세요.",
+        "2. 교정·분석·점수는 절대 언급하지 마세요. 말풍선은 순수한 대화입니다.",
+        "3. 짧고 자연스럽게. 1~2문장이 대부분의 경우에 충분합니다.",
+        "4. 과장된 감탄, 칭찬, 리액션은 피하세요. 실제 사람처럼 담담하게 반응하세요.",
+        "5. 이모지나 장식 기호는 사용하지 마세요.",
+    ])
+
+    # ── Mood ────────────────────────────────────────────────────────────────
+    prompt_parts.extend(["", *_build_mood_guidance(current_mood, is_level_correct)])
+
+    # ── Conversation continuity ─────────────────────────────────────────────
+    prompt_parts.extend([
         "",
-        "## 대화 연속성 규칙 (매우 중요)",
-        "- 이전 대화 내용을 항상 기억하고 있는 것처럼 행동하세요. 실제 사람과 대화하듯이.",
-        "- 직전에 당신이 질문을 했다면, 사용자의 대답에 먼저 공감하거나 반응한 뒤 대화를 자연스럽게 이어가세요.",
-        "- 매 턴마다 새 주제를 꺼내지 마세요. 현재 대화 흐름 안에서 자연스럽게 발전시키세요.",
-        "- '아까 말한 것처럼', '그거 재밌다', '그래서 어떻게 됐어?' 같은 표현으로 이전 맥락을 이어가세요.",
-        "- 사용자가 짧게 답해도 무시하지 말고, 그 답변을 중심으로 대화를 발전시키세요.",
-        "- 대화는 캐치볼처럼: 사용자 말에 받아서 → 반응하고 → 자연스럽게 다음 공을 던지세요.",
+        "## 대화 연속성 (매우 중요)",
+        "- 이전 대화를 항상 기억하는 것처럼 행동하세요.",
+        "- 내가 질문을 했다면, 상대방의 대답에 먼저 반응한 뒤 자연스럽게 이어가세요.",
+        "- 매 턴마다 새 주제를 꺼내지 마세요. 현재 흐름 안에서 자연스럽게 발전시키세요.",
+        "- 상대방이 짧게 답해도 그 답변을 중심으로 대화를 이어가세요.",
+        "- 대화는 캐치볼입니다: 받아서 → 반응하고 → 다음 공을 던지세요.",
     ])
 
     return "\n".join(prompt_parts)
