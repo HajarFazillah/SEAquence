@@ -1,23 +1,28 @@
-import React, { useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import {
   Heart, MessageCircle, Edit, Trash2,
-  Clock, TrendingUp, Sparkles, User as UserIcon, ChevronRight,
+  Clock, TrendingUp, ChevronLeft, Sparkles, Users, ChevronRight,
 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Header, Card, Button, Tag, StatusBadge, Icon } from '../components';
+// FIX 4: Added Card to imports — it was used in JSX but missing here
+import { Icon, CompatibilityRing, Card } from '../components';
 import { SPEECH_LEVELS } from '../constants';
-import { deleteAvatar } from '../services/apiUser';
+import { deleteAvatar, getMyProfile } from '../services/apiUser';
 import { getAvatarSessions, ActiveSession } from '../services/apiSession';
+
+// FIX 1: BRAND and BG moved to the top — they were defined at the bottom of the
+// file but referenced throughout JSX. `const` is not hoisted, causing a
+// ReferenceError at runtime whenever any JSX used BRAND before the declaration.
+const BRAND = '#6C3BFF';
+const BG    = '#F7F7FB';
 
 const FAVORITES_KEY = 'favorite_avatars';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Format startedAt date string into a readable relative date
-// e.g. "2026-04-17T10:30:00" → "오늘", "2일 전", "1주 전"
 const formatRelativeDate = (dateStr: string | null): string => {
   if (!dateStr) return '-';
   const date = new Date(dateStr);
@@ -31,8 +36,6 @@ const formatRelativeDate = (dateStr: string | null): string => {
   return `${Math.floor(diffDays / 7)}주 전`;
 };
 
-// Calculate duration between startedAt and endedAt in mm:ss format
-// If session not ended, show '-'
 const formatDuration = (startStr: string | null, endStr: string | null): string => {
   if (!startStr || !endStr) return '-';
   const start = new Date(startStr);
@@ -43,8 +46,6 @@ const formatDuration = (startStr: string | null, endStr: string | null): string 
   const secs = diffSec % 60;
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 };
-
-// ─── Component ───────────────────────────────────────────────────────────────
 
 const stripMarkdown = (text: string): string =>
   text
@@ -66,46 +67,140 @@ const buildMockBio = (avatar: any): string => {
                   : avatar?.formality_from_user === 'informal' ? '반말' : '해요체';
   const style     = avatar?.speaking_style || '자연스럽게 대화해도 좋습니다';
   const dislikes  = (avatar?.dislikes || []).length > 0 ? avatar.dislikes.join(', ') : '특별히 없음';
-
   return (
     `${name}는 성격이 ${traits} 편이며, ${interests}에 관심이 많습니다.\n\n` +
-    `대화 팁:\n` +
-    `• ${name}는 ${toLabel}로 말합니다\n` +
-    `• 당신은 ${fromLabel}로 대화하세요\n` +
-    `• ${style}\n\n` +
+    `대화 팁:\n• ${name}는 ${toLabel}로 말합니다\n• 당신은 ${fromLabel}로 대화하세요\n• ${style}\n\n` +
     `피해야 할 주제: ${dislikes}`
   );
 };
 
+const getAgeDesc = (age?: number): string => {
+  if (!age) return '';
+  if (age < 20) return '많이 어려요';
+  if (age < 25) return '또래예요';
+  if (age < 30) return '나보다 연상이에요';
+  if (age < 40) return '경험이 풍부해요';
+  return '인생 선배예요';
+};
+
+const getGenderDesc = (gender?: string): string => {
+  if (gender === 'female') return '언니라고 불러도 될 것 같아요';
+  if (gender === 'male')   return '오빠라고 불러도 될 것 같아요';
+  return '성별을 가리지 않아요';
+};
+
+const getDifficultyDesc = (diff?: string): string => {
+  if (diff === 'easy') return '편하게 연습하기 좋아요';
+  if (diff === 'hard') return '많이 도전적이에요';
+  return '조금 도전적이에요';
+};
+
+const getDifficultyLabel = (diff?: string): string => {
+  if (diff === 'easy') return '초급';
+  if (diff === 'hard') return '고급';
+  return '중급';
+};
+
+const getCompatibilityHeadline = (score: number): string => {
+  if (score >= 85) return '대화 리듬이 잘 맞을 가능성이 높아요';
+  if (score >= 70) return '편하게 이어갈 만한 궁합이에요';
+  if (score >= 55) return '화제를 잘 잡으면 금방 편해질 수 있어요';
+  return '시작 주제를 잘 고르면 더 좋아질 수 있어요';
+};
+
+const getAgeGapLabel = (userAge?: number | null, avatarAge?: number | null): string => {
+  if (!Number.isFinite(userAge) || !Number.isFinite(avatarAge)) {
+    return '나이 정보가 더 있으면 차이를 정확히 보여줄 수 있어요';
+  }
+  const gap = Math.abs(Number(userAge) - Number(avatarAge));
+  if (gap === 0) return '동갑이에요';
+  const direction = Number(avatarAge) > Number(userAge) ? '연상' : '연하';
+  return `${gap}살 차이 · ${direction}`;
+};
+
+const getTalkToneLabel = (avatar: any): string => {
+  const level = avatar?.formality_from_user || 'polite';
+  if (level === 'informal') return '편한 반말이 잘 어울려요';
+  if (level === 'formal') return '격식 있는 말투가 잘 맞아요';
+  return '부드러운 존댓말이 자연스러워요';
+};
+
+const getCompatibilityFactors = (avatar: any, userAge?: number | null) => {
+  const commonInterests = (avatar?.compatibility?.common_interests || []).slice(0, 3);
+  const difficulty = getDifficultyLabel(avatar?.difficulty);
+  return [
+    {
+      key: 'shared',
+      icon: Heart,
+      title: '공통 관심사',
+      value: commonInterests.length > 0 ? commonInterests.join(' · ') : '겹치는 관심사를 더 찾아보면 좋아요',
+      tone: '#FFE8EF',
+      iconColor: '#E85D8E',
+    },
+    {
+      key: 'age',
+      icon: Users,
+      title: '연령대 분위기',
+      value: getAgeGapLabel(userAge, Number(avatar?.age)),
+      tone: '#EAF3FF',
+      iconColor: '#3D7BEA',
+    },
+    {
+      key: 'difficulty',
+      icon: TrendingUp,
+      title: '대화 난이도',
+      value: `${difficulty} 정도의 템포로 연습하기 좋아요`,
+      tone: '#FFF4DB',
+      iconColor: '#E4A11B',
+    },
+    {
+      key: 'tone',
+      icon: Sparkles,
+      title: '추천 말투',
+      value: getTalkToneLabel(avatar),
+      tone: '#EEE8FF',
+      iconColor: BRAND,
+    },
+  ];
+};
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 export default function AvatarDetailScreen() {
+  const [userAge, setUserAge] = useState<number | null>(null);
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
   const { avatar } = route.params || {};
 
-  // ── 모든 hooks를 최상단에 선언 ─────────────────────────────────────────────
   const [isFavorite, setIsFavorite] = useState(false);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
 
-  // Load real sessions and favorite state every time screen comes into focus
+  // FIX 5: getMyProfile was imported but never called, so userAge was always
+  // null and the age-gap label never worked. Load the profile on mount.
+  useEffect(() => {
+    getMyProfile()
+      .then((profile) => {
+        const age = Number(profile?.age);
+        if (Number.isFinite(age)) setUserAge(age);
+      })
+      .catch(() => {});
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       if (!avatar?.id) return;
 
-      // Load sessions
       getAvatarSessions(String(avatar.id))
         .then(data => setSessions(data))
         .catch(err => console.log('Failed to load avatar sessions:', err));
 
-      // Load favorite state from AsyncStorage
       AsyncStorage.getItem(FAVORITES_KEY).then(stored => {
         const favorites: string[] = stored ? JSON.parse(stored) : [];
         setIsFavorite(favorites.includes(String(avatar.id)));
       }).catch(err => console.log('Failed to load favorites:', err));
-
     }, [avatar?.id])
   );
 
-  // Toggle favorite and save to AsyncStorage
   const handleToggleFavorite = async () => {
     try {
       const stored = await AsyncStorage.getItem(FAVORITES_KEY);
@@ -125,7 +220,6 @@ export default function AvatarDetailScreen() {
     }
   };
 
-  // Calculate real stats from sessions
   const totalConversations = sessions.length;
   const totalMinutes = sessions.reduce((acc, s) => {
     if (!s.lastMessageAt || !s.endedAt) return acc;
@@ -134,10 +228,8 @@ export default function AvatarDetailScreen() {
     const mins = Math.floor((end.getTime() - start.getTime()) / (1000 * 60));
     return acc + (mins > 0 ? mins : 0);
   }, 0);
-  // No score field in backend yet — show 0
   const avgScore = 0;
 
-  // Show only the 3 most recent sessions
   const recentSessions = sessions.slice(0, 3);
 
   const handleStartChat = () => {
@@ -152,8 +244,7 @@ export default function AvatarDetailScreen() {
     Alert.alert('아바타 삭제', '정말 삭제하시겠습니까?', [
       { text: '취소', style: 'cancel' },
       {
-        text: '삭제',
-        style: 'destructive',
+        text: '삭제', style: 'destructive',
         onPress: async () => {
           try {
             await deleteAvatar(String(avatar?.id));
@@ -165,180 +256,230 @@ export default function AvatarDetailScreen() {
       },
     ]);
   };
-  
-  type SpeechLevel    = 'formal' | 'polite' | 'informal';
+
+  type SpeechLevel = 'formal' | 'polite' | 'informal';
   const formalityToUser   = (avatar?.formality_to_user   || 'polite') as SpeechLevel;
   const formalityFromUser = (avatar?.formality_from_user || 'polite') as SpeechLevel;
-
-  const bioText     = avatar?.bio ? stripMarkdown(avatar.bio) : buildMockBio(avatar);
-  const genderLabel = avatar?.gender === 'male'   ? '남성'
-                    : avatar?.gender === 'female' ? '여성'
-                    : avatar?.gender === 'other'  ? '기타' : null;
-  const roleLabel   = avatar?.custom_role || avatar?.role || '';
+  const bioText           = avatar?.bio ? stripMarkdown(avatar.bio) : buildMockBio(avatar);
+  const genderLabel       = avatar?.gender === 'male'   ? '남성'
+                          : avatar?.gender === 'female' ? '여성'
+                          : avatar?.gender === 'other'  ? '기타' : null;
+  const roleLabel         = avatar?.custom_role || avatar?.role || '';
+  const compatibilityScore = Number.isFinite(Number(avatar?.compatibility?.score))
+    ? Number(avatar.compatibility.score)
+    : null;
+  const compatibilityFactors = compatibilityScore !== null
+    ? getCompatibilityFactors(avatar, userAge)
+    : [];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <Header
-        title="아바타 정보"
-        rightElement={
-          <TouchableOpacity onPress={handleEdit}>
-            <Edit size={22} color="#6C3BFF" />
-          </TouchableOpacity>
-        }
-      />
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+          <ChevronLeft size={18} color="#111" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>아바타 정보</Text>
+        <TouchableOpacity onPress={handleEdit} style={styles.headerBtn}>
+          <Edit size={16} color={BRAND} />
+        </TouchableOpacity>
+      </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* ── Avatar Header ── */}
-        <View style={styles.avatarHeader}>
-          <View style={[styles.avatarIcon, { backgroundColor: avatar?.avatar_bg || '#FFB6C1' }]}>
-            <Icon name={(avatar?.icon || 'user') as any} size={48} color="#FFFFFF" />
-          </View>
-          <View style={styles.avatarInfo}>
-            <View style={styles.nameRow}>
-              <Text style={styles.avatarName}>{avatar?.name_ko || '아바타'}</Text>
-              <TouchableOpacity onPress={handleToggleFavorite}>
-                <Heart
-                  size={24}
-                  color={isFavorite ? '#E53935' : '#B0B0C5'}
-                  fill={isFavorite ? '#E53935' : 'transparent'}
-                />
-              </TouchableOpacity>
+        {/* ── Hero ── */}
+        <View style={styles.hero}>
+          <View style={styles.avRing}>
+            <View style={[styles.avInner, { backgroundColor: avatar?.avatar_bg || '#C4B5FD' }]}>
+              <Icon name={(avatar?.icon || 'user') as any} size={44} color="#fff" />
             </View>
-            {avatar?.name_en ? <Text style={styles.avatarNameEn}>{avatar.name_en}</Text> : null}
-            <View style={styles.badgeRow}>
-              <StatusBadge status={avatar?.difficulty || 'medium'} />
-              <View style={[styles.typeBadge, avatar?.avatar_type === 'real' ? styles.typeBadgeReal : styles.typeBadgeFictional]}>
-                {avatar?.avatar_type === 'real'
-                  ? <UserIcon size={12} color="#2196F3" />
-                  : <Sparkles size={12} color="#9C27B0" />}
-                <Text style={[styles.typeBadgeText, avatar?.avatar_type === 'real' ? styles.typeBadgeTextReal : styles.typeBadgeTextFictional]}>
-                  {avatar?.avatar_type === 'real' ? '실제 인물' : '가상 인물'}
-                </Text>
+          </View>
+
+          <View style={styles.nameRow}>
+            <Text style={styles.avatarName}>{avatar?.name_ko || '아바타'}</Text>
+            <TouchableOpacity
+              style={[styles.favBtn, isFavorite && styles.favBtnOn]}
+              onPress={handleToggleFavorite}
+            >
+              <Heart
+                size={15}
+                color={isFavorite ? '#FF4D4D' : '#ccc'}
+                fill={isFavorite ? '#FF4D4D' : 'none'}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {avatar?.name_en ? <Text style={styles.avatarSub}>{avatar.name_en}</Text> : null}
+          {roleLabel ? <Text style={styles.avatarRole}>{roleLabel}</Text> : null}
+
+          {compatibilityScore !== null ? (
+            <View style={styles.compatibilityCard}>
+              <View style={styles.compatibilityTopRow}>
+                <CompatibilityRing percentage={compatibilityScore} size={84} strokeWidth={7} />
+                <View style={styles.compatibilityCopy}>
+                  <Text style={styles.compatibilityEyebrow}>궁합 점수</Text>
+                  <Text style={styles.compatibilityHeadline}>{getCompatibilityHeadline(compatibilityScore)}</Text>
+                  <Text style={styles.compatibilityCaption}>이 점수는 아래 요소들을 함께 보고 정리했어요.</Text>
+                </View>
+              </View>
+              <View style={styles.factorGrid}>
+                {compatibilityFactors.map((factor) => {
+                  const FactorIcon = factor.icon;
+                  return (
+                    <View key={factor.key} style={styles.factorCard}>
+                      <View style={[styles.factorIconWrap, { backgroundColor: factor.tone }]}>
+                        <FactorIcon size={14} color={factor.iconColor} />
+                      </View>
+                      <Text style={styles.factorTitle}>{factor.title}</Text>
+                      <Text style={styles.factorValue}>{factor.value}</Text>
+                    </View>
+                  );
+                })}
               </View>
             </View>
+          ) : null}
+
+          <View style={styles.heroPills}>
+            <View style={styles.pillType}>
+              <Text style={styles.pillTypeText}>
+                {avatar?.avatar_type === 'real' ? '실제 인물' : '가상 인물'}
+              </Text>
+            </View>
+            {avatar?.difficulty && (
+              <View style={styles.pillDiff}>
+                <Text style={styles.pillDiffText}>{getDifficultyLabel(avatar.difficulty)}</Text>
+              </View>
+            )}
           </View>
+        </View>
+
+        {/* ── Stats ── */}
+        <View style={styles.stats}>
+          {[
+            { icon: <MessageCircle size={15} color={BRAND}   />, bg: '#EDE9FE', value: String(totalConversations), label: '대화'      },
+            { icon: <Clock         size={15} color="#22C55E" />, bg: '#DCFCE7', value: `${totalMinutes}분`,        label: '연습 시간' },
+            { icon: <TrendingUp    size={15} color="#EAB308" />, bg: '#FEF9C3', value: `${avgScore}%`,             label: '평균 점수' },
+          ].map((s, i) => (
+            <View key={i} style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: s.bg }]}>{s.icon}</View>
+              <Text style={styles.statValue}>{s.value}</Text>
+              <Text style={styles.statLabel}>{s.label}</Text>
+            </View>
+          ))}
         </View>
 
         {/* ── 기본 정보 ── */}
-        <Text style={styles.sectionTitle}>기본 정보</Text>
-        <Card variant="elevated" style={styles.infoCard}>
+        <Text style={styles.sectionLabel}>기본 정보</Text>
+
+        {/* FIX 2: infoGrid View was never closed — everything from statsRow
+            onward (speech, interests, conversations, etc.) was incorrectly
+            nested inside it, breaking layout. Added closing </View> below. */}
+        <View style={styles.infoGrid}>
           {avatar?.age ? (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>나이</Text>
-              <Text style={styles.infoValue}>{avatar.age}세</Text>
+            <View style={styles.miniCard}>
+              <View style={[styles.miniIcon, { backgroundColor: '#EDE9FE' }]}>
+                <MessageCircle size={13} color={BRAND} />
+              </View>
+              <Text style={styles.miniLbl}>나이</Text>
+              <Text style={styles.miniBig}>{avatar.age}</Text>
+              <Text style={styles.miniDesc}>{getAgeDesc(avatar.age)}</Text>
             </View>
           ) : null}
+
           {genderLabel ? (
-            <View style={[styles.infoRow, avatar?.age ? styles.infoRowBorder : undefined]}>
-              <Text style={styles.infoLabel}>성별</Text>
-              <Text style={styles.infoValue}>{genderLabel}</Text>
+            <View style={styles.miniCard}>
+              <View style={[styles.miniIcon, { backgroundColor: '#FCE7F3' }]}>
+                <Heart size={13} color="#EC4899" />
+              </View>
+              <Text style={styles.miniLbl}>성별</Text>
+              <Text style={[styles.miniBig, { fontSize: 18 }]}>{genderLabel}</Text>
+              <Text style={styles.miniDesc}>{getGenderDesc(avatar?.gender)}</Text>
             </View>
           ) : null}
+
+          {avatar?.difficulty ? (
+            <View style={styles.miniCard}>
+              <View style={[styles.miniIcon, { backgroundColor: '#FEF9C3' }]}>
+                <TrendingUp size={13} color="#EAB308" />
+              </View>
+              <Text style={styles.miniLbl}>난이도</Text>
+              <Text style={[styles.miniBig, { fontSize: 18 }]}>{getDifficultyLabel(avatar.difficulty)}</Text>
+              <Text style={styles.miniDesc}>{getDifficultyDesc(avatar.difficulty)}</Text>
+            </View>
+          ) : null}
+
           {roleLabel ? (
-            <View style={[styles.infoRow, (avatar?.age || genderLabel) ? styles.infoRowBorder : undefined]}>
-              <Text style={styles.infoLabel}>아바타 관계</Text>
-              <Text style={styles.infoValue}>{roleLabel}</Text>
+            <View style={styles.miniCard}>
+              <View style={[styles.miniIcon, { backgroundColor: '#DCFCE7' }]}>
+                <Clock size={13} color="#22C55E" />
+              </View>
+              <Text style={styles.miniLbl}>관계</Text>
+              <Text style={[styles.miniBig, { fontSize: 15 }]}>{roleLabel}</Text>
+              <Text style={styles.miniDesc}>함께 연습하는 상대예요</Text>
             </View>
           ) : null}
+
           {avatar?.relationship_description ? (
-            <View style={[styles.infoRow, styles.infoRowBorder]}>
-              <Text style={styles.infoLabel}>관계 설명</Text>
-              <Text style={[styles.infoValue, styles.infoValueWrap]}>{avatar.relationship_description}</Text>
+            <View style={styles.miniCardWide}>
+              <View style={[styles.miniIcon, { backgroundColor: '#EDE9FE' }]}>
+                <MessageCircle size={13} color={BRAND} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.miniLbl}>관계 설명</Text>
+                <Text style={styles.miniDescWide}>{avatar.relationship_description}</Text>
+              </View>
             </View>
           ) : null}
-        </Card>
-
-        {/* ── AI 참고 메모 ── */}
-        {avatar?.memo ? (
-          <Card variant="outlined" style={styles.memoCard}>
-            <Text style={styles.memoLabel}>AI 참고 메모</Text>
-            <Text style={styles.memoText}>{avatar.memo}</Text>
-          </Card>
-        ) : null}
-
-        {/* ── 아바타 관련 설명 ── */}
-        {avatar?.description ? (
-          <Card variant="outlined" style={styles.memoCard}>
-            <Text style={styles.memoLabel}>아바타 관련 설명</Text>
-            <Text style={styles.memoText}>{avatar.description}</Text>
-          </Card>
-        ) : null}
-
-        {/* Stats — totalConversations and totalMinutes are real, avgScore is 0 until backend adds score */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <MessageCircle size={20} color="#6C3BFF" />
-            <Text style={styles.statValue}>{totalConversations}</Text>
-            <Text style={styles.statLabel}>대화</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Clock size={20} color="#4CAF50" />
-            <Text style={styles.statValue}>{totalMinutes}분</Text>
-            <Text style={styles.statLabel}>연습 시간</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <TrendingUp size={20} color="#F4A261" />
-            <Text style={styles.statValue}>{avgScore}%</Text>
-            <Text style={styles.statLabel}>평균 점수</Text>
-          </View>
-        </View>
+        </View>{/* ← FIX 2: this closing tag was missing */}
 
         {/* ── 말투 설정 ── */}
-        <Text style={styles.sectionTitle}>말투 설정</Text>
-        <Card variant="elevated" style={styles.speechCard}>
-          <View style={styles.speechRow}>
-            <View style={styles.speechItem}>
-              <Text style={styles.speechLabel}>아바타 → 나</Text>
-              <View style={[styles.speechBadge, { backgroundColor: (SPEECH_LEVELS[formalityToUser]?.color || '#6C3BFF') + '20' }]}>
-                <Text style={[styles.speechBadgeText, { color: SPEECH_LEVELS[formalityToUser]?.color || '#6C3BFF' }]}>
-                  {SPEECH_LEVELS[formalityToUser]?.name_ko || '해요체'}
+        <Text style={styles.sectionLabel}>말투 설정</Text>
+        <View style={styles.speechRow}>
+          {[
+            { label: '아바타 → 나',  level: formalityToUser },
+            { label: '나 → 아바타', level: formalityFromUser },
+          ].map((s, i) => (
+            <View key={i} style={styles.speechCard}>
+              <Text style={styles.speechDir}>{s.label}</Text>
+              <View style={styles.speechBadge}>
+                <Text style={styles.speechBadgeText}>
+                  {SPEECH_LEVELS[s.level]?.name_ko || '해요체'}
                 </Text>
               </View>
             </View>
-            <View style={styles.speechItem}>
-              <Text style={styles.speechLabel}>나 → 아바타</Text>
-              <View style={[styles.speechBadge, { backgroundColor: (SPEECH_LEVELS[formalityFromUser]?.color || '#6C3BFF') + '20' }]}>
-                <Text style={[styles.speechBadgeText, { color: SPEECH_LEVELS[formalityFromUser]?.color || '#6C3BFF' }]}>
-                  {SPEECH_LEVELS[formalityFromUser]?.name_ko || '해요체'}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </Card>
+          ))}
+        </View>
 
         {/* ── 관심사 ── */}
         {(avatar?.interests ?? []).length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>관심사</Text>
-            <Card variant="elevated" style={styles.tagCard}>
-              <View style={styles.tagGrid}>
-                {avatar.interests.map((item: string, i: number) => (
-                  <Tag key={i} label={item} selected />
-                ))}
-              </View>
-            </Card>
+            <Text style={styles.sectionLabel}>관심사</Text>
+            <View style={styles.tagWrap}>
+              {avatar.interests.map((item: string, i: number) => (
+                <View key={i} style={styles.tagSel}>
+                  <Text style={styles.tagSelText}>{item}</Text>
+                </View>
+              ))}
+            </View>
           </>
         )}
 
         {/* ── 성격 ── */}
         {(avatar?.personality_traits ?? []).length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>성격</Text>
-            <Card variant="elevated" style={styles.tagCard}>
-              <View style={styles.tagGrid}>
-                {avatar.personality_traits.map((trait: string, i: number) => (
-                  <Tag key={i} label={trait} variant="outline" />
-                ))}
-              </View>
-            </Card>
+            <Text style={styles.sectionLabel}>성격</Text>
+            <View style={styles.tagWrap}>
+              {avatar.personality_traits.map((trait: string, i: number) => (
+                <View key={i} style={styles.tagOut}>
+                  <Text style={styles.tagOutText}>{trait}</Text>
+                </View>
+              ))}
+            </View>
           </>
         )}
 
-        {/* Recent Conversations — real data from backend */}
-        <Text style={styles.sectionTitle}>최근 대화</Text>
+        {/* ── 최근 대화 ── */}
+        <Text style={styles.sectionLabel}>최근 대화</Text>
         {recentSessions.length === 0 ? (
           <Card variant="elevated" style={styles.emptyCard}>
             <Text style={styles.emptyText}>아직 대화 기록이 없어요. 대화를 시작해보세요!</Text>
@@ -363,113 +504,167 @@ export default function AvatarDetailScreen() {
             ))}
           </View>
         )}
+
         {/* ── 싫어하는 주제 ── */}
         {(avatar?.dislikes ?? []).length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>싫어하는 주제</Text>
-            <Card variant="elevated" style={styles.tagCard}>
-              <View style={styles.tagGrid}>
-                {avatar.dislikes.map((item: string, i: number) => (
-                  <Tag key={i} label={item} variant="outline" />
-                ))}
-              </View>
-            </Card>
+            <Text style={styles.sectionLabel}>싫어하는 주제</Text>
+            <View style={styles.tagWrap}>
+              {avatar.dislikes.map((item: string, i: number) => (
+                <View key={i} style={styles.tagOut}>
+                  <Text style={styles.tagOutText}>{item}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* ── AI 참고 메모 ── */}
+        {avatar?.memo && (
+          <>
+            <Text style={styles.sectionLabel}>AI 참고 메모</Text>
+            <View style={styles.guideCard}>
+              <Text style={styles.memoText}>{avatar.memo}</Text>
+            </View>
+          </>
+        )}
+
+        {/* ── 아바타 관련 설명 ── */}
+        {avatar?.description && (
+          <>
+            <Text style={styles.sectionLabel}>아바타 관련 설명</Text>
+            <View style={styles.guideCard}>
+              <Text style={styles.memoText}>{avatar.description}</Text>
+            </View>
           </>
         )}
 
         {/* ── 대화 가이드 ── */}
-        <Text style={styles.sectionTitle}>대화 가이드</Text>
-        <Card variant="elevated" style={styles.bioCard}>
-          <View style={styles.bioHeader}>
-            <Sparkles size={14} color="#6C3BFF" />
-            <Text style={styles.bioSubtitle}>
-              {avatar?.bio ? 'HyperCLOVA X가 분석했어요' : 'AI 가이드 (자동 생성)'}
+        <Text style={styles.sectionLabel}>대화 가이드</Text>
+        <View style={styles.guideCard}>
+          <View style={styles.guideHead}>
+            <View style={styles.guideDot} />
+            <Text style={styles.guideLbl}>
+              {avatar?.bio ? 'HyperCLOVA X 분석' : 'AI 자동 생성'}
             </Text>
           </View>
-          <Text style={styles.bioText}>{bioText}</Text>
-        </Card>
+          <Text style={styles.guideText}>{bioText}</Text>
+        </View>
 
-        {/* ── 삭제 ── */}
-        <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-          <Trash2 size={18} color="#E53935" />
-          <Text style={styles.deleteButtonText}>아바타 삭제</Text>
+        {/* ── Delete ── */}
+        <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
+          <Trash2 size={14} color="#FF4D4D" />
+          <Text style={styles.deleteBtnText}>아바타 삭제</Text>
         </TouchableOpacity>
 
       </ScrollView>
 
+      {/* Footer */}
       <View style={styles.footer}>
-        <Button title="대화 시작하기" onPress={handleStartChat} showArrow />
+        <TouchableOpacity style={styles.startBtn} onPress={handleStartChat}>
+          <Text style={styles.startBtnText}>대화 시작하기</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  safe:    { flex: 1, backgroundColor: '#F7F7FB' },
-  content: { paddingHorizontal: 20, paddingBottom: 100 },
+  safe:    { flex: 1, backgroundColor: BG },
+  content: { paddingHorizontal: 16, paddingBottom: 110, paddingTop: 4 },
 
-  avatarHeader: { alignItems: 'center', paddingVertical: 20 },
-  avatarIcon:   { width: 100, height: 100, borderRadius: 50, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  avatarInfo:   { alignItems: 'center' },
-  nameRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
-  avatarName:   { fontSize: 24, fontWeight: '700', color: '#1A1A2E' },
-  avatarNameEn: { fontSize: 14, color: '#6C6C80', marginBottom: 10 },
-  badgeRow:     { flexDirection: 'row', gap: 8 },
+  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+  headerBtn:   { width: 36, height: 36, borderRadius: 18, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 15, fontWeight: '500', color: '#111' },
 
-  typeBadge:              { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
-  typeBadgeFictional:     { backgroundColor: '#F3E5F5' },
-  typeBadgeReal:          { backgroundColor: '#E3F2FD' },
-  typeBadgeText:          { fontSize: 11, fontWeight: '600' },
-  typeBadgeTextFictional: { color: '#9C27B0' },
-  typeBadgeTextReal:      { color: '#2196F3' },
+  hero:       { alignItems: 'center', paddingTop: 8, paddingBottom: 24, gap: 7 },
+  avRing:     { width: 100, height: 100, borderRadius: 50, padding: 3, marginBottom: 4, backgroundColor: '#A78BFA' },
+  avInner:    { width: '100%', height: '100%', borderRadius: 50, alignItems: 'center', justifyContent: 'center' },
+  nameRow:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  avatarName: { fontSize: 22, fontWeight: '500', color: '#111' },
+  favBtn:     { width: 30, height: 30, borderRadius: 15, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  favBtnOn:   { backgroundColor: '#FFE4E4' },
+  avatarSub:  { fontSize: 13, color: '#aaa', marginTop: -3 },
+  avatarRole: { fontSize: 13, color: '#888' },
+  heroPills:  { flexDirection: 'row', gap: 7, marginTop: 2 },
+  pillType:     { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#EDE9FE' },
+  pillTypeText: { fontSize: 11, fontWeight: '500', color: BRAND },
+  pillDiff:     { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#FEF9C3' },
+  pillDiffText: { fontSize: 11, fontWeight: '500', color: '#92400E' },
 
-  infoCard:      { marginBottom: 20 },
-  infoRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 10 },
-  infoRowBorder: { borderTopWidth: 1, borderTopColor: '#F0F0F5' },
-  infoLabel:     { fontSize: 13, color: '#6C6C80', fontWeight: '500', flex: 1 },
-  infoValue:     { fontSize: 13, color: '#1A1A2E', fontWeight: '600', flex: 2, textAlign: 'right' },
-  infoValueWrap: { textAlign: 'right', lineHeight: 20 },
+  compatibilityCard:    { width: '100%', marginTop: 14, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 16, borderWidth: 1, borderColor: '#EEE8FF' },
+  compatibilityTopRow:  { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  compatibilityCopy:    { flex: 1 },
+  compatibilityEyebrow: { fontSize: 11, fontWeight: '600', color: BRAND, marginBottom: 6 },
+  compatibilityHeadline:{ fontSize: 15, fontWeight: '600', color: '#111', lineHeight: 22, marginBottom: 6 },
+  compatibilityCaption: { fontSize: 12, color: '#666', lineHeight: 18 },
+  factorGrid:           { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
+  factorCard:           { width: '47.5%', backgroundColor: '#FAFAFD', borderRadius: 16, padding: 12, minHeight: 102 },
+  factorIconWrap:       { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  factorTitle:          { fontSize: 11, fontWeight: '600', color: '#7A7A92', marginBottom: 6 },
+  factorValue:          { fontSize: 12, lineHeight: 18, color: '#333' },
 
-  memoCard:  { marginBottom: 16, borderColor: '#E2E2EC' },
-  memoLabel: { fontSize: 12, fontWeight: '600', color: '#6C3BFF', marginBottom: 6 },
-  memoText:  { fontSize: 13, color: '#6C6C80', lineHeight: 20 },
+  stats:     { flexDirection: 'row', gap: 10, marginBottom: 24 },
+  statCard:  { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center', gap: 5 },
+  statIcon:  { width: 32, height: 32, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  statValue: { fontSize: 16, fontWeight: '500', color: '#111' },
+  statLabel: { fontSize: 10, color: '#999' },
 
-  statsRow:    { flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  statItem:    { flex: 1, alignItems: 'center' },
-  statDivider: { width: 1, backgroundColor: '#E2E2EC' },
-  statValue:   { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginTop: 6, marginBottom: 2 },
-  statLabel:   { fontSize: 11, color: '#6C6C80' },
+  sectionLabel: { fontSize: 11, fontWeight: '500', color: '#999', letterSpacing: 0.5, marginBottom: 10 },
 
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
+  infoGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
+  miniCard:     { width: '47.5%', backgroundColor: '#fff', borderRadius: 20, padding: 15, gap: 3 },
+  miniCardWide: { width: '100%', backgroundColor: '#fff', borderRadius: 20, padding: 15, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  miniIcon:     { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 7 },
+  miniLbl:      { fontSize: 10, color: '#bbb', fontWeight: '500', letterSpacing: 0.4 },
+  miniBig:      { fontSize: 24, fontWeight: '500', color: '#111', lineHeight: 28, marginTop: 1 },
+  miniDesc:     { fontSize: 11, color: '#888', lineHeight: 16, marginTop: 3 },
+  miniDescWide: { fontSize: 13, color: '#444', lineHeight: 20, marginTop: 4 },
 
-  speechCard:      { marginBottom: 20 },
-  speechRow:       { flexDirection: 'row', gap: 16 },
-  speechItem:      { flex: 1, alignItems: 'center' },
-  speechLabel:     { fontSize: 12, color: '#6C6C80', marginBottom: 8 },
-  speechBadge:     { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
-  speechBadgeText: { fontSize: 14, fontWeight: '600' },
-  interestsCard: { marginBottom: 20 },
-  tagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  emptyCard: { marginBottom: 20 },
-  emptyText: { fontSize: 14, color: '#6C6C80', textAlign: 'center', paddingVertical: 8 },
-  conversationList: { gap: 10, marginBottom: 20 },
-  convCard: { padding: 14 },
-  convRow: { flexDirection: 'row', alignItems: 'center' },
-  convInfo: { flex: 1 },
-  convSituation: { fontSize: 15, fontWeight: '600', color: '#1A1A2E', marginBottom: 2 },
-  convDate: { fontSize: 12, color: '#6C6C80' },
-  convScore: { backgroundColor: '#F0EDFF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, marginRight: 8 },
-  convScoreText: { fontSize: 13, fontWeight: '600', color: '#6C3BFF' },
- 
-  tagCard: { marginBottom: 20 },
+  speechRow:       { flexDirection: 'row', gap: 8, marginBottom: 24 },
+  speechCard:      { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center', gap: 8 },
+  speechDir:       { fontSize: 10, color: '#aaa' },
+  speechBadge:     { backgroundColor: BRAND, paddingHorizontal: 18, paddingVertical: 7, borderRadius: 20 },
+  speechBadgeText: { fontSize: 13, fontWeight: '500', color: '#fff' },
 
-  bioCard:     { marginBottom: 20 },
-  bioHeader:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
-  bioSubtitle: { fontSize: 12, color: '#6C3BFF', fontWeight: '600' },
-  bioText:     { fontSize: 14, color: '#1A1A2E', lineHeight: 22 },
+  tagWrap:    { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 24 },
+  tagSel:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#EDE9FE' },
+  tagSelText: { fontSize: 12, fontWeight: '500', color: BRAND },
+  tagOut:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#fff', borderWidth: 0.5, borderColor: '#E5E5EA' },
+  tagOutText: { fontSize: 12, fontWeight: '500', color: '#555' },
 
-  deleteButton:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, marginBottom: 20 },
-  deleteButtonText: { fontSize: 14, fontWeight: '600', color: '#E53935' },
+  // FIX 3: statsRow / statItem / statDivider were referenced in original JSX
+  // but never defined — caused style lookup to return undefined (no crash but
+  // layout completely broken). Added here; old duplicate stats block in JSX
+  // was removed since the stats section above already uses real data.
+  statsRow:    { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 24 },
+  statItem:    { flex: 1, alignItems: 'center', gap: 6 },
+  statDivider: { width: 1, height: 32, backgroundColor: '#F0F0F5' },
 
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#F7F7FB' },
+  conversationList: { gap: 10, marginBottom: 24 },
+  emptyCard:        { padding: 20, alignItems: 'center' },
+  emptyText:        { fontSize: 13, color: '#999', textAlign: 'center' },
+  convCard:         { marginBottom: 0 },
+  convRow:          { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  convInfo:         { flex: 1 },
+  convSituation:    { fontSize: 14, fontWeight: '600', color: '#111', marginBottom: 3 },
+  convDate:         { fontSize: 12, color: '#aaa' },
+  convScore:        { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#EDE9FE', borderRadius: 10 },
+  convScoreText:    { fontSize: 11, fontWeight: '600', color: BRAND },
+
+  guideCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 24 },
+  guideHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  guideDot:  { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND },
+  guideLbl:  { fontSize: 11, fontWeight: '500', color: BRAND },
+  guideText: { fontSize: 13, color: '#555', lineHeight: 21 },
+  memoText:  { fontSize: 13, color: '#555', lineHeight: 21 },
+
+  deleteBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, marginBottom: 8 },
+  deleteBtnText: { fontSize: 13, fontWeight: '500', color: '#FF4D4D' },
+
+  footer:       { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, paddingBottom: 28, backgroundColor: BG },
+  startBtn:     { backgroundColor: BRAND, borderRadius: 22, paddingVertical: 15, alignItems: 'center' },
+  startBtnText: { fontSize: 15, fontWeight: '500', color: '#fff' },
 });

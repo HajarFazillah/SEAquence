@@ -60,6 +60,23 @@ DECORATIVE_EMOJI_PATTERN = re.compile(
 # Optional very small symbol cleanup for common sparkle/hearts that sometimes slip through.
 DECORATIVE_SYMBOL_PATTERN = re.compile(r"(♡|♥|❣️|💫)")
 
+# Broad emoji cleanup for chat outputs where the user wants plain text only.
+GENERAL_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F300-\U0001F5FF"
+    "\U0001F600-\U0001F64F"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FAFF"
+    "\U00002700-\U000027BF"
+    "\U00002600-\U000026FF"
+    "]",
+    flags=re.UNICODE,
+)
+
 # Remove repeated blank spaces/newlines after cleanup.
 MULTISPACE_PATTERN = re.compile(r"[ \t]{2,}")
 MULTINEWLINE_PATTERN = re.compile(r"\n{3,}")
@@ -188,6 +205,8 @@ def sanitize_model_output(text: Optional[str]) -> str:
 
     cleaned = DECORATIVE_EMOJI_PATTERN.sub("", text)
     cleaned = DECORATIVE_SYMBOL_PATTERN.sub("", cleaned)
+    cleaned = GENERAL_EMOJI_PATTERN.sub("", cleaned)
+    cleaned = cleaned.replace("\uFE0F", "")
 
     cleaned = MULTISPACE_PATTERN.sub(" ", cleaned)
     cleaned = MULTINEWLINE_PATTERN.sub("\n\n", cleaned)

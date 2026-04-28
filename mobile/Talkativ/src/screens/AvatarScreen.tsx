@@ -5,18 +5,25 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User, Heart } from 'lucide-react-native';
+import { Plus, ChevronRight, Wand2, Shuffle, X, Edit, Trash2, Sparkles, User, Heart, History } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Header, Card, SearchBar, StatusBadge, Tag, Icon, CompatibilityRing, IconName } from '../components';
 import { AVATAR_COLORS } from '../constants';
-import { getMyAvatars, deleteAvatar, UserAvatar } from '../services/apiUser';
+import { apiService, CompatibilityAvatarInput } from '../services/api';
+import { getMyAvatars, deleteAvatar, getMyProfile, UserAvatar } from '../services/apiUser';
+import { ConversationPreview, getConversationPreviewMapByAvatar } from '../services/conversationPreview';
 
-const FAVORITES_KEY = 'favorite_avatars';
-const AI_SERVER = 'http://10.0.2.2:8000';
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const FAVORITES_KEY = 'favorite_avatars'; // must match AvatarDetailScreen
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 type RandomGender = 'male' | 'female' | 'other';
 type RandomAvatarType = 'fictional' | 'real';
 type RandomDifficulty = 'easy' | 'medium' | 'hard';
+
+// ── Static Data ────────────────────────────────────────────────────────────────
 
 const RANDOM_NAMES: Array<{ ko: string; en: string; gender: RandomGender | 'neutral' }> = [
   { ko: '김하린', en: 'Harin Kim', gender: 'female' },
@@ -160,6 +167,8 @@ const RANDOM_MEMOS = [
   '한국어 학습에 도움이 되도록 쉬운 대안 표현을 함께 떠올립니다.',
 ];
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
 const randomItem = <T,>(items: T[]): T =>
   items[Math.floor(Math.random() * items.length)];
 
@@ -174,7 +183,9 @@ const randomItems = <T,>(items: T[], min: number, max: number): T[] => {
 
 const buildRandomAvatarTemplate = () => {
   const gender = randomItem(RANDOM_GENDERS);
-  const names = RANDOM_NAMES.filter(item => gender === 'other' || item.gender === gender || item.gender === 'neutral');
+  const names = RANDOM_NAMES.filter(
+    item => gender === 'other' || item.gender === gender || item.gender === 'neutral'
+  );
   const name = randomItem(names.length > 0 ? names : RANDOM_NAMES);
   const role = randomItem(RANDOM_ROLES);
   const ageRange = ROLE_AGE_RANGES[role.id] || [18, 45];
@@ -207,67 +218,149 @@ const buildRandomAvatarTemplate = () => {
   };
 };
 
+// ── Compatibility ──────────────────────────────────────────────────────────────
+
+const DEFAULT_COMPAT_INTERESTS = ['K-POP', '카페', '여행'];
+
+const normalizeInterest = (value: string) => value.trim().toLowerCase();
+
+type CompatibilityBreakdown = {
+  score: number;
+  sharedInterests: string[];
+  overlapBonus: number;
+  sharedInterestBonus: number;
+  difficultyBonus: number;
+};
+
+const buildFallbackCompatibilityBreakdowns = (
+  avatarList: UserAvatar[],
+  userInterests: string[]
+): Record<number, CompatibilityBreakdown> => {
+  const baselineInterests = userInterests.length > 0 ? userInterests : DEFAULT_COMPAT_INTERESTS;
+  const normalizedUserInterests = baselineInterests.map(normalizeInterest);
+
+  return avatarList.reduce<Record<number, CompatibilityBreakdown>>((scores, avatar) => {
+    const sharedInterests = (avatar.interests || []).filter((interest) =>
+      normalizedUserInterests.some(
+        (userInterest) =>
+          normalizeInterest(interest).includes(userInterest) ||
+          userInterest.includes(normalizeInterest(interest))
+      )
+    );
+
+    const overlapRatio =
+      sharedInterests.length /
+      Math.max(baselineInterests.length, avatar.interests?.length || 1, 1);
+    const overlapBonus = Math.round(overlapRatio * 36);
+    const sharedInterestBonus = Math.min(sharedInterests.length * 8, 24);
+    const difficultyBonus =
+      avatar.difficulty === 'easy' ? 8 : avatar.difficulty === 'medium' ? 4 : 0;
+    const score = Math.max(
+      40,
+      Math.min(92, 46 + overlapBonus + sharedInterestBonus + difficultyBonus)
+    );
+
+    scores[avatar.id] = { score, sharedInterests, overlapBonus, sharedInterestBonus, difficultyBonus };
+    return scores;
+  }, {});
+};
+
+// ── Main Component ─────────────────────────────────────────────────────────────
+
 export default function AvatarScreen() {
   const navigation = useNavigation<any>();
-  const [search,          setSearch]          = useState('');
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [avatars,         setAvatars]         = useState<UserAvatar[]>([]);
-  const [loading,         setLoading]         = useState(true);
-  const [filterType,      setFilterType]      = useState<'all' | 'fictional' | 'real' | 'favorites'>('all');
-  const [favoriteIds,     setFavoriteIds]     = useState<string[]>([]);
-  const [compatScores,    setCompatScores]    = useState<Record<number, number>>({});
+  const [search,               setSearch]               = useState('');
+  const [showCreateModal,      setShowCreateModal]      = useState(false);
+  const [avatars,              setAvatars]              = useState<UserAvatar[]>([]);
+  const [loading,              setLoading]              = useState(true);
+  const [filterType,           setFilterType]           = useState<'all' | 'fictional' | 'real' | 'favorites'>('all');
+  const [favoriteIds,          setFavoriteIds]          = useState<string[]>([]);
+  const [compatScores,         setCompatScores]         = useState<Record<number, number>>({});
+  const [compatBreakdowns,     setCompatBreakdowns]     = useState<Record<number, CompatibilityBreakdown>>({});
+  const [conversationPreviews, setConversationPreviews] = useState<Record<string, ConversationPreview>>({});
 
+  // FIX: removed dead raw fetch block — only use apiService.batchCompatibility
   const fetchCompatibilityScores = async (
-    avatarList:    UserAvatar[],
+    avatarList: UserAvatar[],
     userInterests: string[]
   ): Promise<Record<number, number>> => {
-    if (!avatarList.length) return {};
+    if (!avatarList.length || userInterests.length === 0) return {};
+
     try {
-      const res = await fetch(`${AI_SERVER}/api/v1/compatibility/batch-simple`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_profile: { name: '나', likes: userInterests, dislikes: [] },
-          avatars: avatarList.map(a => ({
-            id:                 String(a.id),
-            name_ko:            a.name_ko,
-            role:               a.role               || 'friend',
-            interests:          a.interests          || [],
-            personality_traits: a.personality_traits || [],
-            dislikes:           a.dislikes           || [],
-          })),
-        }),
-      });
-      if (!res.ok) return {};
-      const data = await res.json();
+      const avatarInputs: CompatibilityAvatarInput[] = avatarList.map((avatar) => ({
+        id:                 String(avatar.id),
+        name_ko:            avatar.name_ko,
+        role:               avatar.role               || 'friend',
+        difficulty:         avatar.difficulty         || 'medium',
+        interests:          avatar.interests          || [],
+        dislikes:           avatar.dislikes           || [],
+        personality_traits: avatar.personality_traits || [],
+      }));
+
+      const results = await apiService.batchCompatibility(userInterests, [], avatarInputs);
       const scores: Record<number, number> = {};
-      (data.results || []).forEach((r: any, idx: number) => {
-        const avatar = avatarList[idx];
-        if (avatar) scores[avatar.id] = Math.round(r.overall_score || 0);
+      results.forEach((result) => {
+        const avatarId = Number(result.avatar_id);
+        if (Number.isFinite(avatarId)) {
+          scores[avatarId] = result.score;
+        }
       });
       return scores;
     } catch {
       return {};
     }
   };
-  // ── 아바타 + 궁합 로드 ─────────────────────────────────────────────────────
+
+  // ── Load avatars + compatibility ───────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       const load = async () => {
         try {
           setLoading(true);
-          const data = await getMyAvatars();
+          const [avatarsResult, profileResult, previewsResult] = await Promise.allSettled([
+            getMyAvatars(),
+            getMyProfile(),
+            getConversationPreviewMapByAvatar(),
+          ]);
+
+          if (avatarsResult.status !== 'fulfilled') {
+            throw avatarsResult.reason;
+          }
+
+          const data = avatarsResult.value;
           setAvatars(data);
 
-          // Load favorite IDs from AsyncStorage
+          if (previewsResult.status === 'fulfilled') {
+            setConversationPreviews(previewsResult.value);
+          } else {
+            setConversationPreviews({});
+          }
+
+          const profileInterests =
+            profileResult.status === 'fulfilled'
+              ? profileResult.value.interests || []
+              : [];
+
+          // Show fallback scores immediately while the real fetch runs
+          const fallbackBreakdowns = buildFallbackCompatibilityBreakdowns(data, profileInterests);
+          setCompatBreakdowns(fallbackBreakdowns);
+          setCompatScores(
+            Object.fromEntries(
+              Object.entries(fallbackBreakdowns).map(([id, bd]) => [Number(id), bd.score])
+            )
+          );
+
+          // FIX: FAVORITES_KEY is now defined at the top of the file
           const stored = await AsyncStorage.getItem(FAVORITES_KEY);
           setFavoriteIds(stored ? JSON.parse(stored) : []);
+
           if (data.length > 0) {
-            const userInterests = data
-              .flatMap(a => a.interests || [])
-              .slice(0, 5);
-            fetchCompatibilityScores(data, userInterests)
-              .then(scores => setCompatScores(scores))
+            fetchCompatibilityScores(data, profileInterests)
+              .then((scores) => {
+                if (Object.keys(scores).length > 0) {
+                  setCompatScores(scores);
+                }
+              })
               .catch(() => {});
           }
         } catch (e) {
@@ -280,6 +373,7 @@ export default function AvatarScreen() {
     }, [])
   );
 
+  // ── Filtering ──────────────────────────────────────────────────────────────
   const filteredAvatars = avatars.filter((avatar) => {
     const matchesSearch =
       (avatar.name_ko ?? '').includes(search) ||
@@ -287,15 +381,36 @@ export default function AvatarScreen() {
       (avatar.relationship_description ?? '').includes(search);
 
     let matchesFilter = true;
-    if (filterType === 'fictional') matchesFilter = avatar.avatar_type === 'fictional';
-    else if (filterType === 'real') matchesFilter = avatar.avatar_type === 'real';
+    if (filterType === 'fictional')  matchesFilter = avatar.avatar_type === 'fictional';
+    else if (filterType === 'real')  matchesFilter = avatar.avatar_type === 'real';
     else if (filterType === 'favorites') matchesFilter = favoriteIds.includes(String(avatar.id));
 
     return matchesSearch && matchesFilter;
   });
 
+  // ── Navigation helpers ─────────────────────────────────────────────────────
   const handleAvatarPress = (avatar: UserAvatar) => {
-    navigation.navigate('AvatarDetail', { avatar });
+    const compatibilityScore    = compatScores[avatar.id];
+    const compatibilityBreakdown = compatBreakdowns[avatar.id];
+    navigation.navigate('AvatarDetail', {
+      avatar: compatibilityScore !== undefined
+        ? {
+            ...avatar,
+            compatibility: {
+              score: compatibilityScore,
+              common_interests: compatibilityBreakdown?.sharedInterests || [],
+              breakdown: compatibilityBreakdown
+                ? {
+                    base_score:            46,
+                    overlap_bonus:         compatibilityBreakdown.overlapBonus,
+                    shared_interest_bonus: compatibilityBreakdown.sharedInterestBonus,
+                    difficulty_bonus:      compatibilityBreakdown.difficultyBonus,
+                  }
+                : undefined,
+            },
+          }
+        : avatar,
+    });
   };
 
   const handleCreateFromScratch = () => {
@@ -305,10 +420,7 @@ export default function AvatarScreen() {
 
   const handleCreateRandom = () => {
     setShowCreateModal(false);
-    navigation.navigate('CreateAvatar', {
-      mode: 'random',
-      template: buildRandomAvatarTemplate(),
-    });
+    navigation.navigate('CreateAvatar', { mode: 'random', template: buildRandomAvatarTemplate() });
   };
 
   const handleEditAvatar = (avatar: UserAvatar) => {
@@ -342,6 +454,7 @@ export default function AvatarScreen() {
     );
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="아바타" showBack={false} showBell />
@@ -393,7 +506,11 @@ export default function AvatarScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.filterTab, styles.filterTabHeart, filterType === 'favorites' && styles.filterTabFavorite]}
+            style={[
+              styles.filterTab,
+              styles.filterTabHeart,
+              filterType === 'favorites' && styles.filterTabFavorite,
+            ]}
             onPress={() => setFilterType('favorites')}
           >
             <Heart
@@ -415,6 +532,25 @@ export default function AvatarScreen() {
           </View>
           <ChevronRight size={20} color="#6C3BFF" />
         </TouchableOpacity>
+
+        {/* Section Header */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>내 아바타</Text>
+          <TouchableOpacity
+            style={styles.sectionLink}
+            onPress={() => navigation.navigate('ConversationHistory')}
+          >
+            <History size={15} color="#6C3BFF" />
+            <Text style={styles.sectionLinkText}>View history</Text>
+            {Object.keys(conversationPreviews).length > 0 && (
+              <View style={styles.historyCountBadge}>
+                <Text style={styles.historyCountText}>
+                  {Object.keys(conversationPreviews).length}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
 
         {/* Avatar List */}
         <View style={styles.avatarList}>
@@ -448,13 +584,7 @@ export default function AvatarScreen() {
                         </Text>
                         <Text style={styles.avatarDesc}>{avatar.relationship_description}</Text>
                       </View>
-
-                      {/* 궁합 링 */}
-                      {score !== undefined ? (
-                        <CompatibilityRing percentage={score} size={52} />
-                      ) : (
-                        <View style={styles.compatPlaceholder} />
-                      )}
+                      <CompatibilityRing percentage={score ?? 55} size={52} />
                     </View>
 
                     {/* Avatar Type Badge */}
@@ -468,7 +598,9 @@ export default function AvatarScreen() {
                           : <User size={12} color="#2196F3" />}
                         <Text style={[
                           styles.typeBadgeText,
-                          avatar.avatar_type === 'fictional' ? styles.typeBadgeTextFictional : styles.typeBadgeTextReal,
+                          avatar.avatar_type === 'fictional'
+                            ? styles.typeBadgeTextFictional
+                            : styles.typeBadgeTextReal,
                         ]}>
                           {avatar.avatar_type === 'fictional' ? '가상 인물' : '실제 인물'}
                         </Text>
@@ -484,11 +616,17 @@ export default function AvatarScreen() {
 
                     {/* Action buttons */}
                     <View style={styles.actionButtons}>
-                      <TouchableOpacity style={styles.actionBtn} onPress={() => handleEditAvatar(avatar)}>
+                      <TouchableOpacity
+                        style={styles.actionBtn}
+                        onPress={() => handleEditAvatar(avatar)}
+                      >
                         <Edit size={16} color="#6C3BFF" />
                         <Text style={styles.actionBtnText}>수정</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={[styles.actionBtn, styles.actionBtnDanger]} onPress={() => handleDeleteAvatar(avatar)}>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.actionBtnDanger]}
+                        onPress={() => handleDeleteAvatar(avatar)}
+                      >
                         <Trash2 size={16} color="#E53935" />
                         <Text style={[styles.actionBtnText, styles.actionBtnTextDanger]}>삭제</Text>
                       </TouchableOpacity>
@@ -503,15 +641,22 @@ export default function AvatarScreen() {
                   <Text style={styles.emptyTitle}>
                     {filterType === 'favorites'
                       ? '즐겨찾기한 아바타가 없어요'
-                      : search ? '검색 결과가 없어요' : '아직 만든 아바타가 없어요'}
+                      : search
+                      ? '검색 결과가 없어요'
+                      : '아직 만든 아바타가 없어요'}
                   </Text>
                   <Text style={styles.emptySubtitle}>
                     {filterType === 'favorites'
                       ? '아바타 상세 페이지에서 ♡를 눌러 추가해보세요'
-                      : search ? '다른 검색어를 입력해보세요' : '새 아바타를 만들어보세요!'}
+                      : search
+                      ? '다른 검색어를 입력해보세요'
+                      : '새 아바타를 만들어보세요!'}
                   </Text>
                   {!search && filterType !== 'favorites' && (
-                    <TouchableOpacity style={styles.emptyButton} onPress={() => setShowCreateModal(true)}>
+                    <TouchableOpacity
+                      style={styles.emptyButton}
+                      onPress={() => setShowCreateModal(true)}
+                    >
                       <Plus size={18} color="#FFFFFF" />
                       <Text style={styles.emptyButtonText}>아바타 만들기</Text>
                     </TouchableOpacity>
@@ -524,7 +669,12 @@ export default function AvatarScreen() {
       </ScrollView>
 
       {/* Create Avatar Modal */}
-      <Modal visible={showCreateModal} transparent animationType="fade" onRequestClose={() => setShowCreateModal(false)}>
+      <Modal
+        visible={showCreateModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCreateModal(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
@@ -534,23 +684,29 @@ export default function AvatarScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.modalSubtitle}>어떻게 만들까요?</Text>
+
             <TouchableOpacity style={styles.createOption} onPress={handleCreateFromScratch}>
               <View style={[styles.createOptionIcon, { backgroundColor: '#F0EDFF' }]}>
                 <Wand2 size={28} color="#6C3BFF" />
               </View>
               <View style={styles.createOptionText}>
                 <Text style={styles.createOptionTitle}>처음부터 만들기</Text>
-                <Text style={styles.createOptionDesc}>이름, 성격, 관심사를 직접 설정해서 나만의 아바타를 만들어요</Text>
+                <Text style={styles.createOptionDesc}>
+                  이름, 성격, 관심사를 직접 설정해서 나만의 아바타를 만들어요
+                </Text>
               </View>
               <ChevronRight size={20} color="#B0B0C5" />
             </TouchableOpacity>
+
             <TouchableOpacity style={styles.createOption} onPress={handleCreateRandom}>
               <View style={[styles.createOptionIcon, { backgroundColor: '#FFF0E0' }]}>
                 <Shuffle size={28} color="#F4A261" />
               </View>
               <View style={styles.createOptionText}>
                 <Text style={styles.createOptionTitle}>랜덤으로 만들기</Text>
-                <Text style={styles.createOptionDesc}>AI가 임의로 생성한 아바타를 수정해서 빠르게 만들어요</Text>
+                <Text style={styles.createOptionDesc}>
+                  AI가 임의로 생성한 아바타를 수정해서 빠르게 만들어요
+                </Text>
               </View>
               <ChevronRight size={20} color="#B0B0C5" />
             </TouchableOpacity>
@@ -561,12 +717,16 @@ export default function AvatarScreen() {
   );
 }
 
+// ── Styles ─────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 32 },
-  searchBar:         { marginBottom: 12 },
-  filterScroll:      { marginBottom: 16 },
-  filterRow:         { flexDirection: 'row', gap: 8 },
+
+  searchBar:    { marginBottom: 12 },
+  filterScroll: { marginBottom: 16 },
+  filterRow:    { flexDirection: 'row', gap: 8 },
+
   filterTab:         { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E2EC' },
   filterTabActive:   { backgroundColor: '#6C3BFF', borderColor: '#6C3BFF' },
   filterTabHeart:    { paddingHorizontal: 12, paddingVertical: 8 },
@@ -580,6 +740,13 @@ const styles = StyleSheet.create({
   createTitle:         { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 2 },
   createSubtitle:      { fontSize: 12, color: '#6C6C80' },
 
+  sectionHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  sectionTitle:      { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  sectionLink:       { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sectionLinkText:   { fontSize: 13, fontWeight: '600', color: '#6C3BFF' },
+  historyCountBadge: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEE8FF' },
+  historyCountText:  { fontSize: 10, fontWeight: '700', color: '#6C3BFF' },
+
   avatarList:    { gap: 14 },
   avatarCard:    { position: 'relative' },
   avatarRow:     { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
@@ -590,8 +757,6 @@ const styles = StyleSheet.create({
   avatarMeta:    { fontSize: 12, color: '#B0B0C5', marginBottom: 4 },
   avatarDesc:    { fontSize: 13, color: '#6C6C80' },
 
-  compatPlaceholder: { width: 52, height: 52 },
-
   typeBadgeRow:           { marginTop: 12 },
   typeBadge:              { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start' },
   typeBadgeFictional:     { backgroundColor: '#F3E5F5' },
@@ -600,7 +765,7 @@ const styles = StyleSheet.create({
   typeBadgeTextFictional: { color: '#9C27B0' },
   typeBadgeTextReal:      { color: '#2196F3' },
 
-  interestsRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
+  interestsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
 
   actionButtons:       { flexDirection: 'row', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
   actionBtn:           { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#F0EDFF', borderRadius: 8 },
@@ -608,10 +773,10 @@ const styles = StyleSheet.create({
   actionBtnText:       { fontSize: 13, fontWeight: '600', color: '#6C3BFF' },
   actionBtnTextDanger: { color: '#E53935' },
 
-  emptyState:      { alignItems: 'center', paddingVertical: 40 },
-  emptyTitle:      { fontSize: 16, fontWeight: '600', color: '#1A1A2E', marginTop: 16, marginBottom: 4 },
-  emptySubtitle:   { fontSize: 13, color: '#6C6C80', marginBottom: 20 },
-  emptyButton:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#6C3BFF', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
+  emptyState:    { alignItems: 'center', paddingVertical: 40 },
+  emptyTitle:    { fontSize: 16, fontWeight: '600', color: '#1A1A2E', marginTop: 16, marginBottom: 4 },
+  emptySubtitle: { fontSize: 13, color: '#6C6C80', marginBottom: 20 },
+  emptyButton:   { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#6C3BFF', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
   emptyButtonText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
 
   modalOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator,} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Header, Card, Button, CompatibilityRing, StatusBadge, Tag, Icon } from '../components';
 import { SYSTEM_AVATARS } from '../constants';
-import { apiService } from '../services/api';
-import { getMyAvatars, createAvatar, updateAvatar, deleteAvatar, UserAvatar } from '../services/apiUser';
+import { apiService, CompatibilityAvatarInput } from '../services/api';
 
 interface CompatibilityData {
   avatar_id: string;
@@ -13,56 +12,104 @@ interface CompatibilityData {
   chemistry_level: string;
   common_interests: string[];
   suggested_topics: string[];
+  recommendation?: string;
 }
+
+const normalizeInterest = (value: string) => value.trim().toLowerCase();
+
+const buildDeterministicFallback = (userInterests: string[]): CompatibilityData[] => {
+  const normalizedUserInterests = userInterests.map(normalizeInterest);
+
+  return SYSTEM_AVATARS.map((avatar) => {
+    const sharedInterests = avatar.interests.filter((interest) =>
+      normalizedUserInterests.some((userInterest) =>
+        normalizeInterest(interest).includes(userInterest) || userInterest.includes(normalizeInterest(interest))
+      )
+    );
+
+    const overlapRatio = userInterests.length > 0
+      ? sharedInterests.length / Math.max(userInterests.length, avatar.interests.length, 1)
+      : 0;
+
+    const baseScore = 48 + Math.round(overlapRatio * 38);
+    const interestBonus = Math.min(sharedInterests.length * 7, 21);
+    const difficultyBonus = avatar.difficulty === 'easy' ? 8 : avatar.difficulty === 'medium' ? 4 : 0;
+    const score = Math.max(42, Math.min(92, baseScore + interestBonus + difficultyBonus));
+
+    return {
+      avatar_id: avatar.id,
+      score,
+      chemistry_level: score >= 85 ? 'excellent' : score >= 70 ? 'good' : score >= 55 ? 'okay' : 'low',
+      common_interests: sharedInterests,
+      suggested_topics: sharedInterests.length > 0 ? sharedInterests.slice(0, 3) : avatar.interests.slice(0, 3),
+      recommendation: sharedInterests.length > 0
+        ? `공통 관심사 ${sharedInterests.length}개를 중심으로 대화를 시작하면 자연스러워요.`
+        : `${avatar.name_ko}의 대표 관심사로 대화를 시작하면 어색함을 줄일 수 있어요.`,
+    };
+  }).sort((a, b) => b.score - a.score);
+};
+
+const SYSTEM_AVATAR_INPUTS: CompatibilityAvatarInput[] = SYSTEM_AVATARS.map((avatar) => ({
+  id: avatar.id,
+  name_ko: avatar.name_ko,
+  role: avatar.role,
+  difficulty: avatar.difficulty,
+  interests: avatar.interests,
+  dislikes: [],
+  personality_traits: [],
+}));
 
 export default function AvatarCompatibilityScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const userInterests = route.params?.interests || ['K-POP', '카페', '여행'];
+  const userInterests = useMemo(() => {
+    const interests = route.params?.interests;
+    return Array.isArray(interests) && interests.length > 0 ? interests : ['K-POP', '카페', '여행'];
+  }, [route.params?.interests]);
 
   const [loading, setLoading] = useState(true);
   const [compatibilityData, setCompatibilityData] = useState<CompatibilityData[]>([]);
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadCompatibility();
-  }, []);
-
-  const loadCompatibility = async () => {
+  const loadCompatibility = useCallback(async () => {
     try {
       setLoading(true);
-      const results = await apiService.batchCompatibility(userInterests, []);
-      setCompatibilityData(results);
+      const results = await apiService.batchCompatibility(userInterests, [], SYSTEM_AVATAR_INPUTS);
+      setCompatibilityData(results.length > 0 ? results : buildDeterministicFallback(userInterests));
     } catch (error) {
       console.error('Failed to load compatibility:', error);
-      // Use mock data as fallback
-      const mockData = SYSTEM_AVATARS.map((avatar) => ({
-        avatar_id: avatar.id,
-        score: Math.floor(Math.random() * 40) + 60,
-        chemistry_level: 'good',
-        common_interests: avatar.interests.filter((i) => 
-          userInterests.some((ui: string) => 
-            i.toLowerCase().includes(ui.toLowerCase()) || 
-            ui.toLowerCase().includes(i.toLowerCase())
-          )
-        ),
-        suggested_topics: avatar.interests.slice(0, 3),
-      }));
-      setCompatibilityData(mockData.sort((a, b) => b.score - a.score));
+      setCompatibilityData(buildDeterministicFallback(userInterests));
     } finally {
       setLoading(false);
     }
-  };
+  }, [userInterests]);
+
+  useEffect(() => {
+    loadCompatibility();
+  }, [loadCompatibility]);
 
   const getAvatarById = (id: string) => {
     return SYSTEM_AVATARS.find((a) => a.id === id);
   };
 
+  const getScoreExplanation = (score: number, commonInterestCount: number): string => {
+    if (commonInterestCount > 0) {
+      return `공통 관심사 ${commonInterestCount}개와 관계 난이도를 함께 반영한 점수예요.`;
+    }
+    if (score >= 70) {
+      return '대화 주제를 넓게 잡아도 무난하게 이어질 가능성이 높아요.';
+    }
+    if (score >= 55) {
+      return '첫 화제를 잘 고르면 편하게 대화를 시작할 수 있어요.';
+    }
+    return '공통점은 적지만, 추천 주제부터 시작하면 훨씬 수월해질 수 있어요.';
+  };
+
   const getChemistryLabel = (score: number): { text: string; icon: string } => {
-    if (score >= 80) return { text: '최고의 궁합!', icon: 'award' };
-    if (score >= 60) return { text: '좋은 궁합', icon: 'heart' };
-    if (score >= 40) return { text: '보통 궁합', icon: 'handshake' };
-    return { text: '도전해보세요', icon: 'target' };
+    if (score >= 85) return { text: '대화가 잘 통할 가능성이 높아요', icon: 'award' };
+    if (score >= 70) return { text: '편하게 대화를 이어가기 좋아요', icon: 'heart' };
+    if (score >= 55) return { text: '공통 주제를 잡으면 잘 풀려요', icon: 'handshake' };
+    return { text: '첫 화제를 잘 고르면 충분히 괜찮아요', icon: 'target' };
   };
 
   const handleSelectAvatar = (avatarId: string) => {
@@ -154,7 +201,12 @@ export default function AvatarCompatibilityScreen() {
                   </View>
 
                   {/* Compatibility ring */}
-                  <CompatibilityRing percentage={item.score} size={56} />
+                  <View style={styles.ringColumn}>
+                    <CompatibilityRing percentage={item.score} size={56} />
+                    <Text style={styles.ringCaption}>
+                      {getScoreExplanation(item.score, item.common_interests.length)}
+                    </Text>
+                  </View>
                 </View>
 
                 {/* Chemistry message */}
@@ -162,6 +214,10 @@ export default function AvatarCompatibilityScreen() {
                   <Icon name={chemistry.icon as any} size={16} color="#6C6C80" />
                   <Text style={styles.chemistryText}>{chemistry.text}</Text>
                 </View>
+
+                {item.recommendation ? (
+                  <Text style={styles.recommendationText}>{item.recommendation}</Text>
+                ) : null}
 
                 {/* Suggested topics */}
                 {isSelected && item.suggested_topics.length > 0 && (
@@ -219,6 +275,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarInfo: { flex: 1 },
+  ringColumn: { alignItems: 'center', width: 92 },
+  ringCaption: { marginTop: 8, fontSize: 10, lineHeight: 14, color: '#7A7A92', textAlign: 'center' },
   avatarNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   avatarName: { fontSize: 17, fontWeight: '700', color: '#1A1A2E' },
   avatarRole: { fontSize: 12, color: '#6C6C80', marginBottom: 8 },
@@ -238,6 +296,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#F0F0F5',
   },
   chemistryText: { fontSize: 13, color: '#6C6C80' },
+  recommendationText: { marginTop: 10, fontSize: 13, lineHeight: 19, color: '#484860' },
 
   suggestedTopics: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F0F0F5' },
   suggestedLabel: { fontSize: 12, fontWeight: '600', color: '#1A1A2E', marginBottom: 8 },

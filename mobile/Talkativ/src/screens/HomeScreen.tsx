@@ -4,15 +4,25 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, ActivityIn
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { 
-  Bell, MessageCircle, Heart, Mic, Users,
+  Bell, MessageCircle, Heart, Mic, Users, ChevronRight,
   Smile, Meh, Frown,
 } from 'lucide-react-native';
 import { Card, Button, StatusBadge, Icon } from '../components';
 import { useHomeData } from '../hooks/useHomeData';
 import { ActiveSession } from '../services/apiSession';
+import { buildConversationPreviewText } from '../services/conversationPreview';
 
-// Interests still hardcoded until profile API supports it
-const DEFAULT_INTERESTS = ['K-POP', '카페', '여행', '영화'];
+const formatRelativeTime = (iso?: string) => {
+  if (!iso) return '방금 전';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMin = Math.max(0, Math.floor(diffMs / 60000));
+  if (diffMin < 1) return '방금 전';
+  if (diffMin < 60) return `${diffMin}분 전`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}시간 전`;
+  const diffDay = Math.floor(diffHour / 24);
+  return `${diffDay}일 전`;
+};
 
 const getMoodConfig = (mood: number) => {
   if (mood >= 70) return { icon: Smile, color: '#4CAF50', label: '좋음' };
@@ -44,7 +54,7 @@ const CircularProgress = ({ percentage }: { percentage: number }) => {
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const { profile, stats, activeSessions, loading } = useHomeData();
+  const { profile, stats, activeSessions, conversationPreviews, loading } = useHomeData();
 
   const liveStats = [
     { id: '1', title: '완료한 대화', count: stats?.completedSessions ?? 0, icon: 'message' as const, color: '#6C3BFF' },
@@ -62,6 +72,7 @@ export const HomeScreen: React.FC = () => {
         difficulty: item.difficulty,
       },
       situation: { name_ko: item.situation },
+      sessionId: item.sessionId,
     });
   };
 
@@ -119,7 +130,7 @@ export const HomeScreen: React.FC = () => {
             <Button
               title="궁합 분석"
               onPress={() => navigation.navigate('AvatarCompatibility', {
-                interests: DEFAULT_INTERESTS
+                interests: (profile?.interests && profile.interests.length > 0) ? profile.interests : ['K-POP', '카페', '여행']
               })}
               variant="ghost"
               size="medium"
@@ -140,7 +151,9 @@ export const HomeScreen: React.FC = () => {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.quickAction}
-            onPress={() => navigation.navigate('AvatarCompatibility', { interests: DEFAULT_INTERESTS })}>
+            onPress={() => navigation.navigate('AvatarCompatibility', {
+              interests: (profile?.interests && profile.interests.length > 0) ? profile.interests : ['K-POP', '카페', '여행']
+            })}>
             <View style={[styles.quickIcon, { backgroundColor: '#FFEBEE' }]}>
               <Heart size={24} color="#E53935" />
             </View>
@@ -166,10 +179,16 @@ export const HomeScreen: React.FC = () => {
 
         {/* In Progress */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>진행 중</Text>
-          <View style={styles.countBadge}>
-            <Text style={styles.countText}>{activeSessions.length}</Text>
+          <View style={styles.sectionTitleRowInline}>
+            <Text style={styles.sectionTitle}>진행 중</Text>
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{activeSessions.length}</Text>
+            </View>
           </View>
+          <TouchableOpacity style={styles.sectionLink} onPress={() => navigation.navigate('ConversationHistory')}>
+            <Text style={styles.sectionLinkText}>View history</Text>
+            <ChevronRight size={14} color="#6C3BFF" />
+          </TouchableOpacity>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -179,6 +198,7 @@ export const HomeScreen: React.FC = () => {
           ) : (
             activeSessions.map((item) => {
               const moodConfig = getMoodConfig(item.mood);
+              const previewText = buildConversationPreviewText(conversationPreviews[item.avatarId]);
               const MoodIcon = moodConfig.icon;
               return (
                 <Card key={item.sessionId} variant="elevated" style={styles.progressCard}
@@ -190,7 +210,11 @@ export const HomeScreen: React.FC = () => {
                     <StatusBadge status={item.difficulty} />
                   </View>
                   <Text style={styles.progressAvatarName}>{item.avatarName}</Text>
-                  <Text style={styles.progressSituation}>{item.situation}</Text>
+                  <View style={styles.progressMetaRow}>
+                    <Text style={styles.progressSituation}>{item.situation}</Text>
+                    <Text style={styles.progressTime}>{formatRelativeTime(item.lastMessageAt || conversationPreviews[item.avatarId]?.updatedAt)}</Text>
+                  </View>
+                  {previewText ? <Text style={styles.progressPreview}>{previewText}</Text> : null}
                   <View style={styles.moodRow}>
                     <MoodIcon size={16} color={moodConfig.color} />
                     <Text style={[styles.moodText, { color: moodConfig.color }]}>
@@ -249,17 +273,23 @@ const styles = StyleSheet.create({
   quickAction: { alignItems: 'center' },
   quickIcon: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   quickLabel: { fontSize: 12, color: '#6C6C80', fontWeight: '500' },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  sectionTitleRowInline: { flexDirection: 'row', alignItems: 'center' },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginRight: 8 },
   countBadge: { backgroundColor: '#F0EDFF', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 },
   countText: { color: '#6C3BFF', fontWeight: '600', fontSize: 13 },
+  sectionLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sectionLinkText: { fontSize: 13, fontWeight: '600', color: '#6C3BFF' },
   horizontalScroll: { marginBottom: 28 },
   horizontalContent: { gap: 12 },
   progressCard: { width: 180, minHeight: 140 },
   progressAvatarRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   progressAvatarIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   progressAvatarName: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 2 },
-  progressSituation: { fontSize: 12, color: '#6C6C80', marginBottom: 12 },
+  progressMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 },
+  progressSituation: { flex: 1, fontSize: 12, color: '#6C6C80' },
+  progressTime: { fontSize: 11, color: '#9A9AAF', fontWeight: '500' },
+  progressPreview: { fontSize: 11, lineHeight: 16, color: '#43435C', marginBottom: 10 },
   moodRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   moodText: { fontSize: 12, fontWeight: '600' },
   moodBarTrack: { height: 6, backgroundColor: '#E2E2EC', borderRadius: 3, overflow: 'hidden' },
