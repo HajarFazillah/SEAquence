@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Animated,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { ChevronLeft, X, Send, ChevronDown, AlertCircle, CheckCircle, Lightbulb } from 'lucide-react-native';
+import { ChevronLeft, Send, ChevronDown, AlertCircle, CheckCircle, Lightbulb } from 'lucide-react-native';
 import Svg, { Path, Circle, Polygon } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
@@ -380,8 +380,40 @@ const applyLocalFeedbackGuard = (text: string, feedback: SpeechAnalysis | null, 
     };
   }
   const typoCorrections = getLocalTypoCorrections(text);
-  const speechMismatch = buildLocalSpeechMismatch(text, expectedLevel);
+  const shouldTrustBackendSpeech =
+    Boolean(feedback)
+    && feedback?.input_kind !== 'speech_level_term'
+    && feedback?.verdict !== 'speech_level_term';
+  const speechMismatch = shouldTrustBackendSpeech ? null : buildLocalSpeechMismatch(text, expectedLevel);
   if (typoCorrections.length === 0 && !speechMismatch) return feedback;
+  if (feedback && shouldTrustBackendSpeech) {
+    if (typoCorrections.length === 0) return feedback;
+    const existingTypoKeys = new Set(
+      (feedback.corrections || [])
+        .filter(c => c.type === 'spelling')
+        .map(c => `${c.original}=>${c.corrected}`),
+    );
+    const missingTypos = typoCorrections.filter(
+      c => !existingTypoKeys.has(`${c.original}=>${c.corrected}`),
+    );
+    if (missingTypos.length === 0) return feedback;
+
+    const mergedCorrections = [...feedback.corrections, ...missingTypos];
+    const mergedAlternatives = feedback.natural_alternatives?.length > 0
+      ? feedback.natural_alternatives
+      : [{ expression: applyLocalSpellingFixes(text), explanation: '오타를 고친 자연스러운 문장입니다.' }];
+
+    return {
+      ...feedback,
+      has_errors: true,
+      verdict: feedback.speech_level_correct === false ? (feedback.verdict || 'wrong_speech_level') : 'spelling',
+      accuracy_score: Math.min(feedback.accuracy_score ?? 100, 70),
+      corrections: mergedCorrections,
+      natural_alternatives: mergedAlternatives,
+      summary: feedback.summary || '오타를 고치면 더 자연스러워요.',
+      encouragement: feedback.encouragement || '오타만 다듬어도 훨씬 자연스럽게 들려요.',
+    };
+  }
   const spellingFixedText = applyLocalSpellingFixes(text);
   const fallbackExpectedCode = normalizeExpectedLevelCode(expectedLevel);
   const expectedCode = speechMismatch?.expectedCode || feedback?.expected_speech_level_code || fallbackExpectedCode;
@@ -909,6 +941,7 @@ export default function ChatScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.messageList}
           renderItem={renderMessage}
+          extraData={expandedFeedback}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
 

@@ -1094,8 +1094,7 @@ class ChatService:
 
         # ── 단답형 스킵 ──────────────────────────────────────────────────────
         is_short = (
-            len(msg_stripped) <= 3
-            or msg_stripped in _SHORT_RESPONSES
+            msg_stripped in _SHORT_RESPONSES
             or msg_stripped.lower() in _SHORT_RESPONSES
         )
         if is_short:
@@ -1252,10 +1251,24 @@ class ChatService:
                     explanation=f"{expected_name}를 사용해야 합니다. 지금 문장은 {LEVEL_KO_LABELS.get(detected_norm, detected_norm)}에 가까워요.",
                     tip=f"예시: {example}",
                 ))
+            else:
+                corrections = [
+                    InlineCorrection(
+                        original=c.original,
+                        corrected=best_corrected if c.type == CorrectionType.SPEECH_LEVEL else c.corrected,
+                        type=c.type,
+                        severity=c.severity,
+                        explanation=c.explanation,
+                        tip=c.tip,
+                    )
+                    for c in corrections
+                ]
 
         corrected_message = (result.get("corrected_message") or "").strip() or local_rule_correction.corrected_message
         if has_errors and not corrected_message:
             corrected_message = corrections[0].corrected if corrections else None
+        if not has_errors:
+            corrected_message = None
 
         if not natural_alternatives and local_rule_correction.natural_alternatives:
             natural_alternatives = local_rule_correction.natural_alternatives
