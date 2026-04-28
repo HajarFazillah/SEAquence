@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-<<<<<<< HEAD
-  View, Text, StyleSheet,
-  ScrollView, TouchableOpacity, Image, Switch, Dimensions,
-=======
   View, Text, StyleSheet, Dimensions,
   ScrollView, TouchableOpacity, Image, Switch, Alert,
->>>>>>> 36e1be5ad0eb61d59ad187fdf1744e86dc96f69f
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -22,18 +17,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Card, Tag, ProgressBar } from '../components';
 import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
 
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-=======
-
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 52) / 2;
 
->>>>>>> Stashed changes
-=======
 const CUSTOM_AVATAR_KEY = 'custom_avatar_url';
 
->>>>>>> 36e1be5ad0eb61d59ad187fdf1744e86dc96f69f
 const mockUser = {
   id: 'user_1',
   name: 'Nunnalin',
