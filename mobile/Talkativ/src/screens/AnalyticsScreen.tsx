@@ -5,7 +5,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   TrendingUp, AlertCircle, BookOpen, MessageCircle, Target, ChevronLeft,
 } from 'lucide-react-native';
-import { Button, ProgressBar, Tag } from '../components';
+import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AI_SERVER = 'http://10.0.2.2:8000';
@@ -29,13 +29,13 @@ interface WeakArea {
   severity:      string;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+interface ScoreDetail {
+  source?: string;
+  used_fallback?: boolean;
+  note?: string;
+}
 
-const scoreColor = (score: number): string => {
-  if (score >= 70) return '#22C55E';
-  if (score >= 40) return '#EAB308';
-  return '#FF4D4D';
-};
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getHeroColor = (score: number): string => {
   if (score >= 85) return '#22C55E';
@@ -60,7 +60,7 @@ const getHeroLabel = (score: number): string => {
 export default function AnalyticsScreen() {
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
-  const { avatar, duration, scores, savedItems, source } = route.params || {};
+  const { avatar, duration, scores, scoreDetails, usedFallbackScores, savedItems, source } = route.params || {};
   const isHomeAnalysis = source === 'home' || (!avatar && !duration && !scores);
 
   const [loading,   setLoading]   = useState(true);
@@ -95,6 +95,7 @@ export default function AnalyticsScreen() {
     vocabulary:     scores?.vocabulary     ?? 0.72,
     naturalness:    scores?.naturalness    ?? 0.78,
   };
+  const sessionScoreDetails: { speechAccuracy?: ScoreDetail; vocabulary?: ScoreDetail; naturalness?: ScoreDetail } = scoreDetails || {};
 
   const overallScore  = Math.round((sessionScores.speechAccuracy + sessionScores.vocabulary + sessionScores.naturalness) / 3 * 100);
   const displayScore  = isHomeAnalysis ? Math.round(summary?.overall_score || 0) : overallScore;
@@ -215,9 +216,9 @@ export default function AnalyticsScreen() {
             </View>
             <View style={styles.card}>
               {[
-                { icon: <MessageCircle size={16} color="#6C3BFF" />, label: '말투 정확도', value: sessionScores.speechAccuracy, color: '#6C3BFF' },
-                { icon: <BookOpen size={16} color="#22C55E" />,      label: '어휘력',      value: sessionScores.vocabulary,     color: '#22C55E' },
-                { icon: <TrendingUp size={16} color="#EAB308" />,    label: '자연스러움',  value: sessionScores.naturalness,    color: '#EAB308' },
+                { icon: <MessageCircle size={16} color="#6C3BFF" />, label: '말투 정확도', value: sessionScores.speechAccuracy, color: '#6C3BFF', detail: sessionScoreDetails.speechAccuracy },
+                { icon: <BookOpen size={16} color="#22C55E" />,      label: '어휘력',      value: sessionScores.vocabulary,     color: '#22C55E', detail: sessionScoreDetails.vocabulary },
+                { icon: <TrendingUp size={16} color="#EAB308" />,    label: '자연스러움',  value: sessionScores.naturalness,    color: '#EAB308', detail: sessionScoreDetails.naturalness },
               ].map((item, i) => (
                 <View key={i} style={[styles.scoreItem, i < 2 && styles.scoreItemBorder]}>
                   <View style={styles.scoreRow}>
@@ -230,8 +231,19 @@ export default function AnalyticsScreen() {
                   <View style={styles.scoreBarTrack}>
                     <View style={[styles.scoreBarFill, { width: `${Math.round(item.value * 100)}%`, backgroundColor: item.color }]} />
                   </View>
+                  {item.detail?.source ? (
+                    <Text style={styles.scoreFootnote}>
+                      {item.detail.used_fallback ? '기본값 사용' : item.detail.source === 'rule_based' ? '규칙 기반 계산' : '혼합 계산'}
+                      {item.detail.note ? ` · ${item.detail.note}` : ''}
+                    </Text>
+                  ) : null}
                 </View>
               ))}
+              {usedFallbackScores ? (
+                <View style={styles.scoreWarning}>
+                  <Text style={styles.scoreWarningText}>일부 점수는 분석 실패로 기본값을 사용했습니다.</Text>
+                </View>
+              ) : null}
             </View>
           </View>
         )}
@@ -379,6 +391,9 @@ const styles = StyleSheet.create({
   scoreValue:      { fontSize: 14, fontWeight: '600' },
   scoreBarTrack:   { height: 5, borderRadius: 3, backgroundColor: BORDER, overflow: 'hidden' },
   scoreBarFill:    { height: '100%', borderRadius: 3 },
+  scoreFootnote:   { marginTop: 8, fontSize: 11, color: '#777', lineHeight: 16 },
+  scoreWarning:    { margin: 14, marginTop: 0, padding: 10, borderRadius: 10, backgroundColor: '#FFF4E5' },
+  scoreWarningText:{ fontSize: 11, color: '#A05A00', lineHeight: 16 },
 
   // Weak areas
   weakItem:       { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },

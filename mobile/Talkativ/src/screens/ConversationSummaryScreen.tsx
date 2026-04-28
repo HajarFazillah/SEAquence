@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, ActivityIndicator, Alert,
@@ -29,11 +29,20 @@ interface VocabularyItem {
   kind:    'word' | 'phrase';
 }
 
+interface ScoreDetail {
+  source?: string;
+  used_fallback?: boolean;
+  note?: string;
+  components?: Record<string, any>;
+}
+
 interface SummaryData {
   scores:       { speechAccuracy: number; vocabulary: number; naturalness: number };
   mistakes:     MistakeItem[];
   learnedVocab: VocabularyItem[];
   improvements: string;
+  scoreDetails: { speechAccuracy?: ScoreDetail; vocabulary?: ScoreDetail; naturalness?: ScoreDetail };
+  usedFallbackScores: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -66,8 +75,6 @@ export default function ConversationSummaryScreen() {
 
   const { avatar, duration, conversationHistory, sessionCorrections, avgScore } = route.params || {};
 
-  useEffect(() => { buildSummary(); }, []);
-
   const handleToggleSave = (item: VocabularyItem) => {
     setSavedWords(prev => {
       const next = { ...prev };
@@ -90,7 +97,7 @@ export default function ConversationSummaryScreen() {
     Alert.alert('저장 완료', `${summary.learnedVocab.length}개가 저장됐어요!`);
   };
 
-  const buildSummary = async () => {
+  const buildSummary = useCallback(async () => {
     setLoading(true);
     try {
       const speechScore = avgScore ?? 80;
@@ -158,6 +165,12 @@ export default function ConversationSummaryScreen() {
         mistakes:     finalMistakes,
         learnedVocab,
         improvements: data.overall_feedback || '대화를 잘 진행하셨습니다!',
+        scoreDetails: {
+          speechAccuracy: data.score_details?.speech_accuracy,
+          vocabulary: data.score_details?.vocabulary,
+          naturalness: data.score_details?.naturalness,
+        },
+        usedFallbackScores: Boolean(data.used_fallback_scores),
       });
     } catch (error) {
       console.error('Summary error:', error);
@@ -176,16 +189,29 @@ export default function ConversationSummaryScreen() {
         : [];
       setSummary({
         scores: { speechAccuracy: speechScore / 100, vocabulary: 0.75, naturalness: 0.78 },
-        mistakes, learnedVocab: [], improvements: '대화를 잘 진행하셨습니다!',
+        mistakes, learnedVocab: [], improvements: '분석 서버 연결에 실패해 일부 기본 점수를 표시하고 있어요.',
+        scoreDetails: {
+          speechAccuracy: { source: 'frontend_fallback', used_fallback: true, note: '세션 평균 교정 점수를 사용했습니다.' },
+          vocabulary: { source: 'frontend_fallback', used_fallback: true, note: '분석 서버 연결 실패로 기본값을 사용했습니다.' },
+          naturalness: { source: 'frontend_fallback', used_fallback: true, note: '분석 서버 연결 실패로 기본값을 사용했습니다.' },
+        },
+        usedFallbackScores: true,
       });
     } finally {
       setLoading(false);
     }
-  };
+  }, [avatar, avgScore, conversationHistory, sessionCorrections]);
+
+  useEffect(() => { buildSummary(); }, [buildSummary]);
 
   const handleContinue = () => {
     navigation.navigate('Analytics', {
-      avatar, duration, scores: summary?.scores, savedWords: Object.values(savedWords),
+      avatar,
+      duration,
+      scores: summary?.scores,
+      scoreDetails: summary?.scoreDetails,
+      usedFallbackScores: summary?.usedFallbackScores,
+      savedWords: Object.values(savedWords),
     });
   };
 
@@ -210,6 +236,11 @@ export default function ConversationSummaryScreen() {
 
   if (!summary) return null;
   const savedCount = Object.keys(savedWords).length;
+  const scoreCards = [
+    { value: summary.scores.speechAccuracy, label: '말투 정확도', detail: summary.scoreDetails.speechAccuracy },
+    { value: summary.scores.vocabulary, label: '어휘력', detail: summary.scoreDetails.vocabulary },
+    { value: summary.scores.naturalness, label: '자연스러움', detail: summary.scoreDetails.naturalness },
+  ];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -242,18 +273,31 @@ export default function ConversationSummaryScreen() {
             </View>
           </View>
           <View style={styles.scoreNums}>
-            {[
-              { value: summary.scores.speechAccuracy, label: '말투 정확도' },
-              { value: summary.scores.vocabulary,     label: '어휘력'      },
-              { value: summary.scores.naturalness,    label: '자연스러움'  },
-            ].map((s, i) => (
+            {scoreCards.map((s, i) => (
               <View key={i} style={styles.scoreCol}>
                 <Text style={styles.scoreNum}>{Math.round(s.value * 100)}</Text>
                 <View style={styles.scoreBarTrack}>
                   <View style={[styles.scoreBarFill, { width: `${Math.round(s.value * 100)}%` as any }]} />
                 </View>
                 <Text style={styles.scoreColLabel}>{s.label}</Text>
+                {s.detail?.source ? (
+                  <Text style={styles.scoreSourceLabel}>
+                    {s.detail.used_fallback ? '기본값 사용' : s.detail.source === 'rule_based' ? '규칙 기반' : '혼합 계산'}
+                  </Text>
+                ) : null}
               </View>
+            ))}
+          </View>
+          <View style={styles.scoreMetaBox}>
+            <Text style={styles.scoreMetaTitle}>
+              {summary.usedFallbackScores ? '일부 점수는 임시값입니다' : '점수는 실제 계산 근거를 함께 표시합니다'}
+            </Text>
+            {scoreCards.map((item, index) => (
+              item.detail?.note ? (
+                <Text key={index} style={styles.scoreMetaText}>
+                  {item.label}: {item.detail.note}
+                </Text>
+              ) : null
             ))}
           </View>
         </View>
@@ -445,6 +489,10 @@ const styles = StyleSheet.create({
   scoreBarTrack: { width: '100%', height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.25)', overflow: 'hidden' },
   scoreBarFill:  { height: '100%', borderRadius: 2, backgroundColor: '#fff' },
   scoreColLabel: { fontSize: 10, color: 'rgba(255,255,255,0.75)', textAlign: 'center' },
+  scoreSourceLabel: { fontSize: 9, color: 'rgba(255,255,255,0.78)', textAlign: 'center' },
+  scoreMetaBox:  { marginTop: 12, padding: 10, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)', gap: 4 },
+  scoreMetaTitle: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  scoreMetaText: { fontSize: 10, lineHeight: 15, color: 'rgba(255,255,255,0.85)' },
 
   // Section
   sectionHead:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, marginTop: 6 },

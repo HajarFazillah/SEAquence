@@ -2,6 +2,7 @@
 Chat Service - Handles avatar conversations with real-time correction
 """
 import re
+from collections import Counter
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -98,6 +99,8 @@ class ConversationAnalysis(BaseModel):
     vocabulary_to_learn: List[Dict[str, str]]
     phrases_to_learn:    List[Dict[str, str]]
     overall_feedback:    str
+    score_details:       Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    used_fallback_scores: bool = False
 
 
 # ============================================================================
@@ -754,6 +757,220 @@ class ChatService:
         self.user_moods:   Dict[str, int] = {}
         self.session_turns: Dict[str, List[ChatMessage]] = {}
         self.native_speech_analyzer = get_speech_analyzer()
+
+    def _extract_user_messages(self, conversation_history: List[ChatMessage]) -> List[str]:
+        return [
+            (message.content or "").strip()
+            for message in conversation_history
+            if message.role == "user" and (message.content or "").strip()
+        ]
+
+    def _extract_korean_tokens(self, texts: List[str]) -> List[str]:
+        tokens: List[str] = []
+        for text in texts:
+            tokens.extend(re.findall(r"[가-힣]{2,}", text))
+        return tokens
+
+    def _calculate_speech_accuracy_score(
+        self,
+        user_messages: List[str],
+        expected_level: SpeechLevel,
+        avatar_role: str,
+    ) -> Dict[str, Any]:
+        if not user_messages:
+            return {
+                "score": 0,
+                "source": "rule_based",
+                "used_fallback": False,
+                "components": {
+                    "messages_evaluated": 0,
+                    "matched_messages": 0,
+                    "speech_level_penalty": 0,
+                    "honorific_penalty": 0,
+                    "spelling_penalty": 0,
+                    "mixed_style_penalty": 0,
+                },
+                "note": "분석할 사용자 메시지가 없어 점수를 계산하지 못했습니다.",
+            }
+
+        expected_norm = expected_level.value
+        total_penalty = 0
+        matched_messages = 0
+        speech_level_penalty = 0
+        honorific_penalty = 0
+        spelling_penalty = 0
+        mixed_style_penalty = 0
+
+        for text in user_messages:
+            fixed = apply_spelling_fixes(text)
+            typo_count = len(get_typo_corrections(text))
+            detected_norm = verify_with_rules(fixed, "")
+            native = self.native_speech_analyzer.check_appropriateness(fixed, expected_norm, avatar_role)
+
+            message_penalty = 0
+            if detected_norm and detected_norm != expected_norm:
+                speech_level_penalty += 24
+                message_penalty += 24
+            else:
+                matched_messages += 1
+
+            if native.is_appropriate is False:
+                speech_level_penalty += 12
+                message_penalty += 12
+
+            if native.missing_honorifics:
+                penalty = min(18, len(native.missing_honorifics) * 6)
+                honorific_penalty += penalty
+                message_penalty += penalty
+
+            if native.is_mixed:
+                mixed_style_penalty += 8
+                message_penalty += 8
+
+            if typo_count:
+                penalty = min(12, typo_count * 4)
+                spelling_penalty += penalty
+                message_penalty += penalty
+
+            total_penalty += min(55, message_penalty)
+
+        average_penalty = total_penalty / max(1, len(user_messages))
+        score = max(0, min(100, round(100 - average_penalty)))
+
+        return {
+            "score": score,
+            "source": "rule_based",
+            "used_fallback": False,
+            "components": {
+                "messages_evaluated": len(user_messages),
+                "matched_messages": matched_messages,
+                "speech_level_penalty": speech_level_penalty,
+                "honorific_penalty": honorific_penalty,
+                "spelling_penalty": spelling_penalty,
+                "mixed_style_penalty": mixed_style_penalty,
+            },
+            "note": "말투 어미, 높임 표현, 오타, 혼용 여부를 규칙 기반으로 계산했습니다.",
+        }
+
+    def _calculate_vocabulary_score(self, user_messages: List[str]) -> Dict[str, Any]:
+        tokens = self._extract_korean_tokens(user_messages)
+        if not tokens:
+            return {
+                "score": 0,
+                "source": "rule_based",
+                "used_fallback": False,
+                "components": {
+                    "token_count": 0,
+                    "unique_count": 0,
+                    "diversity_score": 0,
+                    "difficulty_score": 0,
+                    "advanced_token_count": 0,
+                },
+                "note": "어휘를 계산할 사용자 표현이 부족했습니다.",
+            }
+
+        unique_tokens = set(tokens)
+        token_count = len(tokens)
+        unique_count = len(unique_tokens)
+        diversity_ratio = unique_count / max(1, token_count)
+        diversity_score = min(100, round(35 + diversity_ratio * 65))
+
+        advanced_terms = {
+            "괜찮으시면", "도와주십시오", "부탁드립니다", "말씀", "연구실", "상담",
+            "주문", "추가", "테이크아웃", "프로젝트", "발표", "회의", "피드백",
+            "죄송합니다", "감사합니다", "알겠습니다", "어색하다", "자연스럽다",
+        }
+        advanced_token_count = sum(1 for token in tokens if token in advanced_terms or len(token) >= 4)
+        difficulty_ratio = advanced_token_count / max(1, token_count)
+        difficulty_score = min(100, round(25 + difficulty_ratio * 75))
+
+        score = max(0, min(100, round(diversity_score * 0.7 + difficulty_score * 0.3)))
+
+        return {
+            "score": score,
+            "source": "rule_based",
+            "used_fallback": False,
+            "components": {
+                "token_count": token_count,
+                "unique_count": unique_count,
+                "diversity_score": diversity_score,
+                "difficulty_score": difficulty_score,
+                "advanced_token_count": advanced_token_count,
+                "top_tokens": [token for token, _ in Counter(tokens).most_common(5)],
+            },
+            "note": "단어 다양성과 상대적으로 난도가 높은 어휘 사용 비율을 함께 반영했습니다.",
+        }
+
+    def _calculate_rule_naturalness_score(
+        self,
+        user_messages: List[str],
+        expected_level: SpeechLevel,
+        avatar_role: str,
+    ) -> Dict[str, Any]:
+        if not user_messages:
+            return {
+                "score": 0,
+                "source": "hybrid",
+                "used_fallback": False,
+                "components": {
+                    "messages_evaluated": 0,
+                    "error_penalty": 0,
+                    "unnatural_expression_penalty": 0,
+                    "mixed_style_penalty": 0,
+                    "llm_score": None,
+                },
+                "note": "분석할 사용자 메시지가 없습니다.",
+            }
+
+        expected_norm = expected_level.value
+        total_penalty = 0
+        error_penalty = 0
+        unnatural_expression_penalty = 0
+        mixed_style_penalty = 0
+
+        for text in user_messages:
+            fixed = apply_spelling_fixes(text)
+            typo_count = len(get_typo_corrections(text))
+            native = self.native_speech_analyzer.check_appropriateness(fixed, expected_norm, avatar_role)
+            message_penalty = 0
+
+            if typo_count:
+                penalty = min(18, typo_count * 6)
+                error_penalty += penalty
+                message_penalty += penalty
+
+            if native.word_errors:
+                penalty = min(24, len(native.word_errors) * 8)
+                unnatural_expression_penalty += penalty
+                message_penalty += penalty
+
+            if native.missing_honorifics:
+                penalty = min(16, len(native.missing_honorifics) * 5)
+                error_penalty += penalty
+                message_penalty += penalty
+
+            if native.is_mixed:
+                mixed_style_penalty += 8
+                message_penalty += 8
+
+            total_penalty += min(60, message_penalty)
+
+        average_penalty = total_penalty / max(1, len(user_messages))
+        score = max(0, min(100, round(100 - average_penalty)))
+
+        return {
+            "score": score,
+            "source": "hybrid",
+            "used_fallback": False,
+            "components": {
+                "messages_evaluated": len(user_messages),
+                "error_penalty": error_penalty,
+                "unnatural_expression_penalty": unnatural_expression_penalty,
+                "mixed_style_penalty": mixed_style_penalty,
+                "llm_score": None,
+            },
+            "note": "오류 수, 부자연한 표현, 말투 혼용을 기준으로 자연스러움을 계산했습니다.",
+        }
 
     async def generate_response(
         self,
@@ -1497,6 +1714,19 @@ class ChatService:
     ) -> ConversationAnalysis:
         speech_levels  = get_speech_levels_for_role(avatar.role)
         expected_level = speech_levels["from_user"]
+        user_messages = self._extract_user_messages(conversation_history)
+
+        speech_meta = self._calculate_speech_accuracy_score(
+            user_messages=user_messages,
+            expected_level=expected_level,
+            avatar_role=avatar.role,
+        )
+        vocabulary_meta = self._calculate_vocabulary_score(user_messages)
+        naturalness_meta = self._calculate_rule_naturalness_score(
+            user_messages=user_messages,
+            expected_level=expected_level,
+            avatar_role=avatar.role,
+        )
 
         prompt = build_conversation_analysis_prompt(
             messages=[{"role": m.role, "content": m.content} for m in conversation_history],
@@ -1508,14 +1738,50 @@ class ChatService:
 
         if not result:
             return ConversationAnalysis(
-                scores={"speech_accuracy": 80, "vocabulary": 75, "naturalness": 78},
+                scores={
+                    "speech_accuracy": speech_meta["score"],
+                    "vocabulary": vocabulary_meta["score"],
+                    "naturalness": naturalness_meta["score"],
+                },
                 mistakes=[],
                 vocabulary_to_learn=[],
                 phrases_to_learn=[],
-                overall_feedback="대화를 잘 진행하셨습니다!",
+                overall_feedback="세션 점수는 규칙 기반으로 계산했어요. 모델 분석은 받지 못했지만, 말투와 표현 오류를 기준으로 점수를 만들었습니다.",
+                score_details={
+                    "speech_accuracy": speech_meta,
+                    "vocabulary": vocabulary_meta,
+                    "naturalness": naturalness_meta,
+                },
+                used_fallback_scores=False,
             )
+        llm_scores = result.get("scores") or {}
+        llm_naturalness = int(llm_scores.get("naturalness", naturalness_meta["score"]) or naturalness_meta["score"])
+        naturalness_meta["components"]["llm_score"] = llm_naturalness
+        naturalness_meta["score"] = max(
+            0,
+            min(100, round(naturalness_meta["score"] * 0.7 + llm_naturalness * 0.3)),
+        )
+        naturalness_meta["note"] = "규칙 기반 점수에 LLM 자연스러움 평가를 보조적으로 섞었습니다."
 
-        return ConversationAnalysis(**result)
+        final_scores = {
+            "speech_accuracy": speech_meta["score"],
+            "vocabulary": vocabulary_meta["score"],
+            "naturalness": naturalness_meta["score"],
+        }
+
+        return ConversationAnalysis(
+            scores=final_scores,
+            mistakes=result.get("mistakes") or [],
+            vocabulary_to_learn=result.get("vocabulary_to_learn") or [],
+            phrases_to_learn=result.get("phrases_to_learn") or [],
+            overall_feedback=result.get("overall_feedback") or "대화를 잘 진행하셨습니다!",
+            score_details={
+                "speech_accuracy": speech_meta,
+                "vocabulary": vocabulary_meta,
+                "naturalness": naturalness_meta,
+            },
+            used_fallback_scores=False,
+        )
 
     async def generate_avatar_bio(self, avatar: AvatarBase) -> str:
         prompt   = build_bio_generation_prompt(avatar)
