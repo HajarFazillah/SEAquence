@@ -19,7 +19,7 @@ import {
   AlertTriangle,
   CheckCircle,
 } from 'lucide-react-native';
-import { Card, Icon } from '../components';
+import { Icon } from '../components';
 import { endSession } from '../services/apiSession';
 import { startAudioCapture, stopAudioCapture } from '../services/audioCapture';
 import { uploadRealtimeAudio } from '../services/realtimeAnalysisService';
@@ -186,13 +186,11 @@ export default function RealtimeSessionScreen() {
   const sessionEnded = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Session timer
   useEffect(() => {
     const t = setInterval(() => setDuration((d) => d + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Mic pulse animation
   useEffect(() => {
     if (isRecording) {
       pulseLoop.current = Animated.loop(
@@ -208,12 +206,10 @@ export default function RealtimeSessionScreen() {
     }
   }, [isRecording, pulseAnim]);
 
-  // Auto-scroll to latest turn
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
   }, [turns]);
 
-  // Back navigation guard
   useFocusEffect(
     useCallback(() => {
       const unsub = navigation.addListener('beforeRemove', (e: any) => {
@@ -261,11 +257,9 @@ export default function RealtimeSessionScreen() {
 
     try {
       if (isRecording) {
-        // ── STOP: upload and analyze ──
         setIsRecording(false);
         setIsAnalyzing(true);
 
-        // Remove partial placeholder turn
         setTurns((prev) => prev.filter((t) => t.type !== 'partial'));
 
         const path = await stopAudioCapture();
@@ -276,20 +270,21 @@ export default function RealtimeSessionScreen() {
 
         setRecordingPath(path);
 
-        const result = await uploadRealtimeAudio(path, sessionId);
+        const result = await uploadRealtimeAudio(path);
 
         setTurns((prev) => [...prev, ...(result?.turns ?? [])]);
         setInsights((prev) => [...prev, ...(result?.insights ?? [])]);
-
       } else {
-        // ── START: begin recording ──
+        setTurns([]);
+        setInsights([]);
+        setRecordingPath('');
+
         await startAudioCapture(() => {
           // metering/progress hook — connect later if needed
         });
 
         setIsRecording(true);
 
-        // Show live placeholder
         setTurns((prev) => [
           ...prev,
           {
@@ -303,7 +298,6 @@ export default function RealtimeSessionScreen() {
     } catch (error) {
       console.error('handleMicPress error:', error);
       setIsRecording(false);
-      // Clean up any dangling partial turn on error
       setTurns((prev) => prev.filter((t) => t.type !== 'partial'));
       Alert.alert('오류', '녹음 또는 분석 중 문제가 발생했습니다.');
     } finally {
@@ -315,7 +309,6 @@ export default function RealtimeSessionScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
@@ -341,7 +334,6 @@ export default function RealtimeSessionScreen() {
 
       <SessionBanner speakerCount={speakerCount} situation={situation} />
 
-      {/* Transcript */}
       <ScrollView
         ref={scrollRef}
         style={styles.transcript}
@@ -371,7 +363,6 @@ export default function RealtimeSessionScreen() {
         )}
       </ScrollView>
 
-      {/* Controls */}
       <View style={styles.controls}>
         <WaveformIndicator isActive={isRecording} />
 
@@ -387,12 +378,13 @@ export default function RealtimeSessionScreen() {
             disabled={isEnding || isAnalyzing}
           >
             <Animated.View style={{ transform: [{ scale: isRecording ? pulseAnim : 1 }] }}>
-              {isAnalyzing
-                ? <Mic size={30} color="rgba(255,255,255,0.5)" />
-                : isRecording
-                  ? <MicOff size={30} color="#FFFFFF" />
-                  : <Mic size={30} color="#FFFFFF" />
-              }
+              {isAnalyzing ? (
+                <Mic size={30} color="rgba(255,255,255,0.5)" />
+              ) : isRecording ? (
+                <MicOff size={30} color="#FFFFFF" />
+              ) : (
+                <Mic size={30} color="#FFFFFF" />
+              )}
             </Animated.View>
           </TouchableOpacity>
 
