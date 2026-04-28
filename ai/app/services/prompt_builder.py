@@ -477,6 +477,7 @@ def build_conversation_analysis_prompt(
 - 아바타가 사용했거나, 사용자가 알면 바로 다음 대화에서 쓸 수 있는 단어
 - 사용자가 어색하게 표현한 부분을 더 자연스럽게 바꿀 때 도움이 되는 단어
 - 일반적인 교과서 단어보다, 이 대화 맥락에서 실제로 유용한 단어를 우선하세요
+- meaning 필드는 반드시 영어로 작성하세요. 학습자가 비한국어권이기 때문입니다.
 
 ## phrases_to_learn 추출 기준
 아래 기준으로 2~4개 추출하세요.
@@ -484,6 +485,7 @@ def build_conversation_analysis_prompt(
 - {speech_info['name_ko']}에서 자주 쓰는 핵심 문장 패턴
 - 이 상황에서 원어민이 자주 쓰는 표현
 - 예문은 반드시 이 대화의 상황과 비슷한 맥락으로 작성하세요
+- meaning 필드는 반드시 영어로 작성하세요. 학습자가 비한국어권이기 때문입니다.
 
 ## overall_feedback 작성 기준
 - 추상적으로 칭찬만 하지 마세요.
@@ -511,14 +513,14 @@ def build_conversation_analysis_prompt(
   "vocabulary_to_learn": [
     {{
       "word": "단어",
-      "meaning": "한국어 뜻 또는 영어 의미",
+      "meaning": "English translation and brief usage note",
       "example": "이 대화 상황과 비슷한 예문"
     }}
   ],
   "phrases_to_learn": [
     {{
       "phrase": "표현 또는 문장 패턴",
-      "meaning": "이 표현의 뜻과 사용 상황",
+      "meaning": "English translation and when/how to use this phrase",
       "example": "이 대화 맥락에 맞는 자연스러운 예문"
     }}
   ],

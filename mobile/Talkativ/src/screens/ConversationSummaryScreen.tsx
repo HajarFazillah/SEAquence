@@ -401,7 +401,7 @@ export default function ConversationSummaryScreen() {
                     <Text style={styles.vocabWord}>{item.word}</Text>
                     <View style={[styles.kindPill, item.kind === 'phrase' ? styles.kindPillPhrase : styles.kindPillWord]}>
                       <Text style={[styles.kindPillText, item.kind === 'phrase' ? styles.kindTextPhrase : styles.kindTextWord]}>
-                        {item.kind === 'phrase' ? '표현' : '단어'}
+                        {item.kind === 'phrase' ? 'Phrase' : 'Word'}
                       </Text>
                     </View>
                     <TouchableOpacity
@@ -415,7 +415,7 @@ export default function ConversationSummaryScreen() {
                   {item.meaning ? <Text style={styles.vocabMeaning}>{item.meaning}</Text> : null}
                   {item.example ? (
                     <View style={styles.vocabEx}>
-                      <Text style={styles.vocabExLabel}>예문</Text>
+                      <Text style={styles.vocabExLabel}>Example</Text>
                       <Text style={styles.vocabExText}>{item.example}</Text>
                     </View>
                   ) : null}
