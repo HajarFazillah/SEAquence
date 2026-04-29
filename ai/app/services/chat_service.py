@@ -2144,9 +2144,8 @@ class ChatService:
         return f"""
 {thread_section}
 ## 응답 규칙 (절대 준수)
-- 당신은 지금 {correction.expected_speech_level or "적절한 말투"}로 대화 중인 캐릭터입니다.
-- 교정·분석·점수 언급 금지. 교정 UI가 따로 처리합니다.
-- 캐릭터 본인으로서 사용자의 말에 자연스럽게 반응하세요.
+- 사용자의 말에 이 사람 자신으로서 자연스럽게 반응하세요.
+- 언어 교정, 말투 언급, 표현 지적은 절대 하지 마세요. 그것은 별도 UI가 처리합니다.
 - 1~2문장, 이모지 없이, 실제 사람이 말하듯 답하세요.
 """
 
@@ -2155,11 +2154,10 @@ class ChatService:
         user_message: str,
         correction: RealTimeCorrection,
     ) -> str:
-        if not correction.has_errors:
-            return user_message
-        # When the user made errors, respond to what they meant (corrected intent),
-        # not the raw mistaken form — but pass it as a plain message, not as a label.
-        return correction.corrected_message or self._best_corrected_expression(correction) or user_message
+        # Always pass the original user message. The avatar responds to what the user
+        # actually said, as a real person would — ignoring any speech level errors.
+        # The correction bubble handles all language feedback separately.
+        return user_message
 
     def _best_corrected_expression(self, correction: RealTimeCorrection) -> Optional[str]:
         if correction.corrected_message:
