@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { createNavigationContainerRef, NavigationContainer } from '@react-navigation/native';
+import {
+  createNavigationContainerRef,
+  NavigationContainer,
+  NavigatorScreenParams,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import {
+  View,
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Home, Moon, Mic, User } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -46,18 +56,48 @@ import RealtimeSessionScreen from '../screens/RealtimeSessionScreen';
 // Legacy
 import FeedbackScreen from '../screens/FeedbackScreen';
 
+export type TranscriptTurn = {
+  id: string;
+  speaker: string;
+  text: string;
+  type?: 'partial' | 'final';
+};
+
+export type Insight = {
+  id: string;
+  kind: 'risk' | 'success';
+  message: string;
+  suggestion?: string;
+  turnId?: string;
+};
+
+export type SessionStats = {
+  messageCount: number;
+  successCount: number;
+  riskCount: number;
+  speakerCount: number;
+  qualityScore: number;
+};
+
+export type MainTabParamList = {
+  Home: undefined;
+  Avatar: undefined;
+  'Real-time': undefined;
+  'My Profile': undefined;
+};
+
 export type RootStackParamList = {
   // Auth
   Login: undefined;
-  SignUp: undefined;  // ← ADDED
+  SignUp: undefined;
 
   // Main
-  Main: undefined;
+  Main: NavigatorScreenParams<MainTabParamList>;
 
   // Profiles
   Profiles: { profile?: any };
   CreateProfileStep1: { email: string; password: string };
-  CreateProfileStep2: { 
+  CreateProfileStep2: {
     email: string;
     password: string;
     name: string;
@@ -75,7 +115,12 @@ export type RootStackParamList = {
   AvatarSelection: undefined;
   AvatarCompatibility: { interests?: string[] };
   AvatarDetail: { avatar: any; isCustom?: boolean };
-  CreateAvatar: { avatar?: any; isEdit?: boolean; mode?: 'scratch' | 'random'; template?: any };
+  CreateAvatar: {
+    avatar?: any;
+    isEdit?: boolean;
+    mode?: 'scratch' | 'random';
+    template?: any;
+  };
 
   // Situation Flow
   SituationSelection: { avatar: any };
@@ -100,26 +145,61 @@ export type RootStackParamList = {
     conversationHistory?: any[];
     finalMood?: number;
   };
+
   Analytics: {
     source?: 'home' | 'session';
     avatar?: any;
     duration?: string;
-    scores?: any;
+    scores?: {
+      speechAccuracy?: number;
+      vocabulary?: number;
+      naturalness?: number;
+    };
+    scoreDetails?: {
+      speechAccuracy?: { source?: string; used_fallback?: boolean; note?: string };
+      vocabulary?: { source?: string; used_fallback?: boolean; note?: string };
+      naturalness?: { source?: string; used_fallback?: boolean; note?: string };
+    };
+    usedFallbackScores?: boolean;
     savedItems?: string[];
+    rating?: number;
+    feedbackTags?: string[];
+    sessionId?: string;
+    recordingUri?: string;
+    turns?: TranscriptTurn[];
+    insights?: Insight[];
+    stats?: SessionStats;
   };
+
   ConversationHistory: undefined;
 
   // Realtime
-  RealtimeSession: { avatar: any };
+  RealtimeSession: {
+    avatar: any;
+    sessionId?: string;
+    situation?: any;
+  };
 
   // Legacy
-  Feedback: { avatar?: any; duration?: string };
+  Feedback: {
+    avatar?: any;
+    duration?: string;
+    situation?: any;
+    sessionId?: string;
+    recordingUri?: string;
+    turns?: TranscriptTurn[];
+    insights?: Insight[];
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
-const navigationRef = createNavigationContainerRef<any>();
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-const MENU_ITEMS = [
+const MENU_ITEMS: {
+  route: keyof MainTabParamList;
+  label: string;
+  icon: any;
+}[] = [
   { route: 'Home', label: '홈', icon: Home },
   { route: 'Avatar', label: '아바타', icon: Moon },
   { route: 'Real-time', label: '실시간', icon: Mic },
@@ -134,7 +214,7 @@ const HIDE_MENU_ROUTES = new Set([
   'CreateProfileStep2',
 ]);
 
-const ROUTE_TO_MENU: Record<string, string> = {
+const ROUTE_TO_MENU: Record<string, keyof MainTabParamList> = {
   Main: 'Home',
   Home: 'Home',
   Avatar: 'Avatar',
@@ -158,7 +238,11 @@ const ROUTE_TO_MENU: Record<string, string> = {
   Feedback: 'Home',
 };
 
-const PersistentBottomMenu = ({ currentRouteName }: { currentRouteName?: string }) => {
+const PersistentBottomMenu = ({
+  currentRouteName,
+}: {
+  currentRouteName?: string;
+}) => {
   const insets = useSafeAreaInsets();
   const activeRoute = ROUTE_TO_MENU[currentRouteName || ''] || 'Home';
   const menuHeight = 68 + insets.bottom;
@@ -167,16 +251,22 @@ const PersistentBottomMenu = ({ currentRouteName }: { currentRouteName?: string 
     return null;
   }
 
-  const handlePress = (route: string) => {
+  const handlePress = (route: keyof MainTabParamList) => {
     if (!navigationRef.isReady()) return;
     navigationRef.navigate('Main', { screen: route });
   };
 
   return (
-    <View style={[styles.bottomMenu, { height: menuHeight, paddingBottom: Math.max(8, insets.bottom) }]}>
-      {MENU_ITEMS.map(item => {
+    <View
+      style={[
+        styles.bottomMenu,
+        { height: menuHeight, paddingBottom: Math.max(8, insets.bottom) },
+      ]}
+    >
+      {MENU_ITEMS.map((item) => {
         const focused = activeRoute === item.route;
         const Icon = item.icon;
+
         return (
           <TouchableOpacity
             key={item.route}
@@ -185,7 +275,12 @@ const PersistentBottomMenu = ({ currentRouteName }: { currentRouteName?: string 
             activeOpacity={0.75}
           >
             <Icon size={22} color={focused ? '#6C3BFF' : '#B0B0C5'} />
-            <Text style={[styles.bottomMenuLabel, focused && styles.bottomMenuLabelActive]}>
+            <Text
+              style={[
+                styles.bottomMenuLabel,
+                focused && styles.bottomMenuLabelActive,
+              ]}
+            >
               {item.label}
             </Text>
           </TouchableOpacity>
@@ -200,7 +295,10 @@ export const AppNavigator: React.FC = () => {
   const [, setIsAuthenticated] = useState(false);
   const [currentRouteName, setCurrentRouteName] = useState<string>();
   const insets = useSafeAreaInsets();
-  const shouldShowMenu = Boolean(currentRouteName && !HIDE_MENU_ROUTES.has(currentRouteName));
+
+  const shouldShowMenu = Boolean(
+    currentRouteName && !HIDE_MENU_ROUTES.has(currentRouteName)
+  );
   const bottomMenuHeight = shouldShowMenu ? 68 + insets.bottom : 0;
 
   useEffect(() => {
@@ -209,12 +307,13 @@ export const AppNavigator: React.FC = () => {
       setIsAuthenticated(!!token);
       setIsLoading(false);
     };
+
     checkAuth();
   }, []);
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={styles.loadingScreen}>
         <ActivityIndicator size="large" color="#6C3BFF" />
       </View>
     );
@@ -224,7 +323,9 @@ export const AppNavigator: React.FC = () => {
     <NavigationContainer
       ref={navigationRef}
       onReady={() => setCurrentRouteName(navigationRef.getCurrentRoute()?.name)}
-      onStateChange={() => setCurrentRouteName(navigationRef.getCurrentRoute()?.name)}
+      onStateChange={() =>
+        setCurrentRouteName(navigationRef.getCurrentRoute()?.name)
+      }
     >
       <View style={styles.appShell}>
         <View style={[styles.navigatorShell, { paddingBottom: bottomMenuHeight }]}>
@@ -238,38 +339,72 @@ export const AppNavigator: React.FC = () => {
 
             {/* Profile Creation Flow */}
             <Stack.Screen name="Profiles" component={ProfilesScreen} />
-            <Stack.Screen name="CreateProfileStep1" component={CreateProfileStep1Screen} />
-            <Stack.Screen name="CreateProfileStep2" component={CreateProfileStep2Screen} />
+            <Stack.Screen
+              name="CreateProfileStep1"
+              component={CreateProfileStep1Screen}
+            />
+            <Stack.Screen
+              name="CreateProfileStep2"
+              component={CreateProfileStep2Screen}
+            />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
             <Stack.Screen name="EditInterests" component={EditInterestsScreen} />
-            <Stack.Screen name="SavedVocabulary" component={SavedVocabularyScreen} />
+            <Stack.Screen
+              name="SavedVocabulary"
+              component={SavedVocabularyScreen}
+            />
 
             {/* Avatar Flow */}
-            <Stack.Screen name="AvatarSelection" component={AvatarSelectionScreen} />
-            <Stack.Screen name="AvatarCompatibility" component={AvatarCompatibilityScreen} />
+            <Stack.Screen
+              name="AvatarSelection"
+              component={AvatarSelectionScreen}
+            />
+            <Stack.Screen
+              name="AvatarCompatibility"
+              component={AvatarCompatibilityScreen}
+            />
             <Stack.Screen name="AvatarDetail" component={AvatarDetailScreen} />
             <Stack.Screen name="CreateAvatar" component={CreateAvatarScreen} />
 
             {/* Situation Flow */}
-            <Stack.Screen name="SituationSelection" component={SituationSelectionScreen} />
-            <Stack.Screen name="CreateSituation" component={CreateSituationScreen} />
-            <Stack.Screen name="SpeechRecommendation" component={SpeechRecommendationScreen} />
+            <Stack.Screen
+              name="SituationSelection"
+              component={SituationSelectionScreen}
+            />
+            <Stack.Screen
+              name="CreateSituation"
+              component={CreateSituationScreen}
+            />
+            <Stack.Screen
+              name="SpeechRecommendation"
+              component={SpeechRecommendationScreen}
+            />
 
             {/* Chat */}
             <Stack.Screen name="Chat" component={ChatScreen} />
 
             {/* Post-Chat Flow */}
-            <Stack.Screen name="ConversationSummary" component={ConversationSummaryScreen} />
+            <Stack.Screen
+              name="ConversationSummary"
+              component={ConversationSummaryScreen}
+            />
             <Stack.Screen name="Analytics" component={AnalyticsScreen} />
-            <Stack.Screen name="ConversationHistory" component={ConversationHistoryScreen} />
+            <Stack.Screen
+              name="ConversationHistory"
+              component={ConversationHistoryScreen}
+            />
 
             {/* Realtime Session */}
-            <Stack.Screen name="RealtimeSession" component={RealtimeSessionScreen} />
+            <Stack.Screen
+              name="RealtimeSession"
+              component={RealtimeSessionScreen}
+            />
 
             {/* Legacy */}
             <Stack.Screen name="Feedback" component={FeedbackScreen} />
           </Stack.Navigator>
         </View>
+
         <PersistentBottomMenu currentRouteName={currentRouteName} />
       </View>
     </NavigationContainer>
@@ -283,6 +418,11 @@ const styles = StyleSheet.create({
   },
   navigatorShell: {
     flex: 1,
+  },
+  loadingScreen: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   bottomMenu: {
     position: 'absolute',
