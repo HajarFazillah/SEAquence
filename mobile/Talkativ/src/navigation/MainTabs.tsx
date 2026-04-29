@@ -5,8 +5,9 @@ import { HomeScreen } from '../screens/HomeScreen';
 import AvatarScreen from '../screens/AvatarScreen';
 import RealtimeScreen from '../screens/RealtimeScreen';
 import MyProfileScreen from '../screens/MyProfileScreen';
+import type { MainTabParamList } from './AppNavigator';
 
-const Tab = createBottomTabNavigator();
+const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export const MainTabs: React.FC = () => {
   return (
@@ -33,6 +34,7 @@ export const MainTabs: React.FC = () => {
           tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
         }}
       />
+
       <Tab.Screen
         name="Avatar"
         component={AvatarScreen}
@@ -41,6 +43,7 @@ export const MainTabs: React.FC = () => {
           tabBarIcon: ({ color, size }) => <Moon size={size} color={color} />,
         }}
       />
+
       <Tab.Screen
         name="Real-time"
         component={RealtimeScreen}
@@ -49,6 +52,7 @@ export const MainTabs: React.FC = () => {
           tabBarIcon: ({ color, size }) => <Mic size={size} color={color} />,
         }}
       />
+
       <Tab.Screen
         name="My Profile"
         component={MyProfileScreen}
