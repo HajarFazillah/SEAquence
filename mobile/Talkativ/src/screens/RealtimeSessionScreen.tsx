@@ -39,6 +39,8 @@ type Insight = {
   turnId: string;
 };
 
+const WAVE_BARS = [0.4, 0.7, 1.0, 0.7, 0.5, 0.9, 0.6, 0.4, 0.8, 0.5];
+
 const formatDuration = (seconds: number) => {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
   const s = (seconds % 60).toString().padStart(2, '0');
@@ -117,8 +119,7 @@ function TranscriptTurnRow({
 }
 
 function WaveformIndicator({ isActive }: { isActive: boolean }) {
-  const bars = [0.4, 0.7, 1.0, 0.7, 0.5, 0.9, 0.6, 0.4, 0.8, 0.5];
-  const anims = useRef(bars.map(() => new Animated.Value(0.3))).current;
+  const anims = useRef(WAVE_BARS.map(() => new Animated.Value(0.3))).current;
 
   useEffect(() => {
     if (!isActive) {
@@ -128,9 +129,9 @@ function WaveformIndicator({ isActive }: { isActive: boolean }) {
 
     const loops = anims.map((anim, i) =>
       Animated.loop(
-        Animated.sequence([
+          Animated.sequence([
           Animated.timing(anim, {
-            toValue: bars[i],
+            toValue: WAVE_BARS[i],
             duration: 300 + i * 60,
             useNativeDriver: true,
           }),
@@ -145,7 +146,7 @@ function WaveformIndicator({ isActive }: { isActive: boolean }) {
 
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
-  }, [isActive]);
+  }, [isActive, anims]);
 
   return (
     <View style={wave.container}>
@@ -210,21 +211,7 @@ export default function RealtimeSessionScreen() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
   }, [turns]);
 
-  useFocusEffect(
-    useCallback(() => {
-      const unsub = navigation.addListener('beforeRemove', (e: any) => {
-        if (sessionEnded.current || isEnding) return;
-        e.preventDefault();
-        Alert.alert('세션 종료', '세션을 종료하시겠습니까?', [
-          { text: '취소', style: 'cancel' },
-          { text: '종료', style: 'destructive', onPress: () => finishSession(false) },
-        ]);
-      });
-      return unsub;
-    }, [navigation, isEnding])
-  );
-
-  const finishSession = async (goToFeedback: boolean) => {
+  const finishSession = useCallback(async (goToFeedback: boolean) => {
     if (sessionEnded.current) return;
     sessionEnded.current = true;
     setIsEnding(true);
@@ -250,7 +237,21 @@ export default function RealtimeSessionScreen() {
     } else {
       navigation.goBack();
     }
-  };
+  }, [isRecording, navigation, sessionId, avatar, duration, recordingPath]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const unsub = navigation.addListener('beforeRemove', (e: any) => {
+        if (sessionEnded.current || isEnding) return;
+        e.preventDefault();
+        Alert.alert('세션 종료', '세션을 종료하시겠습니까?', [
+          { text: '취소', style: 'cancel' },
+          { text: '종료', style: 'destructive', onPress: () => finishSession(false) },
+        ]);
+      });
+      return unsub;
+    }, [navigation, isEnding, finishSession])
+  );
 
   const handleMicPress = async () => {
     if (isEnding || isAnalyzing) return;
@@ -306,6 +307,7 @@ export default function RealtimeSessionScreen() {
   };
 
   const speakerCount = new Set(turns.map((t) => t.speaker)).size || 1;
+  const standaloneInsights = insights.filter((i) => !i.turnId);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -351,6 +353,13 @@ export default function RealtimeSessionScreen() {
                 ? '잠시만 기다리면 transcript와 분석이 표시돼요'
                 : `말을 시작하면 실시간 분석이\n여기에 표시돼요`}
             </Text>
+            {standaloneInsights.length > 0 ? (
+              <View style={styles.standaloneInsightWrap}>
+                {standaloneInsights.map((insight) => (
+                  <InsightCard key={insight.id} insight={insight} />
+                ))}
+              </View>
+            ) : null}
           </View>
         ) : (
           turns.map((turn) => (
@@ -447,6 +456,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 60,
     gap: 12,
+  },
+  standaloneInsightWrap: {
+    width: '100%',
+    marginTop: 12,
+    paddingHorizontal: 4,
   },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: '#9E9E9E', textAlign: 'center' },
   emptySubtitle: { fontSize: 13, color: '#BDBDBD', textAlign: 'center', lineHeight: 20 },
