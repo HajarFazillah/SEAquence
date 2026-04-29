@@ -65,7 +65,7 @@ public class ClovaSpeechService {
                   "language": "ko-KR",
                   "completion": "sync",
                   "diarization": {
-                    "enable": false
+                    "enable": true
                   }
                 }
                 """;
