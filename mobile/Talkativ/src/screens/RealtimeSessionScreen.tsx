@@ -11,21 +11,12 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import {
-  useNavigation,
-  useRoute,
-  useFocusEffect,
-} from '@react-navigation/native';
-import {
-  Mic,
-  MicOff,
-  X,
-  Volume2,
-  VolumeX,
-  AlertTriangle,
-  CheckCircle,
+  Mic, MicOff, X, Volume2, VolumeX,
+  CircleDashed, ArrowRight,
 } from 'lucide-react-native';
-import { Icon } from '../components';
+import { Icon, type IconName } from '../components';
 import { endSession } from '../services/apiSession';
 import {
   analyzeRealtimeAudio,
@@ -37,791 +28,678 @@ import type { RootStackParamList } from '../navigation/AppNavigator';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 type RealtimeSessionRoute = NativeStackScreenProps<
-  RootStackParamList,
-  'RealtimeSession'
+  RootStackParamList, 'RealtimeSession'
 >['route'];
 
 type TranscriptTurn = {
-  id: string;
-  speaker: string;
-  text: string;
-  type: 'partial' | 'final';
+  id: string; speaker: string; text: string; type: 'partial' | 'final';
 };
-
 type Insight = {
-  id: string;
-  kind: 'risk' | 'success';
-  message: string;
-  suggestion?: string;
-  turnId: string;
+  id: string; kind: 'risk' | 'success'; message: string;
+  suggestion?: string; turnId: string;
 };
 
-const formatDuration = (seconds: number) => {
-  const m = Math.floor(seconds / 60)
-    .toString()
-    .padStart(2, '0');
-  const s = (seconds % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-};
+// ─── Tokens ───────────────────────────────────────────────────────────────────
+const C = {
+  // Base
+  canvas:   '#F2F1F7',
+  paper:    '#F8F7FC',
+  white:    '#FFFFFF',
 
-function SessionBanner({
-  speakerCount,
-  situation,
-}: {
-  speakerCount: number;
-  situation?: string;
-}) {
+  // Greyscale
+  ink100:   '#111118',
+  ink70:    '#4A4858',
+  ink40:    '#9694A8',
+  ink20:    '#C8C6D8',
+  ink10:    '#E4E2EF',
+
+  // Accent — purple
+  terra:    '#5B35E8',
+  terraFg:  '#EDEAFC',
+
+  // Semantic
+  risk:     '#7C3AED',
+  riskFg:   '#F3EEFF',
+  riskLine: '#C4B5FD',
+
+  ok:       '#4338CA',
+  okFg:     '#EEF0FF',
+  okLine:   '#A5B4FC',
+
+  // Mic states
+  recRed:   '#D63B2F',
+} as const;
+
+const WAVE_H = [0.25, 0.5, 0.8, 1.0, 0.7, 0.4, 0.9, 0.55, 0.35, 0.75, 0.45];
+
+const pad2 = (n: number) => n.toString().padStart(2, '0');
+const fmt = (s: number) => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
+
+// ─── Waveform ─────────────────────────────────────────────────────────────────
+function Waveform({ active }: { active: boolean }) {
+  const bars = useRef(WAVE_H.map(() => new Animated.Value(0.2))).current;
+  useEffect(() => {
+    if (!active) {
+      bars.forEach(b => Animated.timing(b, { toValue: 0.2, duration: 400, useNativeDriver: true }).start());
+      return;
+    }
+    const loops = bars.map((b, i) =>
+      Animated.loop(Animated.sequence([
+        Animated.timing(b, { toValue: WAVE_H[i], duration: 220 + i * 38, useNativeDriver: true }),
+        Animated.timing(b, { toValue: 0.2, duration: 220 + i * 38, useNativeDriver: true }),
+      ]))
+    );
+    loops.forEach(l => l.start());
+    return () => loops.forEach(l => l.stop());
+  }, [active, bars]);
+
   return (
-    <View style={banner.container}>
-      <View style={banner.pill}>
-        <View style={banner.dot} />
-        <Text style={banner.text}>실시간 분석 중</Text>
-      </View>
-      <Text style={banner.meta}>
-        {speakerCount}명 참여 중 · {situation ?? '일상 대화'}
-      </Text>
+    <View style={wv.row}>
+      {bars.map((b, i) => (
+        <Animated.View key={i} style={[wv.bar, {
+          transform: [{ scaleY: b }],
+          backgroundColor: active ? C.recRed : C.ink20,
+        }]} />
+      ))}
     </View>
   );
 }
 
-function InsightCard({ insight }: { insight: Insight }) {
-  const isRisk = insight.kind === 'risk';
+// ─── Insight ──────────────────────────────────────────────────────────────────
+function Insight({ item }: { item: Insight }) {
+  const risk = item.kind === 'risk';
+  return (
+    <View style={[ins.wrap, { borderLeftColor: risk ? C.risk : C.ok }]}>
+      <Text style={[ins.label, { color: risk ? C.risk : C.ok }]}>
+        {risk ? '주의' : '잘함'}
+      </Text>
+      <Text style={ins.msg}>{item.message}</Text>
+      {item.suggestion ? (
+        <Text style={[ins.sugg, { color: risk ? C.risk : C.ok }]}>
+          → {item.suggestion}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// ─── Turn ─────────────────────────────────────────────────────────────────────
+function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: Insight; avatarName?: string }) {
+  const live = turn.type === 'partial';
+  // User = not the avatar and not an unknown partner label
+  const isUser = !avatarName || turn.speaker !== avatarName;
 
   return (
-    <View
-      style={[
-        insightStyle.card,
-        isRisk ? insightStyle.cardRisk : insightStyle.cardSuccess,
-      ]}
-    >
-      <View style={insightStyle.row}>
-        {isRisk ? (
-          <AlertTriangle size={16} color="#B45309" />
-        ) : (
-          <CheckCircle size={16} color="#166534" />
-        )}
-        <Text
-          style={[
-            insightStyle.title,
-            isRisk ? insightStyle.titleRisk : insightStyle.titleSuccess,
-          ]}
-        >
-          {insight.message}
-        </Text>
+    <View style={[tn.row, isUser ? tn.rowUser : tn.rowPartner]}>
+      {/* Bubble + label */}
+      <View style={[tn.col, isUser ? tn.colUser : tn.colPartner]}>
+        <View style={tn.labelRow}>
+          {!isUser && <View style={[tn.dot, { backgroundColor: C.ink40 }]} />}
+          <Text style={[tn.speaker, isUser && tn.speakerUser]}>
+            {live ? '나 (녹음 중)' : isUser ? '나' : turn.speaker}
+          </Text>
+          {isUser && <View style={[tn.dot, { backgroundColor: '#6C3BFF' }]} />}
+          {live && (
+            <CircleDashed size={9} color={C.recRed} strokeWidth={2.5} />
+          )}
+        </View>
+
+        <View style={[tn.bubble, isUser ? tn.bubbleUser : tn.bubblePartner, live && tn.bubbleLive]}>
+          <Text style={[tn.text, isUser ? tn.textUser : tn.textPartner, live && tn.textLive]}>
+            {turn.text}{live ? ' ▌' : ''}
+          </Text>
+        </View>
       </View>
 
-      {insight.suggestion ? (
-        <View style={insightStyle.suggestionBox}>
-          <Text style={insightStyle.suggestionLabel}>추천 표현</Text>
-          <Text
-            style={[
-              insightStyle.suggestionText,
-              isRisk ? insightStyle.suggestionRisk : insightStyle.suggestionGreen,
-            ]}
-          >
-            "{insight.suggestion}"
-          </Text>
+      {insight ? (
+        <View style={[tn.insightWrap, isUser ? tn.insightUser : tn.insightPartner]}>
+          <Insight item={insight} />
         </View>
       ) : null}
     </View>
   );
 }
 
-function TranscriptTurnRow({
-  turn,
-  insight,
-}: {
-  turn: TranscriptTurn;
-  insight?: Insight;
-}) {
-  const isPartial = turn.type === 'partial';
-
-  return (
-    <View style={turnStyle.wrapper}>
-      <Text style={turnStyle.speaker}>{turn.speaker}</Text>
-      <View style={[turnStyle.bubble, isPartial && turnStyle.bubblePartial]}>
-        <Text style={[turnStyle.text, isPartial && turnStyle.textPartial]}>
-          {turn.text}
-          {isPartial ? ' ▌' : ''}
-        </Text>
-      </View>
-      {insight ? <InsightCard insight={insight} /> : null}
-    </View>
-  );
-}
-
-function WaveformIndicator({ isActive }: { isActive: boolean }) {
-  const bars = [0.4, 0.7, 1.0, 0.7, 0.5, 0.9, 0.6, 0.4, 0.8, 0.5];
-  const anims = useRef(bars.map(() => new Animated.Value(0.3))).current;
-
+// ─── Empty ────────────────────────────────────────────────────────────────────
+function Empty({ analyzing }: { analyzing: boolean }) {
+  const scale = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (!isActive) {
-      anims.forEach((a) => a.setValue(0.3));
-      return;
-    }
-
-    const loops = anims.map((anim, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(anim, {
-            toValue: bars[i],
-            duration: 300 + i * 60,
-            useNativeDriver: true,
-          }),
-          Animated.timing(anim, {
-            toValue: 0.3,
-            duration: 300 + i * 60,
-            useNativeDriver: true,
-          }),
-        ])
-      )
-    );
-
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
-  }, [isActive, anims]);
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(scale, { toValue: 1.06, duration: 1600, useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1, duration: 1600, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [scale]);
 
   return (
-    <View style={wave.container}>
-      {anims.map((anim, i) => (
-        <Animated.View
-          key={i}
-          style={[
-            wave.bar,
-            {
-              transform: [{ scaleY: anim }],
-              backgroundColor: isActive ? '#6C3BFF' : '#D1C4E9',
-            },
-          ]}
-        />
-      ))}
+    <View style={em.wrap}>
+      <Animated.View style={[em.ring, { transform: [{ scale }] }]} />
+      <View style={em.circle}>
+        <Mic size={22} color={C.ink70} strokeWidth={1.6} />
+      </View>
+      <Text style={em.title}>
+        {analyzing ? '분석 중...' : '대화를 시작하세요'}
+      </Text>
+      <Text style={em.sub}>
+        {analyzing
+          ? '잠시 후 내용이 표시됩니다'
+          : '아래 버튼을 눌러\n녹음을 시작해보세요'}
+      </Text>
     </View>
   );
 }
 
-const normalizeTranscriptTurns = (
-  turns: TranscriptTurnResult[] = []
-): TranscriptTurn[] => {
-  return turns.map((turn, index) => ({
-    id: turn.id ?? `turn-${Date.now()}-${index}`,
-    speaker: String(turn.speaker ?? 'Speaker'),
-    text: turn.text ?? '',
+// ─── Normalizers ─────────────────────────────────────────────────────────────
+const normTurns = (turns: TranscriptTurnResult[] = []): TranscriptTurn[] =>
+  turns.map((t, i) => ({
+    id: t.id ?? `t-${Date.now()}-${i}`,
+    speaker: String(t.speaker ?? 'Speaker'),
+    text: t.text ?? '',
     type: 'final',
   }));
-};
 
-const normalizeInsights = (insights: InsightResult[] = []): Insight[] => {
-  return insights.map((insight, index) => ({
-    id: insight.id ?? `insight-${Date.now()}-${index}`,
-    kind: insight.kind === 'risk' ? 'risk' : 'success',
-    message: insight.message ?? '',
-    suggestion: insight.suggestion,
-    turnId:
-      ((insight as unknown as { turnId?: string }).turnId ??
-        (insight as unknown as { turn_id?: string }).turn_id ??
-        '') as string,
+const normInsights = (items: InsightResult[] = []): Insight[] =>
+  items.map((it, i) => ({
+    id: it.id ?? `i-${Date.now()}-${i}`,
+    kind: it.kind === 'risk' ? 'risk' : 'success',
+    message: it.message ?? '',
+    suggestion: it.suggestion,
+    turnId: ((it as any).turnId ?? (it as any).turn_id ?? '') as string,
   }));
-};
 
+const normalizeRecordingUri = (uri: string) =>
+  uri.startsWith('file://') ? uri : `file://${uri}`;
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function RealtimeSessionScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<RealtimeSessionRoute>();
-  const avatar = route.params?.avatar;
-  const sessionId = route.params?.sessionId as string | undefined;
-  const situation = route.params?.situation as string | undefined;
+  const avatar   = route.params?.avatar;
+  const sessionId  = route.params?.sessionId as string | undefined;
+  const situation  = route.params?.situation as string | undefined;
 
-  const [isRecording, setIsRecording] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [isEnding, setIsEnding] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [turns, setTurns] = useState<TranscriptTurn[]>([]);
-  const [insights, setInsights] = useState<Insight[]>([]);
-  const [recordingUri, setRecordingUri] = useState<string>('');
+  const [recording, setRecording]   = useState(false);
+  const [muted, setMuted]           = useState(false);
+  const [duration, setDuration]     = useState(0);
+  const [ending, setEnding]         = useState(false);
+  const [analyzing, setAnalyzing]   = useState(false);
+  const [turns, setTurns]           = useState<TranscriptTurn[]>([]);
+  const [insights, setInsights]     = useState<Insight[]>([]);
+  const [recUri, setRecUri]         = useState('');
 
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
-  const sessionEnded = useRef(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const rippleScale   = useRef(new Animated.Value(1)).current;
+  const rippleOpacity = useRef(new Animated.Value(0)).current;
+  const rippleLoop    = useRef<Animated.CompositeAnimation | null>(null);
+  const ended         = useRef(false);
+  const scrollRef     = useRef<ScrollView>(null);
 
   useEffect(() => {
-    const t = setInterval(() => setDuration((d) => d + 1), 1000);
-
-    return () => {
-      clearInterval(t);
-      Sound.removeRecordBackListener();
-      Sound.stopRecorder().catch(() => {});
-    };
+    const t = setInterval(() => setDuration(d => d + 1), 1000);
+    return () => { clearInterval(t); Sound.removeRecordBackListener(); Sound.stopRecorder().catch(() => {}); };
   }, []);
 
   useEffect(() => {
-    if (isRecording) {
-      pulseLoop.current = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.15,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: true,
-          }),
+    if (recording) {
+      rippleLoop.current = Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(rippleScale,   { toValue: 1.7,  duration: 1000, useNativeDriver: true }),
+            Animated.timing(rippleScale,   { toValue: 1,    duration: 0,    useNativeDriver: true }),
+          ]),
+          Animated.sequence([
+            Animated.timing(rippleOpacity, { toValue: 0,    duration: 1000, useNativeDriver: true }),
+            Animated.timing(rippleOpacity, { toValue: 0.25, duration: 0,    useNativeDriver: true }),
+          ]),
         ])
       );
-      pulseLoop.current.start();
+      rippleLoop.current.start();
     } else {
-      pulseLoop.current?.stop();
-      pulseAnim.setValue(1);
+      rippleLoop.current?.stop();
+      rippleScale.setValue(1);
+      rippleOpacity.setValue(0);
     }
-  }, [isRecording, pulseAnim]);
+  }, [recording, rippleScale, rippleOpacity]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, 120);
-
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    return () => clearTimeout(t);
   }, [turns]);
 
-  useFocusEffect(
-    useCallback(() => {
-      const unsub = navigation.addListener('beforeRemove', (e: any) => {
-        if (sessionEnded.current || isEnding) return;
-        e.preventDefault();
-        Alert.alert('세션 종료', '세션을 종료하시겠습니까?', [
-          { text: '취소', style: 'cancel' },
-          {
-            text: '종료',
-            style: 'destructive',
-            onPress: () => finishSession(false),
-          },
-        ]);
-      });
-      return unsub;
-    }, [navigation, isEnding])
-  );
-
-  async function requestMicPermission(): Promise<boolean> {
+  async function askMicPerm(): Promise<boolean> {
     if (Platform.OS !== 'android') return true;
-
-    const granted = await PermissionsAndroid.request(
+    const r = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      {
-        title: '마이크 권한',
-        message: 'Talkativ이 대화를 녹음하려면 마이크 접근이 필요합니다.',
-        buttonPositive: '허용',
-        buttonNegative: '거부',
-      }
+      { title: '마이크 권한', message: 'Talkativ이 녹음하려면 마이크 접근이 필요합니다.', buttonPositive: '허용', buttonNegative: '거부' }
     );
-
-    if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-      Alert.alert('권한 필요', '설정에서 마이크 접근을 허용해주세요.');
-      return false;
-    }
-
+    if (r !== PermissionsAndroid.RESULTS.GRANTED) { Alert.alert('권한 필요', '설정에서 마이크를 허용해주세요.'); return false; }
     return true;
   }
 
-  const finishSession = async (goToFeedback: boolean) => {
-    if (sessionEnded.current) return;
-    sessionEnded.current = true;
-    setIsEnding(true);
+  const finish = useCallback(async (feedback: boolean) => {
+    if (ended.current) return;
+    ended.current = true;
+    setEnding(true);
+    try { if (recording) { setRecording(false); Sound.removeRecordBackListener(); await Sound.stopRecorder(); } } catch {}
+    try { if (sessionId) await endSession(sessionId); } catch {}
+    if (feedback) {
+      navigation.navigate('Feedback', { avatar, sessionId, situation, duration: fmt(duration), recordingUri: recUri, turns, insights });
+    } else navigation.goBack();
+  }, [recording, sessionId, navigation, avatar, situation, duration, recUri, turns, insights]);
 
+  useFocusEffect(useCallback(() => {
+    const u = navigation.addListener('beforeRemove', (e: any) => {
+      if (ended.current || ending) return;
+      e.preventDefault();
+      Alert.alert('세션 종료', '세션을 종료하시겠습니까?', [
+        { text: '취소', style: 'cancel' },
+        { text: '종료', style: 'destructive', onPress: () => finish(false) },
+      ]);
+    });
+    return u;
+  }, [navigation, ending, finish]));
+
+  const onMic = async () => {
+    if (ending || analyzing) return;
     try {
-      if (isRecording) {
-        setIsRecording(false);
+      if (recording) {
+        setRecording(false); setAnalyzing(true);
+        setTurns(p => p.filter(t => t.type !== 'partial'));
         Sound.removeRecordBackListener();
-        await Sound.stopRecorder();
-      }
-    } catch {}
+        const rawUri = await Sound.stopRecorder();
+        if (!rawUri) throw new Error('녹음 경로를 가져오지 못했습니다.');
+        const uri = normalizeRecordingUri(rawUri);
+        setRecUri(uri);
+        const form = new FormData();
+        form.append('file', { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
+        if (sessionId) form.append('sessionId', sessionId);
+        const res = await analyzeRealtimeAudio(form);
+        const nextTurns = normTurns(res?.turns ?? []).filter(t => t.text.trim().length > 0);
 
-    try {
-      if (sessionId) await endSession(sessionId);
-    } catch {}
-
-    if (goToFeedback) {
-      navigation.navigate('Feedback', {
-        avatar,
-        sessionId,
-        situation,
-        duration: formatDuration(duration),
-        recordingUri,
-        turns,
-        insights,
-      });
-    } else {
-      navigation.goBack();
-    }
-  };
-
-  const handleMicPress = async () => {
-    if (isEnding || isAnalyzing) return;
-
-    try {
-      if (isRecording) {
-        setIsRecording(false);
-        setIsAnalyzing(true);
-        setTurns((prev) => prev.filter((t) => t.type !== 'partial'));
-
-        Sound.removeRecordBackListener();
-        const uri = await Sound.stopRecorder();
-
-        if (!uri) {
-          throw new Error('녹음 파일 경로를 가져오지 못했습니다.');
+        // Map raw CLOVA speaker labels (e.g. "0", "1") to user vs. avatar.
+        // First speaker to appear = user, second = avatar.
+        const seenLabels: string[] = [];
+        for (const t of nextTurns) {
+          if (!seenLabels.includes(t.speaker)) seenLabels.push(t.speaker);
+        }
+        const avatarLabel = seenLabels[1];
+        if (avatarLabel && avatar?.name_ko) {
+          for (const t of nextTurns) {
+            if (t.speaker === avatarLabel) t.speaker = avatar.name_ko;
+          }
         }
 
-        setRecordingUri(uri);
+        const nextInsights = normInsights(res?.insights ?? []);
 
-        const formData = new FormData();
-        formData.append(
-          'file',
-          {
-            uri,
-            name: 'recording.m4a',
-            type: 'audio/x-m4a',
-          } as any
-        );
+        if (nextTurns.length === 0 && nextInsights.length === 0) {
+          nextInsights.push({
+            id: `i-empty-${Date.now()}`,
+            kind: 'risk',
+            message: '음성이 업로드됐지만 인식된 문장이 없어요.',
+            suggestion: '한 문장 이상 또렷하게 말한 뒤 다시 시도해 보세요.',
+            turnId: '',
+          });
+        }
 
-        const result = await analyzeRealtimeAudio(formData);
-
-        const normalizedTurns = normalizeTranscriptTurns(result?.turns ?? []);
-        const normalizedInsights = normalizeInsights(result?.insights ?? []);
-
-        setTurns((prev) => [...prev, ...normalizedTurns]);
-        setInsights((prev) => [...prev, ...normalizedInsights]);
+        setTurns(p => [...p, ...nextTurns]);
+        setInsights(p => [...p, ...nextInsights]);
       } else {
-        const granted = await requestMicPermission();
-        if (!granted) return;
-
-        setTurns([]);
-        setInsights([]);
-        setRecordingUri('');
-
+        if (!(await askMicPerm())) return;
+        setTurns([]); setInsights([]); setRecUri('');
         await Sound.startRecorder();
-
-        Sound.addRecordBackListener((_e: RecordBackType) => {
-        });
-
-        setIsRecording(true);
-
-        setTurns([
-          {
-            id: `partial-${Date.now()}`,
-            speaker: '듣는 중...',
-            text: '음성을 인식하고 있습니다',
-            type: 'partial',
-          },
-        ]);
+        Sound.addRecordBackListener((_: RecordBackType) => {});
+        setRecording(true);
+        setTurns([{ id: `live-${Date.now()}`, speaker: '듣는 중', text: '음성 인식 중입니다', type: 'partial' }]);
       }
-    } catch (error: any) {
-      console.error('handleMicPress error:', error);
-      setIsRecording(false);
-      Sound.removeRecordBackListener();
-      Sound.stopRecorder().catch(() => {});
-      setTurns((prev) => prev.filter((t) => t.type !== 'partial'));
-
-      Alert.alert(
-        '오류',
-        error?.response?.data?.message ??
-          error?.message ??
-          '녹음 또는 분석 중 문제가 발생했습니다.'
-      );
-    } finally {
-      setIsAnalyzing(false);
-    }
+    } catch (e: any) {
+      setRecording(false); Sound.removeRecordBackListener(); Sound.stopRecorder().catch(() => {});
+      setTurns(p => p.filter(t => t.type !== 'partial'));
+      Alert.alert('오류', e?.response?.data?.message ?? e?.message ?? '문제가 발생했습니다.');
+    } finally { setAnalyzing(false); }
   };
 
-  const speakerCount =
-    new Set(turns.filter((t) => t.type === 'final').map((t) => t.speaker)).size ||
-    1;
+  const ok    = insights.filter(i => i.kind === 'success').length;
+  const risk  = insights.filter(i => i.kind === 'risk').length;
+  const solo  = insights.filter(i => !i.turnId);
+  const final = turns.filter(t => t.type === 'final').length;
+  const busy  = ending || recording || analyzing;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerBtn}
-          onPress={() => finishSession(false)}
-          disabled={isEnding}
-        >
-          <X size={22} color="#E53935" />
+    <SafeAreaView style={s.safe} edges={['top']}>
+
+      {/* ── Top bar ── */}
+      <View style={s.topBar}>
+        <TouchableOpacity style={s.closeBtn} onPress={() => finish(false)} disabled={ending} activeOpacity={0.6}>
+          <X size={17} color={C.ink70} strokeWidth={2.5} />
         </TouchableOpacity>
 
-        <View style={styles.timerBadge}>
-          <View style={styles.timerDot} />
-          <Text style={styles.timerText}>{formatDuration(duration)}</Text>
+        <View style={s.timerRow}>
+          <View style={[s.timerDot, recording && s.timerDotRec]} />
+          <Text style={s.timerText}>{fmt(duration)}</Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.headerBtn}
-          onPress={() => setIsMuted((m) => !m)}
-        >
-          {isMuted ? (
-            <VolumeX size={22} color="#9E9E9E" />
-          ) : (
-            <Volume2 size={22} color="#6C3BFF" />
-          )}
+        <TouchableOpacity style={s.muteBtn} onPress={() => setMuted(m => !m)} activeOpacity={0.6}>
+          {muted
+            ? <VolumeX size={17} color={C.ink40} strokeWidth={2} />
+            : <Volume2 size={17} color={C.ink70} strokeWidth={2} />}
         </TouchableOpacity>
       </View>
 
-      <SessionBanner speakerCount={speakerCount} situation={situation} />
-
-      <ScrollView
-        ref={scrollRef}
-        style={styles.transcript}
-        contentContainerStyle={styles.transcriptContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {turns.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Mic size={36} color="#D1C4E9" />
-            <Text style={styles.emptyTitle}>
-              {isAnalyzing ? '분석 결과를 불러오는 중...' : '대화를 시작해보세요'}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {isAnalyzing
-                ? '잠시만 기다리면 transcript와 분석이 표시돼요'
-                : '말을 시작하면 실시간 분석이\n여기에 표시돼요'}
-            </Text>
-          </View>
-        ) : (
-          turns.map((turn) => (
-            <TranscriptTurnRow
-              key={turn.id}
-              turn={turn}
-              insight={insights.find((i) => i.turnId === turn.id)}
-            />
-          ))
+      {/* ── Session info strip ── */}
+      <View style={s.strip}>
+        <View style={[s.avatarDot, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
+          <Icon name={(avatar?.icon ?? 'user') as IconName} size={15} color="#FFF" />
+        </View>
+        <Text style={s.stripName}>{avatar?.name_ko ?? '아바타'}</Text>
+        <Text style={s.stripDivider}>·</Text>
+        <Text style={s.stripStatus}>
+          {analyzing ? '분석 중' : recording ? '녹음 중' : '대기'}
+        </Text>
+        {(ok > 0 || risk > 0) && (
+          <>
+            <Text style={s.stripDivider}>·</Text>
+            {ok > 0   && <Text style={[s.stripCount, { color: C.ok }]}>✓ {ok}</Text>}
+            {risk > 0 && <Text style={[s.stripCount, { color: C.risk }]}>⚠ {risk}</Text>}
+          </>
         )}
-      </ScrollView>
+      </View>
 
-      <View style={styles.controls}>
-        <WaveformIndicator isActive={isRecording} />
-
-        <View style={styles.micRow}>
-          <View
-            style={[
-              styles.avatarChip,
-              { backgroundColor: avatar?.avatar_bg ?? '#EDE7F6' },
-            ]}
-          >
-            <Icon name={avatar?.icon ?? 'user'} size={18} color="#FFFFFF" />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.micButton, isRecording && styles.micButtonActive]}
-            onPress={handleMicPress}
-            activeOpacity={0.85}
-            disabled={isEnding || isAnalyzing}
-          >
-            <Animated.View
-              style={{ transform: [{ scale: isRecording ? pulseAnim : 1 }] }}
-            >
-              {isAnalyzing ? (
-                <Mic size={30} color="rgba(255,255,255,0.45)" />
-              ) : isRecording ? (
-                <MicOff size={30} color="#FFFFFF" />
-              ) : (
-                <Mic size={30} color="#FFFFFF" />
-              )}
-            </Animated.View>
-          </TouchableOpacity>
-
-          <View style={styles.avatarChip} />
+      {/* ── Transcript ── */}
+      <View style={s.feed}>
+        <View style={s.feedHeader}>
+          <Text style={s.feedLabel}>대화</Text>
+          {final > 0 && <Text style={s.feedCount}>{final}</Text>}
         </View>
 
-        <Text style={styles.micHint}>
-          {isAnalyzing
-            ? '분석 중입니다...'
-            : isRecording
-              ? '듣고 있어요 · 탭하여 중지 및 분석'
-              : '탭하여 녹음 시작'}
+        <ScrollView
+          ref={scrollRef}
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {turns.length === 0
+            ? <Empty analyzing={analyzing} />
+            : turns.map(turn => (
+                <Turn
+                  key={turn.id} turn={turn}
+                  avatarName={avatar?.name_ko}
+                  insight={insights.find(i => i.turnId === turn.id)}
+                />
+              ))}
+          {solo.length > 0 && (
+            <View style={s.soloWrap}>
+              {solo.map(it => <Insight key={it.id} item={it} />)}
+            </View>
+          )}
+        </ScrollView>
+      </View>
+
+      {/* ── Controls ── */}
+      <View style={s.dock}>
+        {recording && <Waveform active />}
+
+        <View style={s.dockInner}>
+          {/* Avatar chip */}
+          <View style={[s.avatarChip, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
+            <Icon name={(avatar?.icon ?? 'user') as IconName} size={15} color="#FFF" />
+          </View>
+
+          {/* Mic */}
+          <View style={s.micWrap}>
+            {recording && (
+              <Animated.View style={[s.ripple, {
+                transform: [{ scale: rippleScale }], opacity: rippleOpacity,
+              }]} />
+            )}
+            <TouchableOpacity
+              style={[s.mic, recording && s.micRec, analyzing && s.micBusy]}
+              onPress={onMic} activeOpacity={0.8}
+              disabled={ending || analyzing}
+            >
+              {analyzing
+                ? <Mic size={24} color="rgba(255,255,255,0.3)" strokeWidth={2} />
+                : recording
+                  ? <MicOff size={24} color="#FFF" strokeWidth={2.3} />
+                  : <Mic size={24} color="#FFF" strokeWidth={2.3} />}
+            </TouchableOpacity>
+          </View>
+
+          {/* Mute chip */}
+          <TouchableOpacity style={s.muteChip} onPress={() => setMuted(m => !m)} activeOpacity={0.6}>
+            {muted
+              ? <VolumeX size={15} color={C.ink40} strokeWidth={2} />
+              : <Volume2 size={15} color={C.ink70} strokeWidth={2} />}
+          </TouchableOpacity>
+        </View>
+
+        <Text style={s.micHint}>
+          {analyzing ? '분석 중입니다...' : recording ? '탭하여 중지 및 분석' : '탭하여 녹음 시작'}
         </Text>
 
         <TouchableOpacity
-          style={[styles.endButton, isEnding && styles.endButtonDisabled]}
-          onPress={() => finishSession(true)}
-          disabled={isEnding || isRecording || isAnalyzing}
+          style={[s.endBtn, busy && s.endBtnOff]}
+          onPress={() => finish(true)}
+          disabled={busy} activeOpacity={0.85}
         >
-          <Text style={styles.endButtonText}>
-            {isEnding ? '종료 중...' : '세션 종료 및 피드백 보기'}
+          <Text style={[s.endText, busy && s.endTextOff]}>
+            {ending ? '종료 중...' : '세션 종료 · 피드백 보기'}
           </Text>
+          {!busy && <ArrowRight size={15} color="#FFFFFF" strokeWidth={2.5} />}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F7F7FB' },
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.white },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // Top bar
+  topBar: {
+    flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 20, paddingVertical: 12,
   },
-  headerBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+  closeBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: C.paper,
+    borderWidth: 1, borderColor: C.ink10,
+    alignItems: 'center', justifyContent: 'center',
   },
-  timerBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  timerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#E53935',
-  },
-  timerText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1A1A2E',
+  timerRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  timerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.ink20 },
+  timerDotRec: { backgroundColor: C.recRed },
+  timerText: { fontSize: 16, fontWeight: '700', color: C.ink100, letterSpacing: 0.5 },
+  muteBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: C.paper,
+    borderWidth: 1, borderColor: C.ink10,
+    alignItems: 'center', justifyContent: 'center',
   },
 
-  transcript: {
-    flex: 1,
-    paddingHorizontal: 16,
+  // Strip
+  strip: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingBottom: 14,
+    gap: 6,
   },
-  transcriptContent: {
-    paddingTop: 8,
-    paddingBottom: 16,
-    gap: 4,
+  avatarDot: {
+    width: 24, height: 24, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
   },
+  stripName: { fontSize: 13, fontWeight: '600', color: C.ink100 },
+  stripDivider: { fontSize: 13, color: C.ink20 },
+  stripStatus: { fontSize: 13, color: C.ink70 },
+  stripCount: { fontSize: 13, fontWeight: '600' },
 
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 60,
-    gap: 12,
+  // Feed
+  feed: { flex: 1, paddingHorizontal: 20 },
+  feedHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 12,
   },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#9E9E9E',
-    textAlign: 'center',
+  feedLabel: { fontSize: 11, fontWeight: '700', color: C.ink40, letterSpacing: 1.2, textTransform: 'uppercase' },
+  feedCount: {
+    fontSize: 11, fontWeight: '700', color: C.white,
+    backgroundColor: C.ink40, paddingHorizontal: 7, paddingVertical: 2,
+    borderRadius: 99, overflow: 'hidden',
   },
-  emptySubtitle: {
-    fontSize: 13,
-    color: '#BDBDBD',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  scroll: { flex: 1 },
+  scrollContent: { gap: 2, paddingBottom: 8 },
+  soloWrap: { marginTop: 8, gap: 2 },
 
-  controls: {
-    backgroundColor: '#FFFFFF',
+  // Dock
+  dock: {
+    backgroundColor: C.white,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 24,
+    paddingTop: 16,
+    paddingBottom: 30,
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F5',
+    borderTopColor: C.ink10,
     gap: 12,
   },
-  micRow: {
+  dockInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   avatarChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
   },
-  micButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#6C3BFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#6C3BFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 8,
+  micWrap: { width: 80, height: 80, alignItems: 'center', justifyContent: 'center' },
+  ripple: {
+    position: 'absolute',
+    width: 70, height: 70, borderRadius: 35,
+    backgroundColor: C.recRed,
   },
-  micButtonActive: {
-    backgroundColor: '#E53935',
+  mic: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: C.ink100,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  micRec: { backgroundColor: C.recRed },
+  micBusy: { backgroundColor: C.ink40 },
+  muteChip: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: C.canvas,
+    borderWidth: 1, borderColor: C.ink10,
+    alignItems: 'center', justifyContent: 'center',
   },
   micHint: {
-    textAlign: 'center',
-    fontSize: 13,
-    color: '#9E9E9E',
+    textAlign: 'center', fontSize: 13,
+    color: C.ink70, fontWeight: '500',
   },
-
-  endButton: {
-    backgroundColor: '#FFF0F0',
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  endButtonDisabled: {
-    backgroundColor: '#F5F5F5',
-  },
-  endButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#E53935',
-  },
-});
-
-const banner = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F5',
-  },
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#EDE7F6',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  endBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 15, borderRadius: 14,
     backgroundColor: '#6C3BFF',
+    shadowColor: '#6C3BFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  text: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6C3BFF',
+  endBtnOff: {
+    backgroundColor: C.ink10,
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  meta: {
-    fontSize: 12,
-    color: '#9E9E9E',
-  },
+  endText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  endTextOff: { color: C.ink40 },
 });
 
-const turnStyle = StyleSheet.create({
-  wrapper: {
-    marginBottom: 12,
-  },
-  speaker: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#9E9E9E',
-    marginBottom: 4,
-    letterSpacing: 0.5,
-  },
-  bubble: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  bubblePartial: {
-    backgroundColor: '#F7F7FB',
-    borderWidth: 1,
-    borderColor: '#E8E8F0',
-  },
-  text: {
-    fontSize: 15,
-    color: '#1A1A2E',
-    lineHeight: 22,
-  },
-  textPartial: {
-    color: '#9E9E9E',
-  },
+// Waveform
+const wv = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 20, gap: 3 },
+  bar: { width: 2.5, height: 16, borderRadius: 1.5 },
 });
 
-const insightStyle = StyleSheet.create({
-  card: {
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 6,
-  },
-  cardRisk: {
-    backgroundColor: '#FFFBEB',
-  },
-  cardSuccess: {
-    backgroundColor: '#F0FDF4',
-  },
+// Turn
+const tn = StyleSheet.create({
+  // Outer row — controls which side the bubble sits on
   row: {
+    paddingVertical: 6,
+  },
+  rowUser: { alignItems: 'flex-end' },
+  rowPartner: { alignItems: 'flex-start' },
+
+  // Column holds label + bubble, capped at 80% width
+  col: { maxWidth: '80%' },
+  colUser: { alignItems: 'flex-end' },
+  colPartner: { alignItems: 'flex-start' },
+
+  // Speaker label row
+  labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
+    gap: 5,
+    marginBottom: 4,
+    paddingHorizontal: 2,
   },
-  title: {
-    fontSize: 13,
-    fontWeight: '600',
-    flex: 1,
+  dot: { width: 5, height: 5, borderRadius: 2.5 },
+  speaker: { fontSize: 10, fontWeight: '700', color: C.ink40, letterSpacing: 0.5, textTransform: 'uppercase' },
+  speakerUser: { color: '#6C3BFF' },
+
+  // Bubbles
+  bubble: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
-  titleRisk: {
-    color: '#92400E',
+  bubbleUser: {
+    backgroundColor: '#EDEAFC',
+    borderBottomRightRadius: 4,
   },
-  titleSuccess: {
-    color: '#166534',
+  bubblePartner: {
+    backgroundColor: C.paper,
+    borderWidth: 1,
+    borderColor: C.ink10,
+    borderBottomLeftRadius: 4,
   },
-  suggestionBox: {
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 4,
-  },
-  suggestionLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#9E9E9E',
-    marginBottom: 2,
-  },
-  suggestionText: {
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 20,
-  },
-  suggestionRisk: {
-    color: '#B45309',
-  },
-  suggestionGreen: {
-    color: '#166534',
-  },
+  bubbleLive: { opacity: 0.7 },
+
+  // Text
+  text: { fontSize: 15, lineHeight: 22 },
+  textUser: { color: C.ink100 },
+  textPartner: { color: C.ink100 },
+  textLive: { color: C.ink70 },
+
+  // Insight offset
+  insightWrap: { marginTop: 6, maxWidth: '80%' },
+  insightUser: { alignSelf: 'flex-end' },
+  insightPartner: { alignSelf: 'flex-start' },
 });
 
-const wave = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 24,
+// Insight
+const ins = StyleSheet.create({
+  wrap: {
+    borderLeftWidth: 2.5,
+    paddingLeft: 12,
+    paddingVertical: 2,
     gap: 3,
   },
-  bar: {
-    width: 3,
-    height: 16,
-    borderRadius: 2,
+  label: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
+  msg: { fontSize: 13, color: C.ink70, lineHeight: 19 },
+  sugg: { fontSize: 13, fontWeight: '600', lineHeight: 19 },
+});
+
+// Empty
+const em = StyleSheet.create({
+  wrap: { alignItems: 'center', paddingVertical: 60, gap: 14 },
+  ring: {
+    position: 'absolute', top: 42,
+    width: 72, height: 72, borderRadius: 36,
+    borderWidth: 1, borderColor: C.ink10,
   },
+  circle: {
+    width: 52, height: 52, borderRadius: 26,
+    borderWidth: 1, borderColor: C.ink10,
+    backgroundColor: C.paper,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 4,
+  },
+  title: { fontSize: 16, fontWeight: '700', color: C.ink100 },
+  sub: { fontSize: 13, color: C.ink70, textAlign: 'center', lineHeight: 21 },
 });
