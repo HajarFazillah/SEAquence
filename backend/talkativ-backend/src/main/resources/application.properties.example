@@ -16,3 +16,7 @@ server.port=8080
 # JWT
 jwt.secret=YOUR_JWT_SECRET_HERE
 jwt.expiration=86400000
+
+# Clova Speech Recognition
+clova.speech.url=YOUR_CLOVA_SPEECH_ENDPOINT
+clova.speech.secret=YOUR_CLOVA_SPEECH_SECRET
