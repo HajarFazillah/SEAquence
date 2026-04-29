@@ -226,9 +226,10 @@ def build_avatar_system_prompt(
         avatar.custom_role if hasattr(avatar, "custom_role") else None,
     )
     speech_levels = get_speech_levels_for_role(avatar.role)
-    speech_to_user      = speech_levels["to_user"]
-    speech_from_user    = speech_levels["from_user"]
+    speech_to_user      = getattr(avatar, "formality_to_user", None) or speech_levels["to_user"]
+    speech_from_user    = getattr(avatar, "formality_from_user", None) or speech_levels["from_user"]
     speech_to_user_info = SPEECH_LEVEL_INFO[speech_to_user]
+    speech_from_user_info = SPEECH_LEVEL_INFO[speech_from_user]
 
     name    = avatar.name_ko
     name_en = getattr(avatar, "name_en", None)
@@ -293,8 +294,10 @@ def build_avatar_system_prompt(
         voice_parts.append(str(speaking_style))
     voice_parts.extend([
         f"- 사용자에게 {speech_to_user_info['name_ko']}로 말합니다: {speech_to_user_info['description']}",
+        f"- 사용자가 나에게는 보통 {speech_from_user_info['name_ko']}로 말하는 관계가 가장 자연스럽습니다.",
         f"- 예시 표현: {', '.join(speech_to_user_info['examples'])}",
         "- 말투 교정은 별도 UI가 처리합니다. 나는 사용자의 말에 이 사람으로서 자연스럽게 반응할 뿐입니다.",
+        "- 사용자의 표현이 조금 어색해도 먼저 뜻을 이해하고, 현재 관계에 맞는 자연스러운 말투로 반응하세요.",
     ])
     prompt_parts.extend(["", *voice_parts])
 
