@@ -313,6 +313,7 @@ export default function RealtimeSessionScreen() {
         const form = new FormData();
         form.append('file', { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
         if (sessionId) form.append('sessionId', sessionId);
+        if (avatar?.role) form.append('avatarRole', avatar.role);
         const res = await analyzeRealtimeAudio(form);
         const nextTurns = normTurns(res?.turns ?? []).filter(t => t.text.trim().length > 0);
 

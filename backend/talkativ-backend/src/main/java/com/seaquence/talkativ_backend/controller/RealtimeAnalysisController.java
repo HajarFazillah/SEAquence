@@ -20,9 +20,10 @@ public class RealtimeAnalysisController {
 
     @PostMapping(value = "/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<RealtimeAnalysisResponse> analyzeRealtime(
-            @RequestPart("file") MultipartFile file
+            @RequestPart("file") MultipartFile file,
+            @RequestPart(value = "avatarRole", required = false) String avatarRole
     ) {
-        RealtimeAnalysisResponse response = realtimeAnalysisService.analyzeRealtimeAudio(file);
+        RealtimeAnalysisResponse response = realtimeAnalysisService.analyzeRealtimeAudio(file, avatarRole);
         return ResponseEntity.ok(response);
     }
 }
