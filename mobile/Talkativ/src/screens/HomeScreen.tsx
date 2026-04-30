@@ -11,7 +11,6 @@ import { Bell, ChevronRight, Smile, Meh, Frown, TrendingUp } from 'lucide-react-
 import { StatusBadge, Icon } from '../components';
 import { useHomeData } from '../hooks/useHomeData';
 import { ActiveSession } from '../services/apiSession';
-import { buildConversationPreviewText } from '../services/conversationPreview';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,9 +75,8 @@ const CircularProgress = ({ percentage }: { percentage: number }) => {
 
 // ─── Progress Card ─────────────────────────────────────────────────────────────
 
-const ProgressCard = ({ item, previewText, onPress, index }: {
+const ProgressCard = ({ item, onPress, index }: {
   item: ActiveSession;
-  previewText: string;
   onPress: () => void;
   index: number;
 }) => {
@@ -121,10 +119,6 @@ const ProgressCard = ({ item, previewText, onPress, index }: {
             <Text style={styles.progressSituation} numberOfLines={1}>{item.situation}</Text>
             <Text style={styles.progressTime}>{formatRelativeTime(item.lastMessageAt)}</Text>
           </View>
-
-          {previewText ? (
-            <Text style={styles.progressPreview} numberOfLines={2}>{previewText}</Text>
-          ) : null}
 
           <View style={[styles.moodChip, { backgroundColor: moodConfig.bg }]}>
             <MoodIcon size={12} color={moodConfig.color} />
@@ -299,7 +293,6 @@ export const HomeScreen: React.FC = () => {
                 key={item.sessionId}
                 item={item}
                 index={index}
-                previewText={buildConversationPreviewText(conversationPreviews[item.avatarId])}
                 onPress={() => handleContinueConversation(item)}
               />
             ))
