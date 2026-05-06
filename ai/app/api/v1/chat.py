@@ -17,6 +17,7 @@ from app.services.chat_service import (
     ConversationAnalysis,
     RealTimeCorrection,
     InlineCorrection,
+    StructuredMessageResult,
 )
 
 
@@ -74,6 +75,21 @@ class ChatAnalyzeRequest(BaseModel):
     conversation_history: List[ChatMessage]
 
 
+class AnalyzeMessageRequest(BaseModel):
+    """Structured analysis request for one user message."""
+    avatar: AvatarCreate
+    user_message: str
+    conversation_history: List[ChatMessage] = []
+    user_profile: Optional[UserProfileCreate] = None
+    situation: Optional[str] = None
+    user_id: Optional[str] = "default"
+    session_id: Optional[str] = None
+    expected_speech_level: Optional[str] = None
+    correction_context: Optional[CorrectionContext] = None
+    response_instruction: List[str] = Field(default_factory=list)
+    include_reply: bool = True
+
+
 class ConversationAnalysisResponse(BaseModel):
     """Conversation analysis with score provenance."""
     scores: Dict[str, int]
@@ -83,6 +99,47 @@ class ConversationAnalysisResponse(BaseModel):
     overall_feedback: str
     score_details: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     used_fallback_scores: bool = False
+
+
+class StructuredErrorItemResponse(BaseModel):
+    type: str
+    subtype: Optional[str] = None
+    original_fragment: str
+    corrected_fragment: str
+    explanation: str
+    severity: int
+    severity_label: str
+
+
+class StructuredMessageAnalysisResponse(BaseModel):
+    had_errors: bool
+    accuracy_score: int
+    error_count: int
+    expected_speech_level: str
+    expected_speech_level_code: Optional[str] = None
+    detected_speech_level: Optional[str] = None
+    detected_speech_level_code: Optional[str] = None
+    speech_level_correct: bool
+    intent: str
+    context_signals: Dict[str, Any] = Field(default_factory=dict)
+    corrected_message: Optional[str] = None
+    summary: Optional[str] = None
+    encouragement: Optional[str] = None
+    top_focus: Optional[str] = None
+    error_breakdown: Dict[str, int] = Field(default_factory=dict)
+    errors: List[StructuredErrorItemResponse] = Field(default_factory=list)
+
+
+class StructuredMessageReplyResponse(BaseModel):
+    avatar_message: Optional[str] = None
+    used_corrected_meaning: bool = False
+    suggestions: List[str] = Field(default_factory=list)
+    hint: Optional[str] = None
+
+
+class AnalyzeMessageResponse(BaseModel):
+    analysis: StructuredMessageAnalysisResponse
+    reply: Optional[StructuredMessageReplyResponse] = None
 
 
 # Re-export response models for API docs
@@ -264,6 +321,82 @@ async def analyze_conversation(request: ChatAnalyzeRequest):
             conversation_history=request.conversation_history,
         )
         return analysis
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analyze-message", response_model=AnalyzeMessageResponse)
+async def analyze_message(request: AnalyzeMessageRequest):
+    """
+    Analyze one user message and return storage-friendly structured errors.
+
+    This endpoint is intended for downstream session aggregation:
+    - normalized error items
+    - context signals
+    - message intent
+    - corrected full sentence
+    - optional avatar reply
+    """
+    try:
+        result: StructuredMessageResult = await chat_service.analyze_message(
+            avatar=request.avatar,
+            user_message=request.user_message,
+            conversation_history=request.conversation_history,
+            user_profile=request.user_profile,
+            situation=request.situation,
+            user_id=request.user_id or "default",
+            session_id=request.session_id,
+            expected_speech_level=request.expected_speech_level,
+            correction_context=(
+                request.correction_context.model_dump()
+                if request.correction_context
+                else None
+            ),
+            response_instruction=request.response_instruction,
+            include_reply=request.include_reply,
+        )
+
+        return AnalyzeMessageResponse(
+            analysis=StructuredMessageAnalysisResponse(
+                had_errors=result.analysis.had_errors,
+                accuracy_score=result.analysis.accuracy_score,
+                error_count=result.analysis.error_count,
+                expected_speech_level=result.analysis.expected_speech_level,
+                expected_speech_level_code=result.analysis.expected_speech_level_code,
+                detected_speech_level=result.analysis.detected_speech_level,
+                detected_speech_level_code=result.analysis.detected_speech_level_code,
+                speech_level_correct=result.analysis.speech_level_correct,
+                intent=result.analysis.intent,
+                context_signals=result.analysis.context_signals,
+                corrected_message=result.analysis.corrected_message,
+                summary=result.analysis.summary,
+                encouragement=result.analysis.encouragement,
+                top_focus=result.analysis.top_focus,
+                error_breakdown=result.analysis.error_breakdown,
+                errors=[
+                    StructuredErrorItemResponse(
+                        type=item.type,
+                        subtype=item.subtype,
+                        original_fragment=item.original_fragment,
+                        corrected_fragment=item.corrected_fragment,
+                        explanation=item.explanation,
+                        severity=item.severity,
+                        severity_label=item.severity_label,
+                    )
+                    for item in result.analysis.errors
+                ],
+            ),
+            reply=(
+                StructuredMessageReplyResponse(
+                    avatar_message=result.reply.avatar_message,
+                    used_corrected_meaning=result.reply.used_corrected_meaning,
+                    suggestions=result.reply.suggestions,
+                    hint=result.reply.hint,
+                )
+                if result.reply
+                else None
+            ),
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

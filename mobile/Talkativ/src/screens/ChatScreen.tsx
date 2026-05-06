@@ -10,8 +10,9 @@ import Svg, { Path, Circle, Polygon } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
 import { makePreviewPayload, saveConversationPreview } from '../services/conversationPreview';
+import { AI_SERVER_URL } from '../constants';
 
-const AI_SERVER = 'http://10.0.2.2:8000';
+const AI_SERVER = AI_SERVER_URL;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

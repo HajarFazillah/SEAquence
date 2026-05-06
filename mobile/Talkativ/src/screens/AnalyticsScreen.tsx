@@ -23,8 +23,9 @@ import {
 } from 'lucide-react-native';
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AI_SERVER_URL } from '../constants';
 
-const AI_SERVER = 'http://10.0.2.2:8000';
+const AI_SERVER = AI_SERVER_URL;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

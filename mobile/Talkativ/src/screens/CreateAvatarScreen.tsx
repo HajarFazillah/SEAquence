@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet,
   ScrollView, TouchableOpacity, TextInput,
@@ -11,12 +11,12 @@ import {
   User, Users, GraduationCap, Building2, Briefcase,
   Heart, Baby, Crown, Smile,
 } from 'lucide-react-native';
-import { Header, Card, Button, InputField, Tag, Icon, IconName } from '../components';
-import { AVATAR_COLORS, SPEECH_LEVELS } from '../constants';
+import { Card, Button, InputField, Tag, Icon, IconName } from '../components';
+import { AI_SERVER_URL, AVATAR_COLORS, SPEECH_LEVELS } from '../constants';
 import { createAvatar, updateAvatar } from '../services/apiUser';
 import { Star } from 'lucide-react-native';
 
-const AI_SERVER = 'http://10.0.2.2:8000';
+const AI_SERVER = AI_SERVER_URL;
 
 const STEPS = [
   { id: 1, title: '기본 정보',    subtitle: 'Basic Info' },
@@ -147,7 +147,7 @@ const stripMarkdown = (text: string): string =>
 export default function CreateAvatarScreen() {
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
-  const { avatar: existingAvatar, template, isEdit, mode } = route.params || {};
+  const { avatar: existingAvatar, template, isEdit } = route.params || {};
 
   const [currentStep,   setCurrentStep]   = useState(1);
   const [generatedBio,  setGeneratedBio]  = useState('');
@@ -202,7 +202,7 @@ export default function CreateAvatarScreen() {
     }
   };
 
-  const getRecommendedSpeech = () => {
+  const getRecommendedSpeech = useCallback(() => {
     const roleData = ALL_ROLES.find(r => r.id === formData.role);
     if (roleData) {
       return {
@@ -211,16 +211,10 @@ export default function CreateAvatarScreen() {
       };
     }
     return { toUser: 'polite' as const, fromUser: 'polite' as const };
-  };
-
-  useEffect(() => {
-    if (currentStep === 5 && !generatedBio) {
-      generateBio();
-    }
-  }, [currentStep]);
+  }, [formData.role]);
 
   // ── AI 서버로 대화 가이드 생성 ─────────────────────────────────────────────
-  const generateBio = async () => {
+  const generateBio = useCallback(async () => {
     setGeneratingBio(true);
     try {
       const res = await fetch(`${AI_SERVER}/api/v1/chat/generate-bio`, {
@@ -271,7 +265,13 @@ export default function CreateAvatarScreen() {
     } finally {
       setGeneratingBio(false);
     }
-  };
+  }, [formData, getRecommendedSpeech]);
+
+  useEffect(() => {
+    if (currentStep === 5 && !generatedBio) {
+      generateBio();
+    }
+  }, [currentStep, generatedBio, generateBio]);
 
   const handleNext = () => {
     if (currentStep < STEPS.length) {
@@ -308,7 +308,7 @@ export default function CreateAvatarScreen() {
         await createAvatar(avatarData);
       }
       navigation.navigate('Main', { screen: 'Avatar' });
-    } catch (e) {
+    } catch {
       Alert.alert('오류', '저장에 실패했어요. 다시 시도해주세요.');
     } finally {
       setSaving(false);

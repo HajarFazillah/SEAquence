@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { loginUser } from '../services/apiAuth';
+import { SPRING_SERVER_URL } from '../constants';
 
 
 GoogleSignin.configure({
@@ -45,7 +46,7 @@ export const LoginScreen: React.FC = () => {
       const profile = await me();
       console.log('=== KAKAO PROFILE ===', JSON.stringify(profile));
 
-      const response = await fetch('http://10.0.2.2:8080/auth/kakao', {
+      const response = await fetch(`${SPRING_SERVER_URL}/auth/kakao`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -76,7 +77,7 @@ export const LoginScreen: React.FC = () => {
       const userInfo = await GoogleSignin.signIn();
       console.log('=== GOOGLE PROFILE ===', JSON.stringify(userInfo));
 
-      const response = await fetch('http://10.0.2.2:8080/auth/google', {
+      const response = await fetch(`${SPRING_SERVER_URL}/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

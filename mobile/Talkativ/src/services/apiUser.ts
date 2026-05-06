@@ -1,5 +1,6 @@
 import { getAuthHeader } from './apiAuth';
 import { IconName } from '../components/Icon';
+import { SPRING_API_BASE_URL } from '../constants';
 
 export interface UserProfile {
   userId: string;
@@ -47,7 +48,7 @@ export interface UserAvatar {
   bio: string;
 }
 
-export const SPRING_BASE_URL = 'http://10.0.2.2:8080';
+export const SPRING_BASE_URL = SPRING_API_BASE_URL;
 
 export const getMyProfile = async (): Promise<UserProfile> => {
   const headers = await getAuthHeader();

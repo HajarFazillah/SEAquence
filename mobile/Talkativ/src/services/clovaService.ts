@@ -1,5 +1,6 @@
-const API_BASE_URL = 'http://10.0.2.2:8080'; // Android emulator 
-// const API_BASE_URL = 'http://10.240.44.208:8080'; // physical device
+import { SPRING_API_BASE_URL } from '../constants';
+
+const API_BASE_URL = SPRING_API_BASE_URL;
 
 export type RealtimeAnalysisResponse = {
   status?: string;

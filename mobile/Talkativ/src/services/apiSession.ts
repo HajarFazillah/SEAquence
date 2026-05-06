@@ -1,4 +1,5 @@
 import { getAuthHeader } from './apiAuth';
+import { SPRING_API_BASE_URL } from '../constants';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 export interface AvatarFromDB {
@@ -47,7 +48,7 @@ export interface SessionRequest {
   difficulty?: string;
 }
 
-export const SPRING_BASE_URL = 'http://10.0.2.2:8080';
+export const SPRING_BASE_URL = SPRING_API_BASE_URL;
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 async function jsonHeaders(): Promise<Record<string, string>> {

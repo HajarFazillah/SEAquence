@@ -1,6 +1,8 @@
 // src/services/api.js
 import AsyncStorage from '@react-native-async-storage/async-storage'
-const AI_SERVER = 'http://10.0.2.2:8000'; // EC2 배포 시 IP로 교체
+import { AI_SERVER_URL } from '../constants';
+
+const AI_SERVER = AI_SERVER_URL;
 
 export const apiService = {
 

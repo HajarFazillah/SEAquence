@@ -1,7 +1,11 @@
 import type { IconName } from '../components/Icon';
 
 // API Configuration
-export const API_BASE_URL = 'http://http://10.0.2.2:8000/api/v1';
+export const SPRING_SERVER_URL = 'http://10.0.2.2:8080';
+export const AI_SERVER_URL = 'http://10.0.2.2:8000';
+export const SPRING_API_BASE_URL = SPRING_SERVER_URL;
+export const AI_API_BASE_URL = `${AI_SERVER_URL}/api/v1`;
+export const API_BASE_URL = SPRING_API_BASE_URL;
 
 // Colors
 export const COLORS = {

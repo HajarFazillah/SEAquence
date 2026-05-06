@@ -106,6 +106,47 @@ class ConversationAnalysis(BaseModel):
     used_fallback_scores: bool = False
 
 
+class StructuredErrorItem(BaseModel):
+    type: str
+    subtype: Optional[str] = None
+    original_fragment: str
+    corrected_fragment: str
+    explanation: str
+    severity: int = 1
+    severity_label: str = "warning"
+
+
+class StructuredMessageAnalysis(BaseModel):
+    had_errors: bool = False
+    accuracy_score: int = 100
+    error_count: int = 0
+    expected_speech_level: str
+    expected_speech_level_code: Optional[str] = None
+    detected_speech_level: Optional[str] = None
+    detected_speech_level_code: Optional[str] = None
+    speech_level_correct: bool = True
+    intent: str = "small_talk"
+    context_signals: Dict[str, Any] = Field(default_factory=dict)
+    corrected_message: Optional[str] = None
+    summary: Optional[str] = None
+    encouragement: Optional[str] = None
+    top_focus: Optional[str] = None
+    error_breakdown: Dict[str, int] = Field(default_factory=dict)
+    errors: List[StructuredErrorItem] = Field(default_factory=list)
+
+
+class StructuredMessageReply(BaseModel):
+    avatar_message: Optional[str] = None
+    used_corrected_meaning: bool = False
+    suggestions: List[str] = Field(default_factory=list)
+    hint: Optional[str] = None
+
+
+class StructuredMessageResult(BaseModel):
+    analysis: StructuredMessageAnalysis
+    reply: Optional[StructuredMessageReply] = None
+
+
 def _label_for_correction_type(correction: InlineCorrection) -> str:
     if correction.type == CorrectionType.HONORIFIC:
         return "요청 표현" if "주세" in correction.corrected or "주실" in correction.corrected else "호칭/높임"
@@ -596,6 +637,124 @@ def infer_message_intent(
     if re.search(r"(안녕|반가워|처음 뵙|오랜만|잘 지내)", text):
         return "greeting"
     return "small_talk"
+
+
+def normalize_context_signals(
+    situation_signals: Dict[str, Any],
+    message_intent: str,
+) -> Dict[str, Any]:
+    power_direction = situation_signals.get("power_direction", "peer")
+    service = bool(situation_signals.get("service_situation"))
+    first_meeting = bool(situation_signals.get("first_meeting"))
+    formality = situation_signals.get("formality", "medium")
+
+    if power_direction == "other_higher":
+        relationship_distance = "distant"
+    elif service or first_meeting:
+        relationship_distance = "neutral"
+    else:
+        relationship_distance = "close" if formality == "low" else "neutral"
+
+    interaction_type = "casual_chat"
+    if service and message_intent in {"order", "request"}:
+        interaction_type = "service_request"
+    elif message_intent == "greeting":
+        interaction_type = "greeting"
+    elif message_intent == "question":
+        interaction_type = "question"
+    elif message_intent == "request":
+        interaction_type = "request"
+    elif message_intent == "order":
+        interaction_type = "order"
+
+    return {
+        "relationship_distance": relationship_distance,
+        "power_direction": power_direction,
+        "formality_level": formality,
+        "is_service_context": service,
+        "is_first_meeting": first_meeting,
+        "interaction_type": interaction_type,
+        "counterpart": situation_signals.get("counterpart", "대화 상대"),
+    }
+
+
+def _severity_to_score(severity: CorrectionSeverity) -> int:
+    if severity == CorrectionSeverity.INFO:
+        return 1
+    if severity == CorrectionSeverity.WARNING:
+        return 2
+    return 3
+
+
+def _looks_like_request_expression(original: str, corrected: str) -> bool:
+    combined = f"{original} {corrected}"
+    return bool(re.search(r"(주세요|주실|드릴게요|도와드릴|해 주세요|해주세|줘|주라|주면 돼|해줘)", combined))
+
+
+def _infer_speech_subtype(original: str, corrected: str) -> str:
+    orig_level = verify_with_rules(original, "")
+    corr_level = verify_with_rules(corrected, "")
+    if orig_level == "informal" and corr_level == "polite":
+        return "informal_to_polite"
+    if orig_level == "polite" and corr_level == "formal":
+        return "polite_to_formal"
+    if orig_level == "informal" and corr_level == "formal":
+        return "informal_to_formal"
+    return "ending_adjustment"
+
+
+def _infer_grammar_subtype(original: str, corrected: str) -> str:
+    particle_pattern = r"(은|는|이|가|을|를|에|에서|으로|로|와|과|랑|도)$"
+    if re.search(particle_pattern, original) or re.search(particle_pattern, corrected):
+        return "particle"
+    return "ending"
+
+
+def normalize_correction_item(correction: InlineCorrection) -> StructuredErrorItem:
+    original = (correction.original or "").strip()
+    corrected = (correction.corrected or "").strip()
+    normalized_type = "naturalness"
+    subtype: Optional[str] = "awkward_phrase"
+
+    if correction.type == CorrectionType.SPEECH_LEVEL:
+        normalized_type = "speech_level"
+        subtype = _infer_speech_subtype(original, corrected)
+    elif correction.type == CorrectionType.HONORIFIC:
+        if _looks_like_request_expression(original, corrected):
+            normalized_type = "request_expression"
+            subtype = "service_request"
+        elif original in {"나", "내가", "나는", "내"} or corrected in {"저", "제가", "저는", "제"}:
+            normalized_type = "honorific"
+            subtype = "pronoun"
+        else:
+            normalized_type = "honorific"
+            subtype = "verb"
+    elif correction.type == CorrectionType.SPELLING:
+        if re.sub(r"\s+", "", original) == re.sub(r"\s+", "", corrected):
+            normalized_type = "spacing"
+            subtype = "counter" if any(token in corrected for token in ["한 잔", "두 개", "세 개"]) else "general"
+        else:
+            normalized_type = "spelling"
+            subtype = "typo"
+    elif correction.type == CorrectionType.GRAMMAR:
+        normalized_type = "grammar"
+        subtype = _infer_grammar_subtype(original, corrected)
+    elif correction.type == CorrectionType.VOCABULARY:
+        normalized_type = "vocabulary"
+        subtype = "word_choice"
+    elif correction.type == CorrectionType.EXPRESSION:
+        normalized_type = "naturalness"
+        subtype = "awkward_phrase"
+
+    return StructuredErrorItem(
+        type=normalized_type,
+        subtype=subtype,
+        original_fragment=original,
+        corrected_fragment=corrected,
+        explanation=correction.explanation,
+        severity=_severity_to_score(correction.severity),
+        severity_label=correction.severity.value,
+    )
 
 
 def should_use_benchmark_case(
@@ -1635,6 +1794,104 @@ class ChatService:
             self.sophisticated_speech_analyzer = get_sophisticated_speech_analyzer()
         except Exception:
             self.sophisticated_speech_analyzer = None
+
+    async def analyze_message(
+        self,
+        avatar: AvatarBase,
+        user_message: str,
+        conversation_history: List[ChatMessage],
+        user_profile: Optional[UserProfile] = None,
+        situation: Optional[str] = None,
+        user_id: str = "default",
+        session_id: Optional[str] = None,
+        expected_speech_level: Optional[str] = None,
+        correction_context: Optional[Dict[str, Any]] = None,
+        response_instruction: Optional[List[str]] = None,
+        include_reply: bool = True,
+        use_memory: bool = True,
+    ) -> StructuredMessageResult:
+        response = await self.generate_response(
+            avatar=avatar,
+            user_message=user_message,
+            conversation_history=conversation_history,
+            user_profile=user_profile,
+            situation=situation,
+            user_id=user_id,
+            session_id=session_id,
+            expected_speech_level=expected_speech_level,
+            correction_context=correction_context,
+            response_instruction=response_instruction,
+            use_memory=use_memory,
+        )
+
+        correction = response.correction
+        speech_levels = get_speech_levels_for_role(avatar.role)
+        expected_level = coerce_speech_level(expected_speech_level, speech_levels["from_user"])
+        expected_norm = expected_level.value.lower()
+        situation_signals = infer_situation_signals(
+            situation=situation,
+            avatar_role=get_role_label(avatar.role, None),
+            expected_norm=expected_norm,
+        )
+        message_intent = infer_message_intent(user_message, situation_signals)
+        context_signals = normalize_context_signals(situation_signals, message_intent)
+
+        normalized_errors: List[StructuredErrorItem] = []
+        error_breakdown: Dict[str, int] = {}
+        if correction:
+            for item in correction.corrections:
+                normalized = normalize_correction_item(item)
+                normalized_errors.append(normalized)
+                error_breakdown[normalized.type] = error_breakdown.get(normalized.type, 0) + 1
+
+        top_focus = None
+        if error_breakdown:
+            top_focus = max(error_breakdown.items(), key=lambda pair: pair[1])[0]
+
+        analysis = StructuredMessageAnalysis(
+            had_errors=correction.has_errors if correction else False,
+            accuracy_score=correction.accuracy_score if correction else 100,
+            error_count=len(normalized_errors),
+            expected_speech_level=(
+                correction.expected_speech_level
+                if correction
+                else SPEECH_LEVEL_INFO[expected_level]["name_ko"]
+            ),
+            expected_speech_level_code=(
+                correction.expected_speech_level_code if correction else expected_norm
+            ),
+            detected_speech_level=(
+                correction.detected_speech_level
+                if correction
+                else LEVEL_KO_LABELS.get(expected_norm, expected_norm)
+            ),
+            detected_speech_level_code=(
+                correction.detected_speech_level_code if correction else expected_norm
+            ),
+            speech_level_correct=correction.speech_level_correct if correction else True,
+            intent=message_intent,
+            context_signals=context_signals,
+            corrected_message=correction.corrected_message if correction else None,
+            summary=correction.summary if correction else None,
+            encouragement=correction.encouragement if correction else None,
+            top_focus=top_focus,
+            error_breakdown=error_breakdown,
+            errors=normalized_errors,
+        )
+
+        reply = None
+        if include_reply:
+            reply = StructuredMessageReply(
+                avatar_message=response.message,
+                used_corrected_meaning=False,
+                suggestions=response.suggestions,
+                hint=response.hint,
+            )
+
+        return StructuredMessageResult(
+            analysis=analysis,
+            reply=reply,
+        )
 
     def _extract_user_messages(self, conversation_history: List[ChatMessage]) -> List[str]:
         return [

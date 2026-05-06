@@ -1,8 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SPRING_API_BASE_URL } from '../constants';
 
-const SPRING_BASE_URL = 'http://10.0.2.2:8080';  // Android emulator
-// const SPRING_BASE_URL = 'http://10.240.44.208:8080'; // physical device
-// const SPRING_BASE_URL = 'http://localhost:8080'; // iOS simulator
+const SPRING_BASE_URL = SPRING_API_BASE_URL;
 
 // Auth: Login
 export const loginUser = async (email: string, password: string) => {

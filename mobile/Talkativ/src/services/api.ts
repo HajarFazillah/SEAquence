@@ -1,8 +1,8 @@
-import { API_BASE_URL } from '../constants';
+import { AI_API_BASE_URL, SPRING_API_BASE_URL } from '../constants';
 
 // ── 서버 주소 ────────────────────────────────────────────────────────────────
-const SPRING_BASE_URL = API_BASE_URL;                    // Spring Boot :8080
-const AI_BASE_URL     = 'http://10.0.2.2:8000/api/v1';  // AI 서버 :8000
+const SPRING_BASE_URL = SPRING_API_BASE_URL;             // Spring Boot :8080
+const AI_BASE_URL = AI_API_BASE_URL;                     // AI 서버 :8000/api/v1
 
 // ============================================================================
 // Types
