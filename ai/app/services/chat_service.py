@@ -3,6 +3,9 @@ Chat Service - Handles avatar conversations with real-time correction
 """
 import re
 import difflib
+import mysql.connector
+from mysql.connector import Error
+from contextlib import contextmanager
 from collections import Counter
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
@@ -94,6 +97,7 @@ class ChatResponse(BaseModel):
     suggestions:    List[str]    = []
     hint:           Optional[str] = None
     correct_streak: int           = 0
+    session_summary: Optional[str] = None
 
 
 class ConversationAnalysis(BaseModel):
@@ -1947,7 +1951,7 @@ class ChatService:
                 else "오류 수, 부자연한 표현, 말투 혼용을 기준으로 자연스러움을 계산했습니다."
             ),
         }
-
+    
     async def generate_response(
         self,
         avatar:               AvatarBase,
@@ -1961,6 +1965,7 @@ class ChatService:
         correction_context:   Optional[Dict[str, Any]] = None,
         response_instruction: Optional[List[str]]    = None,
         use_memory:           bool                  = True,
+        session_context:       Optional[Dict[str, Any]] = None,
     ) -> ChatResponse:
 
         speech_levels  = get_speech_levels_for_role(avatar.role)
@@ -2010,11 +2015,18 @@ class ChatService:
             except Exception as e:
                 print(f"Memory integration error: {e}")
 
+        session_summary = (
+            (session_context or {}).get("session_summary")
+            if session_context
+            else None
+        )
+                
         system_prompt += self._build_turn_context_section(
             user_message=user_message,
             correction=correction,
             correction_context=correction_context,
             response_instruction=response_instruction or [],
+            session_summary=session_summary,
         )
 
         history = [
@@ -2054,9 +2066,13 @@ class ChatService:
                 if cleaned
             ]
             hint = postprocess_model_output(hint_result.get("hint"))
-
-        self._remember_session_turn(session_key, user_message, final_message, effective_history)
-
+        #session_summary = self._update_session_summary(
+        #    session_key,
+        #    user_message,
+        #    final_message,
+        #    effective_history,
+        #    session_context,
+       # )
         return ChatResponse(
             message=final_message,
             correction=correction,
@@ -2066,6 +2082,7 @@ class ChatService:
             suggestions=suggestions,
             hint=hint,
             correct_streak=streak,
+            session_summary=session_summary,
         )
 
     def _get_effective_history(
@@ -2075,7 +2092,7 @@ class ChatService:
     ) -> List[ChatMessage]:
         """Merge frontend-sent history with server-side session memory."""
         incoming = conversation_history or []
-        stored = self.session_turns.get(session_key, [])
+        stored, _ = self._load_session(session_key)
         if not stored:
             return incoming
         if not incoming:
@@ -2103,17 +2120,51 @@ class ChatService:
             ChatMessage(role="user", content=user_message),
             ChatMessage(role="assistant", content=assistant_message),
         ]
-        self.session_turns[session_key] = history[-20:]
+        self._save_session(session_key, history[-20:], final_summary)
+    def _update_session_summary(
+        self,
+        session_key: str,
+        user_message: str,
+        assistant_message: str,
+        existing_history: List[ChatMessage],
+        session_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        stored_history, previous_summary = self._load_session(session_key)
+        base_history = existing_history or stored_history or []
+        history = base_history[-18:]
+        history = [
+            *history,
+            ChatMessage(role="user", content=user_message),
+            ChatMessage(role="assistant", content=assistant_message),
+        ]
+        if session_context and not previous_summary:
+            previous_summary = session_context.get("session_summary") or ""
+        recent_messages = history[-6:]
+        for msg in recent_messages:
+            content = msg.content.strip()
+            if content:
+                recent_topics.append(f"{msg.role}: {content}")
 
+        if not recent_topics and not previous_summary:
+            return None
+
+        joined_recent = " | ".join(recent_topics)
+        if previous_summary and joined_recent:
+            return f"{previous_summary} || Recent: {joined_recent}"[:1000]
+        if previous_summary:
+            return previous_summary[:1000]
+        return f"Recent: {joined_recent}"[:1000]
     def _build_turn_context_section(
         self,
         user_message: str,
         correction: RealTimeCorrection,
         correction_context: Optional[Dict[str, Any]],
         response_instruction: List[str],
+        session_summary: Optional[str] = None,
     ) -> str:
         corrected = correction.corrected_message or self._best_corrected_expression(correction) or user_message
         recent_mistakes = (correction_context or {}).get("recent_mistakes") or []
+        summary_line = f"\n[SESSION SUMMARY]\n{session_summary}\n" if session_summary else ""
         recent_mistake_lines = "\n".join(
             f"- {m.get('message', '')} -> {m.get('corrected', '')}"
             for m in recent_mistakes[-4:]
@@ -2123,7 +2174,10 @@ class ChatService:
             f"- {line}" for line in response_instruction if str(line).strip()
         )
 
+        summary_section = f"\n[SESSION SUMMARY]\n{session_summary}\n" if session_summary else ""
         return f"""
+    
+        {summary_section}
 
 ## 현재 턴 응답 생성 규칙 (최우선)
 - 사용자 원문: {user_message}
@@ -2144,6 +2198,77 @@ class ChatService:
 {recent_mistake_lines or "- 없음"}
 {extra_guidance}
 """
+
+    @contextmanager
+    def _get_db_connection(self):
+        """Database connection context manager"""
+        conn = None
+        try:
+            conn = mysql.connector.connect(
+                host='127.0.0.1',
+                port=3307,
+                user='root',
+                password='seaq_root2026',
+                database='talkativ'
+            )
+            yield conn
+        finally:
+            if conn and conn.is_connected():
+                conn.close()
+
+    def _load_session(self, session_key):
+        """Load session turns + summary from DB"""
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get summary
+            cursor.execute("SELECT summary FROM session_summaries WHERE session_id = %s", (session_key,))
+            summary_row = cursor.fetchone()
+            previous_summary = summary_row['summary'] if summary_row else ""
+            
+            # Get recent 20 turns
+            cursor.execute("""
+                SELECT role, message FROM chat_turns 
+                WHERE session_id = %s 
+                ORDER BY turn_number DESC 
+                LIMIT 20
+            """, (session_key,))
+            turns = cursor.fetchall()
+            
+            # Convert to ChatMessage format
+            history = []
+            for turn in reversed(turns):  # Oldest first
+                history.append(ChatMessage(role=turn['role'], content=turn['message']))
+            
+            cursor.close()
+            return history, previous_summary
+
+    def _save_session(self, session_key, history, summary):
+        """Save session turns + summary to DB"""
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Upsert session summary
+            cursor.execute("""
+                INSERT INTO session_summaries (session_id, summary, turn_count) 
+                VALUES (%s, %s, %s) 
+                ON DUPLICATE KEY UPDATE 
+                summary = VALUES(summary), 
+                turn_count = VALUES(turn_count),
+                updated_at = CURRENT_TIMESTAMP
+            """, (session_key, summary, len(history)))
+            
+            # Clear old turns, insert new ones
+            cursor.execute("DELETE FROM chat_turns WHERE session_id = %s", (session_key,))
+            for i, msg in enumerate(history[-20:], 1):
+                cursor.execute("""
+                    INSERT INTO chat_turns (session_id, turn_number, role, message)
+                    VALUES (%s, %s, %s, %s)
+                """, (session_key, i, msg.role, msg.content))
+            
+            conn.commit()
+            cursor.close()
+
 
     def _make_reply_user_message(
         self,
