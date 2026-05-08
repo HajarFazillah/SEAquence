@@ -11,7 +11,45 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
 import { makePreviewPayload, saveConversationPreview } from '../services/conversationPreview';
 
+
 const AI_SERVER = 'http://10.0.2.2:8000';
+
+const SPRING_BASE = 'http://10.0.2.2:8080';
+
+const saveMistakes = async (
+  sessionId: string,
+  turnNumber: number,
+  corrections: Correction[],
+  token: string | null,
+) => {
+  if (!corrections || corrections.length === 0) return;
+
+  const mistakes = corrections
+    .filter(c => c.severity === 'error' || c.severity === 'warning')
+    .map(c => ({
+      originalText: c.original,
+      correctedText: c.corrected,
+      correctionType: c.type || 'grammar',
+      severity: c.severity,
+      explanation: c.explanation,
+      tip: c.tip || null,
+    }));
+
+  if (mistakes.length === 0) return;
+
+  try {
+    await fetch(`${SPRING_BASE}/api/mistakes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ sessionId, turnNumber, mistakes }),
+    });
+  } catch (err) {
+    console.log('Failed to save mistakes:', err);
+  }
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -830,11 +868,18 @@ export default function ChatScreen() {
   const [avatarMood,       setAvatarMood]       = useState(70);
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
+  const [jwtToken, setJwtToken] = useState<string | null>(null);
   const [correctStreak,    setCorrectStreak]    = useState(0);
   // Default expanded = true so card opens immediately after send
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
 
   useEffect(() => { AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); }); }, []);
+
+  useEffect(() => {
+  AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); });
+  AsyncStorage.getItem('token').then(token => { if (token) setJwtToken(token); });
+}, []);
+
   useEffect(() => { if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100); }, [messages]);
   useEffect(() => {
     if (!avatar || messages.length === 0) return;
@@ -861,6 +906,12 @@ export default function ChatScreen() {
         return [...updated, aiMsg];
       });
       if (data.speech_analysis) setExpandedFeedback(prev => ({ ...prev, [userMsg.id]: true }));
+      // Save mistakes to backend
+      if (data.speech_analysis?.has_errors && data.speech_analysis.corrections.length > 0) {
+      const turnNumber = messages.filter(m => m.sender === 'user').length + 1;
+      saveMistakes(sessionIdRef.current, turnNumber, data.speech_analysis.corrections, jwtToken);
+      }
+
     } catch (error) {
       console.error('Chat error:', error);
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), text: '네, 그렇군요! 더 이야기해주세요.', sender: 'ai' }]);
