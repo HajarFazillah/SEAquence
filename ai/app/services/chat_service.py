@@ -110,6 +110,47 @@ class ConversationAnalysis(BaseModel):
     used_fallback_scores: bool = False
 
 
+class StructuredErrorItem(BaseModel):
+    type:                str
+    subtype:             Optional[str] = None
+    original_fragment:   str
+    corrected_fragment:  str
+    explanation:         str
+    severity:            int
+    severity_label:      str
+
+
+class StructuredMessageAnalysis(BaseModel):
+    had_errors:                   bool
+    accuracy_score:               int
+    error_count:                  int
+    expected_speech_level:        str
+    expected_speech_level_code:   Optional[str] = None
+    detected_speech_level:        Optional[str] = None
+    detected_speech_level_code:   Optional[str] = None
+    speech_level_correct:         bool
+    intent:                       str = ""
+    context_signals:              Dict[str, Any] = Field(default_factory=dict)
+    corrected_message:            Optional[str] = None
+    summary:                      Optional[str] = None
+    encouragement:                Optional[str] = None
+    top_focus:                    Optional[str] = None
+    error_breakdown:              Dict[str, int] = Field(default_factory=dict)
+    errors:                       List[StructuredErrorItem] = Field(default_factory=list)
+
+
+class StructuredMessageReply(BaseModel):
+    avatar_message:        Optional[str] = None
+    used_corrected_meaning: bool = False
+    suggestions:           List[str] = Field(default_factory=list)
+    hint:                  Optional[str] = None
+
+
+class StructuredMessageResult(BaseModel):
+    analysis: StructuredMessageAnalysis
+    reply:    Optional[StructuredMessageReply] = None
+
+
 def _label_for_correction_type(correction: InlineCorrection) -> str:
     if correction.type == CorrectionType.HONORIFIC:
         return "요청 표현" if "주세" in correction.corrected or "주실" in correction.corrected else "호칭/높임"
@@ -2976,6 +3017,141 @@ class ChatService:
         elif mood >= 50: return "😐"
         elif mood >= 30: return "😕"
         else:            return "😢"
+
+    async def analyze_message(
+        self,
+        avatar:               "AvatarBase",
+        user_message:         str,
+        conversation_history: List[ChatMessage],
+        user_profile:         Optional[Any] = None,
+        situation:            Optional[str] = None,
+        user_id:              str = "default",
+        session_id:           Optional[str] = None,
+        expected_speech_level: Optional[str] = None,
+        correction_context:   Optional[Dict[str, Any]] = None,
+        response_instruction: Optional[List[str]] = None,
+        include_reply:        bool = True,
+    ) -> StructuredMessageResult:
+        speech_levels  = get_speech_levels_for_role(avatar.role)
+        expected_level = coerce_speech_level(expected_speech_level, speech_levels["from_user"])
+        user_level     = (
+            user_profile.korean_level.value
+            if user_profile and hasattr(user_profile.korean_level, "value")
+            else "intermediate"
+        )
+        session_key = session_id or f"{user_id}_{getattr(avatar, 'name_ko', 'avatar')}"
+        effective_history = self._get_effective_history(session_key, conversation_history)
+
+        correction = await self._analyze_realtime(
+            user_message=user_message,
+            expected_speech_level=expected_level,
+            avatar_role=get_role_label(avatar.role, None),
+            user_level=user_level,
+            situation=situation,
+            conversation_history=effective_history,
+        )
+        correction = self._merge_frontend_correction_context(
+            correction=correction,
+            user_message=user_message,
+            expected_level=expected_level,
+            correction_context=correction_context,
+        )
+
+        severity_map = {
+            CorrectionSeverity.ERROR:   (2, "error"),
+            CorrectionSeverity.WARNING: (1, "warning"),
+            CorrectionSeverity.INFO:    (0, "info"),
+        }
+        error_breakdown: Dict[str, int] = {}
+        errors: List[StructuredErrorItem] = []
+        for c in correction.corrections:
+            if c.original == c.corrected:
+                continue
+            sev_int, sev_label = severity_map.get(c.severity, (1, "warning"))
+            errors.append(StructuredErrorItem(
+                type=c.type.value if hasattr(c.type, "value") else str(c.type),
+                subtype=None,
+                original_fragment=c.original,
+                corrected_fragment=c.corrected,
+                explanation=c.explanation,
+                severity=sev_int,
+                severity_label=sev_label,
+            ))
+            key = c.type.value if hasattr(c.type, "value") else str(c.type)
+            error_breakdown[key] = error_breakdown.get(key, 0) + 1
+
+        top_focus = max(error_breakdown, key=lambda k: error_breakdown[k]) if error_breakdown else None
+
+        analysis = StructuredMessageAnalysis(
+            had_errors=correction.has_errors,
+            accuracy_score=correction.accuracy_score,
+            error_count=len(errors),
+            expected_speech_level=correction.expected_speech_level,
+            expected_speech_level_code=correction.expected_speech_level_code,
+            detected_speech_level=correction.detected_speech_level,
+            detected_speech_level_code=correction.detected_speech_level_code,
+            speech_level_correct=correction.speech_level_correct,
+            corrected_message=correction.corrected_message,
+            summary=correction.summary,
+            encouragement=correction.encouragement,
+            top_focus=top_focus,
+            error_breakdown=error_breakdown,
+            errors=errors,
+        )
+
+        reply: Optional[StructuredMessageReply] = None
+        if include_reply:
+            try:
+                current_mood = self.user_moods.get(f"{user_id}_{avatar.name_ko}", 80)
+                system_prompt = build_avatar_system_prompt(
+                    avatar=avatar,
+                    user_profile=user_profile,
+                    situation=situation,
+                    current_mood=current_mood,
+                    is_level_correct=correction.speech_level_correct,
+                )
+                system_prompt += self._build_turn_context_section(
+                    user_message=user_message,
+                    correction=correction,
+                    correction_context=correction_context,
+                    response_instruction=response_instruction or [],
+                )
+                history = [Message(role=m.role, content=m.content) for m in effective_history[-10:]]
+                reply_user_msg = self._make_reply_user_message(user_message, correction)
+                response = await clova_service.generate_with_system_prompt(
+                    system_prompt=system_prompt,
+                    user_message=reply_user_msg,
+                    conversation_history=history,
+                    temperature=0.65,
+                )
+                avatar_message = self._finalize_ai_reply(response.content, user_message, correction)
+                hint_result = await self._get_contextual_hint(
+                    avatar=avatar,
+                    conversation_history=effective_history,
+                    user_level=user_level,
+                )
+                suggestions = [
+                    postprocess_model_output(t)
+                    for t in hint_result.get("example_responses", [])
+                    if postprocess_model_output(t)
+                ]
+                hint = postprocess_model_output(hint_result.get("hint"))
+                reply = StructuredMessageReply(
+                    avatar_message=avatar_message,
+                    used_corrected_meaning=correction.has_errors,
+                    suggestions=suggestions,
+                    hint=hint,
+                )
+            except Exception as e:
+                print(f"[analyze_message] reply generation failed: {e}")
+
+        if correction.has_errors and session_key:
+            try:
+                self._save_mistakes(session_key, correction)
+            except Exception as e:
+                print(f"[analyze_message] failed to save mistakes: {e}")
+
+        return StructuredMessageResult(analysis=analysis, reply=reply)
 
     async def analyze_conversation(
         self,
