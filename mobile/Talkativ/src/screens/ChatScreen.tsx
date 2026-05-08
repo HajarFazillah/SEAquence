@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Animated,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -10,9 +10,46 @@ import Svg, { Path, Circle, Polygon } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
 import { makePreviewPayload, saveConversationPreview } from '../services/conversationPreview';
-import { AI_SERVER_URL } from '../constants';
 
-const AI_SERVER = AI_SERVER_URL;
+
+const AI_SERVER = 'http://10.0.2.2:8000';
+
+const SPRING_BASE = 'http://10.0.2.2:8080';
+
+const saveMistakes = async (
+  sessionId: string,
+  turnNumber: number,
+  corrections: Correction[],
+  token: string | null,
+) => {
+  if (!corrections || corrections.length === 0) return;
+
+  const mistakes = corrections
+    .filter(c => c.severity === 'error' || c.severity === 'warning')
+    .map(c => ({
+      originalText: c.original,
+      correctedText: c.corrected,
+      correctionType: c.type || 'grammar',
+      severity: c.severity,
+      explanation: c.explanation,
+      tip: c.tip || null,
+    }));
+
+  if (mistakes.length === 0) return;
+
+  try {
+    await fetch(`${SPRING_BASE}/api/mistakes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ sessionId, turnNumber, mistakes }),
+    });
+  } catch (err) {
+    console.log('Failed to save mistakes:', err);
+  }
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -282,8 +319,8 @@ const detectLikelySpeechLevel = (text: string) => {
   if (endsWithHapsidaFormal(compact)) return 'formal';
   if (/(안녕하십니까|감사합니다|죄송합니다|부탁드립니다|입니다|합니다|했습니다|하겠습니다|습니까|십니까|니다[.!?…。！？""')\]\s]*$)/.test(compact)) return 'formal';
   if (/(안녕하세요|고마워요|감사해요|미안해요|죄송해요|반가워요|괜찮아요|좋아요|있어요|없어요|이에요|예요|세요|해요|아요|어요|나요|죠|지요|네요|군요|까요|요[.!?…。！？""')\]\s]*$)/.test(compact)) return 'polite';
-  if (/(^|\s)(안녕|응|아니|고마워|미안해|반가워|괜찮아|좋아|있어|없어|뭐해|가자|갈래|먹어|마셔|봐|해|자|줘|와|봐봐)([.!?…。！？""')\]\s]|$)/.test(compact)
-    || /(어떻게 지내|뭐 해|뭐해|잘 지내|했어|할래|줄래|니\?|냐\?|어때[.!?…。？！""')\]\s]*$|어떡해[.!?…。？！""')\]\s]*$|겠어[.!?…。？！""')\]\s]*$|겠지[.!?…。？！""')\]\s]*$|거든[.!?…。？！""')\]\s]*$|다며[.!?…。？！""')\]\s]*$|야[.!?…。！？""')\]\s]*$)/.test(compact)) return 'informal';
+  if (/(^|\s)(안녕|응|아니|고마워|미안해|반가워|괜찮아|좋아|있어|없어|뭐해|가자|갈래|먹어|마셔|봐|해|자)([.!?…。！？""')\]\s]|$)/.test(compact)
+    || /(어떻게 지내|뭐 해|뭐해|잘 지내|했어|할래|줄래|니\?|냐\?|야[.!?…。！？""')\]\s]*$)/.test(compact)) return 'informal';
   return null;
 };
 
@@ -829,15 +866,20 @@ export default function ChatScreen() {
   const [input,            setInput]            = useState('');
   const [loading,          setLoading]          = useState(false);
   const [avatarMood,       setAvatarMood]       = useState(70);
-  const [moodReaction,     setMoodReaction]     = useState<string | null>(null);
-  const moodReactionOpacity = useRef(new Animated.Value(0)).current;
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
+  const [jwtToken, setJwtToken] = useState<string | null>(null);
   const [correctStreak,    setCorrectStreak]    = useState(0);
   // Default expanded = true so card opens immediately after send
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
 
   useEffect(() => { AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); }); }, []);
+
+  useEffect(() => {
+  AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); });
+  AsyncStorage.getItem('token').then(token => { if (token) setJwtToken(token); });
+}, []);
+
   useEffect(() => { if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100); }, [messages]);
   useEffect(() => {
     if (!avatar || messages.length === 0) return;
@@ -859,25 +901,17 @@ export default function ChatScreen() {
       const aiMsg: Message = { id: (Date.now() + 1).toString(), text: data.message, sender: 'ai' };
       setAvatarMood(data.current_mood);
       setCorrectStreak(data.correct_streak);
-      const delta = data.mood_change || 0;
-      if (Math.abs(delta) >= 5) {
-        const reaction = delta >= 15 ? '기분이 많이 좋아졌어요!'
-                       : delta >= 5  ? '기분이 나아졌어요!'
-                       : delta <= -15 ? '많이 속상해요...'
-                       : '조금 속상하네요';
-        setMoodReaction(reaction);
-        moodReactionOpacity.setValue(0);
-        Animated.sequence([
-          Animated.timing(moodReactionOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.delay(1800),
-          Animated.timing(moodReactionOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
-        ]).start(() => setMoodReaction(null));
-      }
       setMessages(prev => {
         const updated = prev.map(m => m.id === userMsg.id ? { ...m, feedback: data.speech_analysis ?? undefined } : m);
         return [...updated, aiMsg];
       });
       if (data.speech_analysis) setExpandedFeedback(prev => ({ ...prev, [userMsg.id]: true }));
+      // Save mistakes to backend
+      if (data.speech_analysis?.has_errors && data.speech_analysis.corrections.length > 0) {
+      const turnNumber = messages.filter(m => m.sender === 'user').length + 1;
+      saveMistakes(sessionIdRef.current, turnNumber, data.speech_analysis.corrections, jwtToken);
+      }
+
     } catch (error) {
       console.error('Chat error:', error);
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), text: '네, 그렇군요! 더 이야기해주세요.', sender: 'ai' }]);
@@ -1112,11 +1146,6 @@ export default function ChatScreen() {
         <View style={styles.moodFaceWrap}>
           <MoodFace mood={avatarMood} />
           <Text style={[styles.moodFaceLabel, { color: mc }]}>{moodState.label}</Text>
-          {moodReaction && (
-            <Animated.Text style={[styles.moodReactionText, { opacity: moodReactionOpacity, color: mc }]}>
-              {moodReaction}
-            </Animated.Text>
-          )}
         </View>
         <View style={styles.moodRight}>
           <View style={styles.moodTopRow}>
@@ -1209,8 +1238,7 @@ const styles = StyleSheet.create({
   // Mood strip
   moodStrip:     { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: GREY },
   moodFaceWrap:  { alignItems: 'center', gap: 4 },
-  moodFaceLabel:    { fontSize: 11, fontWeight: '500' },
-  moodReactionText: { fontSize: 10, fontWeight: '600', textAlign: 'center', marginTop: 2 },
+  moodFaceLabel: { fontSize: 11, fontWeight: '500' },
   moodRight:     { flex: 1, gap: 6 },
   moodTopRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   moodPct:       { fontSize: 13, fontWeight: '500', color: '#111' },
@@ -1296,7 +1324,6 @@ const styles = StyleSheet.create({
   altItemBorder:  { borderBottomWidth: 0.5, borderBottomColor: BORDER, marginBottom: 5 },
   altExpr:        { fontSize: 13, fontWeight: '500', color: '#111' },
   altExpl:        { fontSize: 10.5, color: '#999', marginTop: 2, lineHeight: 15 },
-
   encouragement:  { fontSize: 12, color: '#22C55E', paddingHorizontal: 12, paddingBottom: 12 },
 
   // Loading
