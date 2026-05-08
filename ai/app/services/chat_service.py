@@ -2066,13 +2066,12 @@ class ChatService:
                 if cleaned
             ]
             hint = postprocess_model_output(hint_result.get("hint"))
-        #session_summary = self._update_session_summary(
-        #    session_key,
-        #    user_message,
-        #    final_message,
-        #    effective_history,
-        #    session_context,
-       # )
+        if correction.has_errors:
+            try:
+                self._save_mistakes(session_key, correction)
+            except Exception as e:
+                print(f"[mistakes] failed to save: {e}")
+
         return ChatResponse(
             message=final_message,
             correction=correction,
@@ -2120,6 +2119,9 @@ class ChatService:
             ChatMessage(role="user", content=user_message),
             ChatMessage(role="assistant", content=assistant_message),
         ]
+        final_summary = self._update_session_summary(
+            session_key, user_message, assistant_message, existing_history
+        )
         self._save_session(session_key, history[-20:], final_summary)
     def _update_session_summary(
         self,
@@ -2139,6 +2141,7 @@ class ChatService:
         ]
         if session_context and not previous_summary:
             previous_summary = session_context.get("session_summary") or ""
+        recent_topics: List[str] = []
         recent_messages = history[-6:]
         for msg in recent_messages:
             content = msg.content.strip()
@@ -2208,7 +2211,7 @@ class ChatService:
                 host='127.0.0.1',
                 port=3307,
                 user='root',
-                password='seaq_root2026',
+                password='1234',
                 database='talkativ'
             )
             yield conn
@@ -2269,6 +2272,58 @@ class ChatService:
             conn.commit()
             cursor.close()
 
+    def _save_mistakes(self, session_key: str, correction: "RealTimeCorrection") -> None:
+        """Persist per-turn inline corrections to session_mistakes table."""
+        real = [
+            c for c in correction.corrections
+            if c.original != c.corrected
+        ]
+        if not real:
+            return
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COALESCE(MAX(turn_number), 0) FROM session_mistakes WHERE session_id = %s",
+                (session_key,),
+            )
+            row = cursor.fetchone()
+            next_turn = (row[0] if row else 0) + 1
+            for c in real:
+                cursor.execute(
+                    """
+                    INSERT INTO session_mistakes
+                        (session_id, turn_number, original, corrected, error_type, severity, explanation)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        session_key,
+                        next_turn,
+                        c.original,
+                        c.corrected,
+                        c.type.value if hasattr(c.type, "value") else str(c.type),
+                        c.severity.value if hasattr(c.severity, "value") else str(c.severity),
+                        c.explanation,
+                    ),
+                )
+            conn.commit()
+            cursor.close()
+
+    def _load_session_mistakes(self, session_key: str) -> List[Dict[str, str]]:
+        """Load all stored mistakes for a session."""
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT original, corrected, error_type, severity, explanation
+                FROM session_mistakes
+                WHERE session_id = %s
+                ORDER BY turn_number, id
+                """,
+                (session_key,),
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+        return rows or []
 
     def _make_reply_user_message(
         self,
@@ -2926,6 +2981,7 @@ class ChatService:
         self,
         avatar:               AvatarBase,
         conversation_history: List[ChatMessage],
+        session_id:           Optional[str] = None,
     ) -> ConversationAnalysis:
         speech_levels  = get_speech_levels_for_role(avatar.role)
         expected_level = speech_levels["from_user"]
@@ -2943,10 +2999,18 @@ class ChatService:
             avatar_role=avatar.role,
         )
 
+        stored_mistakes: List[Dict[str, str]] = []
+        if session_id:
+            try:
+                stored_mistakes = self._load_session_mistakes(session_id)
+            except Exception as e:
+                print(f"[mistakes] failed to load: {e}")
+
         prompt = build_conversation_analysis_prompt(
             messages=[{"role": m.role, "content": m.content} for m in conversation_history],
             avatar_name=avatar.name_ko,
             expected_speech_level=expected_level,
+            stored_mistakes=stored_mistakes or None,
         )
 
         result = await clova_service.analyze_json(prompt, temperature=0.3, max_tokens=2048)

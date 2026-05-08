@@ -73,6 +73,7 @@ class ChatAnalyzeRequest(BaseModel):
     """Request for conversation analysis"""
     avatar: AvatarCreate
     conversation_history: List[ChatMessage]
+    session_id: Optional[str] = None
 
 
 class AnalyzeMessageRequest(BaseModel):
@@ -319,6 +320,7 @@ async def analyze_conversation(request: ChatAnalyzeRequest):
         analysis = await chat_service.analyze_conversation(
             avatar=request.avatar,
             conversation_history=request.conversation_history,
+            session_id=request.session_id,
         )
         return analysis
     except Exception as e:

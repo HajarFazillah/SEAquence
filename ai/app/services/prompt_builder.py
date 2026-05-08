@@ -433,6 +433,7 @@ def build_conversation_analysis_prompt(
     messages: List[dict],
     avatar_name: str,
     expected_speech_level: SpeechLevel,
+    stored_mistakes: Optional[List[dict]] = None,
 ) -> str:
     speech_info = SPEECH_LEVEL_INFO[expected_speech_level]
 
@@ -448,6 +449,21 @@ def build_conversation_analysis_prompt(
         for msg in messages
     ])
 
+    stored_mistakes_section = ""
+    if stored_mistakes:
+        lines = []
+        for m in stored_mistakes:
+            lines.append(
+                f"- [{m.get('error_type', '')}] \"{m.get('original', '')}\" → \"{m.get('corrected', '')}\" ({m.get('explanation', '')})"
+            )
+        stored_mistakes_section = (
+            "\n## 실시간 감지된 오류 (채팅 중 자동 수집됨)\n"
+            "아래 오류들은 대화 중 실시간으로 감지된 것입니다. "
+            "mistakes 분석 시 이 항목들을 반드시 우선적으로 반영하고, 중복은 하나로 합치세요.\n"
+            + "\n".join(lines)
+            + "\n"
+        )
+
     return f"""다음 한국어 대화를 꼼꼼히 분석하여 실제 학습에 도움이 되는 피드백을 제공하세요.
 
 ## 대화 정보
@@ -456,7 +472,7 @@ def build_conversation_analysis_prompt(
 
 ## 전체 대화
 {conversation_text}
-
+{stored_mistakes_section}
 ## 분석 목표
 이 분석의 목적은 사용자가 실제로 더 자연스럽고 정확한 한국어를 말할 수 있도록 돕는 것입니다.
 형식적인 칭찬보다, 대화에서 드러난 실제 강점과 약점을 구체적으로 짚어 주세요.

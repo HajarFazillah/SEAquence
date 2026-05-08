@@ -94,7 +94,24 @@ CREATE TABLE IF NOT EXISTS relationship_analysis (
 );
 
 -- ------------------------------------------------------------
--- 6. Feedback
+-- 6. SessionMistakes
+-- Per-turn corrections captured during chat, used as input for analysis
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS session_mistakes (
+    id           BIGINT        PRIMARY KEY AUTO_INCREMENT,
+    session_id   VARCHAR(36)   NOT NULL,
+    turn_number  INT           NOT NULL,
+    original     TEXT          NOT NULL,
+    corrected    TEXT          NOT NULL,
+    error_type   VARCHAR(50)   NOT NULL,
+    severity     VARCHAR(20)   NOT NULL DEFAULT 'warning',
+    explanation  TEXT,
+    created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_session (session_id)
+);
+
+-- ------------------------------------------------------------
+-- 7. Feedback
 -- LLM (HyperCLOVA X) generated feedback per session/utterance
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS feedback (
