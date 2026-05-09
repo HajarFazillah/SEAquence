@@ -24,6 +24,7 @@ import {
   InsightResult,
 } from '../services/realtimeAnalysisService';
 import Sound, { RecordBackType } from 'react-native-nitro-sound';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -216,8 +217,30 @@ export default function RealtimeSessionScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<RealtimeSessionRoute>();
   const avatar   = route.params?.avatar;
-  const sessionId  = route.params?.sessionId as string | undefined;
+  const routeSessionId = route.params?.sessionId as string | undefined;
   const situation  = route.params?.situation as string | undefined;
+
+  // Stable session id for the whole realtime session (so DB-saved mistakes group together).
+  const sessionIdRef = useRef(
+    routeSessionId || `realtime-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  );
+  const sessionId = sessionIdRef.current;
+
+  const [userId, setUserId] = useState('test-user-1');
+  useEffect(() => {
+    (async () => {
+      const id = (await AsyncStorage.getItem('userId')) || (await AsyncStorage.getItem('user_id'));
+      if (id) setUserId(id);
+    })();
+  }, []);
+
+  // Map avatar's expected speech level (from user) to backend code (formal|polite|informal).
+  const expectedSpeechLevel: string = (() => {
+    const role = avatar?.role || '';
+    if (role === 'professor' || role === 'boss' || role === 'ceo' || role === 'client') return 'formal';
+    if (role === 'friend' || role === 'close_friend' || role === 'classmate' || role === 'younger_sibling') return 'informal';
+    return 'polite';
+  })();
 
   const [recording, setRecording]   = useState(false);
   const [muted, setMuted]           = useState(false);
@@ -282,6 +305,25 @@ export default function RealtimeSessionScreen() {
     setEnding(true);
     try { if (recording) { setRecording(false); Sound.removeRecordBackListener(); await Sound.stopRecorder(); } } catch {}
     try { if (sessionId) await endSession(sessionId); } catch {}
+
+    // If we have any final turns, route into the same post-chat flow as the chat screen
+    // so the user sees mistake breakdown / vocab / scoring exactly the same way.
+    const finalTurns = turns.filter(t => t.type === 'final');
+    if (finalTurns.length > 0) {
+      const conversationHistory = finalTurns.map(t => ({
+        role: t.speaker === '나' || (avatar?.name_ko && t.speaker !== avatar.name_ko) ? 'user' : 'assistant',
+        content: t.text,
+      }));
+      navigation.navigate('ConversationSummary', {
+        avatar,
+        duration: fmt(duration),
+        situation,
+        conversationHistory,
+        sessionId,
+      });
+      return;
+    }
+
     if (feedback) {
       navigation.navigate('Feedback', { avatar, sessionId, situation, duration: fmt(duration), recordingUri: recUri, turns, insights });
     } else navigation.goBack();
@@ -314,6 +356,13 @@ export default function RealtimeSessionScreen() {
         form.append('file', { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
         if (sessionId) form.append('sessionId', sessionId);
         if (avatar?.role) form.append('avatarRole', avatar.role);
+        form.append('userId', userId);
+        form.append('expectedSpeechLevel', expectedSpeechLevel);
+        // If we already mapped which label is the user from a previous chunk, send the hint.
+        const knownUserLabel = turns.find(t => t.type === 'final' && t.speaker === '나')?.speaker;
+        if (knownUserLabel && knownUserLabel !== '나') {
+          form.append('userSpeakerLabel', knownUserLabel);
+        }
         const res = await analyzeRealtimeAudio(form);
         const nextTurns = normTurns(res?.turns ?? []).filter(t => t.text.trim().length > 0);
 

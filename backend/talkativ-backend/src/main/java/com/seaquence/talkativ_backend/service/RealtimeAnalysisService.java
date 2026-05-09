@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.seaquence.talkativ_backend.dto.InsightDto;
 import com.seaquence.talkativ_backend.dto.RealtimeAnalysisResponse;
 import com.seaquence.talkativ_backend.dto.TranscriptTurnDto;
+import com.seaquence.talkativ_backend.entity.Mistake;
+import com.seaquence.talkativ_backend.repository.MistakeRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -12,23 +14,40 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 @Service
 public class RealtimeAnalysisService {
 
     private final ClovaSpeechService clovaSpeechService;
+    private final MistakeRepository mistakeRepository;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Korean sentence terminators: . ? ! plus '다.' '요.' style endings.
+    // We split on terminator + optional whitespace; keep terminator with the sentence.
+    private static final Pattern SENTENCE_SPLIT = Pattern.compile("(?<=[.!?。？！])\\s+|(?<=[다요죠]\\.)\\s+");
 
     @Value("${ai.server.url}")
     private String aiServerUrl;
 
-    public RealtimeAnalysisService(ClovaSpeechService clovaSpeechService) {
+    public RealtimeAnalysisService(
+            ClovaSpeechService clovaSpeechService,
+            MistakeRepository mistakeRepository
+    ) {
         this.clovaSpeechService = clovaSpeechService;
+        this.mistakeRepository = mistakeRepository;
         this.restTemplate = new RestTemplate();
     }
 
-    public RealtimeAnalysisResponse analyzeRealtimeAudio(MultipartFile file, String avatarRole) {
+    public RealtimeAnalysisResponse analyzeRealtimeAudio(
+            MultipartFile file,
+            String avatarRole,
+            String userId,
+            String sessionId,
+            String expectedSpeechLevel,
+            String userSpeakerHint
+    ) {
         ClovaSpeechService.ClovaSpeechResult speechResult = clovaSpeechService.transcribeWithDiarization(file);
 
         List<TranscriptTurnDto> turns = new ArrayList<>();
@@ -38,8 +57,12 @@ public class RealtimeAnalysisService {
             return new RealtimeAnalysisResponse(turns, insights);
         }
 
-        // First speaker label to appear = user
-        String userSpeakerLabel = null;
+        // Identify which CLOVA speaker label maps to the user.
+        // Prefer explicit hint from client; fall back to "first speaker = user".
+        String userSpeakerLabel = (userSpeakerHint != null && !userSpeakerHint.isBlank())
+                ? userSpeakerHint
+                : null;
+
         int idx = 1;
         for (ClovaSpeechService.SpeakerTurn turn : speechResult.getTurns()) {
             String turnId = "turn-" + idx;
@@ -48,62 +71,123 @@ public class RealtimeAnalysisService {
             idx++;
         }
 
-        // Call AI server for each user turn
+        String resolvedSpeechLevel = (expectedSpeechLevel == null || expectedSpeechLevel.isBlank())
+                ? "polite"
+                : expectedSpeechLevel;
+
+        int turnNumber = 0;
         for (TranscriptTurnDto turn : turns) {
             if (!turn.getSpeaker().equals(userSpeakerLabel)) continue;
             if (turn.getText() == null || turn.getText().isBlank()) continue;
 
-            try {
-                InsightDto insight = analyzeTurn(turn.getId(), turn.getText(), avatarRole);
-                if (insight != null) insights.add(insight);
-            } catch (Exception e) {
-                System.err.println("[AI] Failed to analyze turn " + turn.getId() + ": " + e.getMessage());
+            turnNumber++;
+            for (String sentence : splitSentences(turn.getText())) {
+                if (sentence.isBlank()) continue;
+                try {
+                    List<CorrectionItem> corrections = analyzeSentence(
+                            sentence, avatarRole, resolvedSpeechLevel
+                    );
+                    for (CorrectionItem c : corrections) {
+                        insights.add(new InsightDto(
+                                "insight-" + turn.getId() + "-" + insights.size(),
+                                "error".equalsIgnoreCase(c.severity) ? "risk" : "risk",
+                                c.explanation != null && !c.explanation.isBlank()
+                                        ? c.explanation
+                                        : "표현을 다듬어보세요.",
+                                c.corrected,
+                                turn.getId()
+                        ));
+                        persistMistake(userId, sessionId, turnNumber, c);
+                    }
+                } catch (Exception e) {
+                    System.err.println("[Realtime] analyze sentence failed: " + e.getMessage());
+                }
             }
         }
 
         return new RealtimeAnalysisResponse(turns, insights);
     }
 
-    private InsightDto analyzeTurn(String turnId, String text, String avatarRole) throws Exception {
+    private List<String> splitSentences(String text) {
+        if (text == null || text.isBlank()) return Collections.emptyList();
+        String[] parts = SENTENCE_SPLIT.split(text.trim());
+        List<String> out = new ArrayList<>();
+        for (String p : parts) {
+            String trimmed = p.trim();
+            if (!trimmed.isEmpty()) out.add(trimmed);
+        }
+        return out;
+    }
+
+    private List<CorrectionItem> analyzeSentence(String sentence, String avatarRole, String expectedSpeechLevel) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         Map<String, Object> body = new HashMap<>();
-        body.put("text", text);
-        body.put("user_age", 22);
+        body.put("message", sentence);
+        body.put("expected_speech_level", expectedSpeechLevel);
         if (avatarRole != null && !avatarRole.isBlank()) {
-            body.put("target_role", avatarRole);
+            body.put("avatar_role", avatarRole);
         }
+        body.put("user_level", "intermediate");
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
         ResponseEntity<String> response = restTemplate.exchange(
-                aiServerUrl + "/api/v1/analysis/politeness",
+                aiServerUrl + "/api/v1/chat/check",
                 HttpMethod.POST,
                 request,
                 String.class
         );
 
         JsonNode root = objectMapper.readTree(response.getBody());
-        boolean isAppropriate = root.path("is_appropriate").asBoolean(true);
+        if (!root.path("has_errors").asBoolean(false)) return Collections.emptyList();
 
-        // Skip insight when speech is appropriate — only surface real issues
-        if (isAppropriate) return null;
-
-        String feedbackKo = root.path("feedback_ko").asText("");
-
-        // Extract first correction as a suggestion
-        String suggestion = null;
-        JsonNode corrections = root.path("details").path("corrections");
-        if (corrections.isArray() && corrections.size() > 0) {
-            JsonNode first = corrections.get(0);
-            String corrected = first.path("corrected").asText("").trim();
-            if (!corrected.isBlank()) {
-                suggestion = corrected;
+        List<CorrectionItem> out = new ArrayList<>();
+        JsonNode corrections = root.path("corrections");
+        if (corrections.isArray()) {
+            for (JsonNode c : corrections) {
+                CorrectionItem item = new CorrectionItem();
+                item.original = c.path("original").asText("");
+                item.corrected = c.path("corrected").asText("");
+                item.type = c.path("type").asText("grammar");
+                item.severity = c.path("severity").asText("warning");
+                item.explanation = c.path("explanation").asText("");
+                item.tip = c.path("tip").asText(null);
+                if (!item.original.isBlank() && !item.corrected.isBlank()) {
+                    out.add(item);
+                }
             }
         }
+        return out;
+    }
 
-        String message = feedbackKo.isBlank() ? "표현을 개선해보세요." : feedbackKo;
+    private void persistMistake(String userId, String sessionId, int turnNumber, CorrectionItem c) {
+        if (sessionId == null || sessionId.isBlank()) return;
+        // Only save real issues, not info-level suggestions.
+        if (!"error".equalsIgnoreCase(c.severity) && !"warning".equalsIgnoreCase(c.severity)) return;
+        try {
+            Mistake m = new Mistake();
+            m.setSessionId(sessionId);
+            m.setUserId(userId == null || userId.isBlank() ? "anonymous" : userId);
+            m.setTurnNumber(turnNumber);
+            m.setOriginalText(c.original);
+            m.setCorrectedText(c.corrected);
+            m.setCorrectionType(c.type);
+            m.setSeverity(c.severity);
+            m.setExplanation(c.explanation);
+            m.setTip(c.tip);
+            mistakeRepository.save(m);
+        } catch (Exception e) {
+            System.err.println("[Realtime] persist mistake failed: " + e.getMessage());
+        }
+    }
 
-        return new InsightDto("insight-" + turnId, "risk", message, suggestion, turnId);
+    private static class CorrectionItem {
+        String original;
+        String corrected;
+        String type;
+        String severity;
+        String explanation;
+        String tip;
     }
 }
