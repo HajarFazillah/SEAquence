@@ -923,6 +923,23 @@ export default function ChatScreen() {
     const avgScore = sessionCorrections.length > 0 ? Math.round(sessionCorrections.reduce((s, c) => s + (c.accuracy_score ?? 0), 0) / sessionCorrections.length) : 100;
     let sessionReport = null;
     try { sessionReport = await analyzeSessionWithAI(avatar, history); } catch {}
+
+    // Fire-and-forget: extract durable per-avatar memories so the next chat with
+    // this avatar starts already knowing the user.
+    if (avatar?.id && history.length > 0) {
+      fetch(`${AI_SERVER}/api/v1/chat/end-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          avatar_id: avatar.id,
+          avatar_name: avatar.name_ko,
+          session_id: sessionIdRef.current,
+          conversation_history: history,
+        }),
+      }).catch(err => console.log('end-session failed:', err));
+    }
+
     navigation.navigate('ConversationSummary', { avatar, duration: durationStr, situation, conversationHistory: history, finalMood: avatarMood, sessionReport, sessionCorrections, avgScore, sessionId: sessionIdRef.current });
   };
 

@@ -2159,6 +2159,25 @@ class ChatService:
             except Exception as e:
                 print(f"[mistakes] failed to save: {e}")
 
+        # Persist this turn server-side so the next call sees a coherent rolling
+        # history + summary even if the client trims its conversation_history.
+        try:
+            self._remember_session_turn(
+                session_key=session_key,
+                user_message=user_message,
+                assistant_message=final_message,
+                existing_history=effective_history,
+            )
+        except Exception as e:
+            print(f"[session] failed to persist turn: {e}")
+
+        # Surface the freshest summary on the response (clients can ignore it).
+        latest_summary = None
+        try:
+            _, latest_summary = self._load_session(session_key)
+        except Exception:
+            latest_summary = session_summary
+
         return ChatResponse(
             message=final_message,
             correction=correction,
@@ -2168,7 +2187,7 @@ class ChatService:
             suggestions=suggestions,
             hint=hint,
             correct_streak=streak,
-            session_summary=session_summary,
+            session_summary=latest_summary or session_summary,
         )
 
     def _get_effective_history(

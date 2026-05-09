@@ -411,6 +411,61 @@ class BioResponse(BaseModel):
     bio: str
 
 
+class EndSessionRequest(BaseModel):
+    """End-of-chat hook: extract durable per-avatar memories from the session."""
+    user_id: str
+    avatar_id: str
+    avatar_name: Optional[str] = None
+    session_id: Optional[str] = None
+    conversation_history: List[ChatMessage] = []
+
+
+class EndSessionResponse(BaseModel):
+    memories_extracted: int
+    summary: Optional[str] = None
+
+
+@router.post("/end-session", response_model=EndSessionResponse)
+async def end_session(request: EndSessionRequest):
+    """Persist long-term memories (facts/preferences/events) for the (user, avatar)
+    pair so the next chat with the same avatar feels familiar.
+
+    Safe to call from a fire-and-forget client; never raises on extraction failure.
+    """
+    from app.services.memory_service import memory_service
+
+    messages = [{"role": m.role, "content": m.content} for m in request.conversation_history]
+    if not messages:
+        return EndSessionResponse(memories_extracted=0)
+
+    extracted: List[Any] = []
+    try:
+        extracted = await memory_service.extract_memories(
+            user_id=request.user_id,
+            avatar_id=request.avatar_id,
+            messages=messages,
+        )
+    except Exception as e:
+        print(f"[end-session] extract_memories failed: {e}")
+
+    summary_text: Optional[str] = None
+    try:
+        summary_obj = await memory_service.summarize_conversation(
+            user_id=request.user_id,
+            avatar_id=request.avatar_id,
+            conversation_id=request.session_id or f"{request.user_id}_{request.avatar_id}",
+            messages=messages,
+        )
+        summary_text = getattr(summary_obj, "summary", None) if summary_obj else None
+    except Exception as e:
+        print(f"[end-session] summarize_conversation failed: {e}")
+
+    return EndSessionResponse(
+        memories_extracted=len(extracted),
+        summary=summary_text,
+    )
+
+
 @router.post("/generate-bio", response_model=BioResponse)
 async def generate_bio(request: BioGenerateRequest):
     """Generate AI bio/conversation guide for avatar."""
