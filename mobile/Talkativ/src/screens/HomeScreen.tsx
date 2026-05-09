@@ -192,10 +192,14 @@ export const HomeScreen: React.FC = () => {
     ]).start();
   }, []);
 
+  const learnedWordsCount   = stats?.learnedWords   ?? 0;
+  const learnedPhrasesCount = stats?.learnedPhrases ?? 0;
+  const learnedTotal        = learnedWordsCount + learnedPhrasesCount;
+
   const liveStats = [
-    { id: '1', title: '완료한 대화', count: stats?.completedSessions  ?? 0,            icon: 'message' as const, color: '#6366F1' },
-    { id: '2', title: '배운 표현',   count: stats?.learnedExpressions ?? 0,            icon: 'book'    as const, color: '#EC4899' },
-    { id: '3', title: '연습 시간',   count: stats?.practiceMinutes    ?? 0, unit: '분', icon: 'clock'   as const, color: '#10B981' },
+    { id: '1', title: '완료한 대화', count: stats?.completedSessions ?? 0,            icon: 'message' as const, color: '#6366F1' },
+    { id: '2', title: '배운 단어/표현', count: learnedTotal,                          icon: 'book'    as const, color: '#EC4899' },
+    { id: '3', title: '연습 시간',   count: stats?.practiceMinutes   ?? 0, unit: '분', icon: 'clock'   as const, color: '#10B981' },
   ];
 
   const handleContinueConversation = (item: ActiveSession) => {

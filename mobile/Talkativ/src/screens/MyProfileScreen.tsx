@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet,
   ScrollView, TouchableOpacity, Image, Switch, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { fetchMyVocabulary } from '../services/apiVocabulary';
 import {
   ChevronRight, Bell, Moon, Globe,
   HelpCircle, LogOut, Edit, Heart, BookOpen,
@@ -84,15 +85,39 @@ export const MyProfileScreen: React.FC = () => {
       .then(data => setRealUser(data))
       .catch(err => console.log('Profile fetch failed:', err));
 
-    getUserStats()
-      .then(data => setStats(data))
-      .catch(err => console.log('Stats fetch failed:', err));
-
-    // Friend's addition: restore any previously saved custom avatar
     AsyncStorage.getItem(CUSTOM_AVATAR_KEY)
       .then(saved => { if (saved) setCustomAvatarUrl(saved); })
       .catch(err => console.log('Failed to load custom avatar:', err));
   }, []);
+
+  // Refetch stats + vocab counts every time the profile screen regains focus,
+  // so saving/deleting vocab elsewhere is reflected immediately.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const [statsRes, vocabRes] = await Promise.allSettled([
+          getUserStats(),
+          fetchMyVocabulary(),
+        ]);
+        if (cancelled) return;
+
+        const base: UserStats =
+          statsRes.status === 'fulfilled'
+            ? statsRes.value
+            : { completedSessions: 0, learnedExpressions: 0, practiceMinutes: 0, progressPercent: 0 };
+
+        if (vocabRes.status === 'fulfilled') {
+          const words = vocabRes.value.filter(v => v.kind === 'word').length;
+          const phrases = vocabRes.value.filter(v => v.kind === 'phrase').length;
+          setStats({ ...base, learnedWords: words, learnedPhrases: phrases });
+        } else {
+          setStats({ ...base, learnedWords: 0, learnedPhrases: 0 });
+        }
+      })();
+      return () => { cancelled = true; };
+    }, []),
+  );
 
   const display = useMemo(() => {
     const koreanLevel = realUser?.koreanLevel ?? mockUser.koreanLevel;
@@ -208,8 +233,8 @@ export const MyProfileScreen: React.FC = () => {
             </View>
             <View style={styles.heroStatDivider} />
             <View style={styles.heroStatBox}>
-              <Text style={styles.heroStatValue}>{stats.learnedExpressions}</Text>
-              <Text style={styles.heroStatLabel}>배운 표현</Text>
+              <Text style={styles.heroStatValue}>{(stats.learnedWords ?? 0) + (stats.learnedPhrases ?? 0)}</Text>
+              <Text style={styles.heroStatLabel}>배운 단어/표현</Text>
             </View>
             <View style={styles.heroStatDivider} />
             <View style={styles.heroStatBox}>
@@ -303,7 +328,7 @@ export const MyProfileScreen: React.FC = () => {
               <BookOpen size={20} color="#6C3BFF" />
             </View>
             <View style={styles.statTextContainer}>
-              <Text style={styles.statValue}>{stats.learnedExpressions}</Text>
+              <Text style={styles.statValue}>{stats.learnedWords ?? 0}</Text>
               <Text style={styles.statLabel}>배운 단어</Text>
             </View>
             <ChevronRight size={18} color="#B0B0C5" />
@@ -314,7 +339,7 @@ export const MyProfileScreen: React.FC = () => {
               <MessageCircle size={20} color="#4CAF50" />
             </View>
             <View style={styles.statTextContainer}>
-              <Text style={styles.statValue}>{stats.completedSessions}</Text>
+              <Text style={styles.statValue}>{stats.learnedPhrases ?? 0}</Text>
               <Text style={styles.statLabel}>배운 표현</Text>
             </View>
             <ChevronRight size={18} color="#B0B0C5" />

@@ -22,6 +22,10 @@ export interface UserStats {
   learnedExpressions: number;
   practiceMinutes: number;
   progressPercent: number;
+  // Live counts from the vocabulary table — populated client-side after the
+  // base stats arrive. Both default to 0 if not loaded yet.
+  learnedWords?: number;
+  learnedPhrases?: number;
 }
 
 export interface UserAvatar {

@@ -12,6 +12,7 @@ import {
 import { Icon } from '../components';
 import { AI_SERVER_URL } from '../constants';
 import { fetchMistakesBySession, SavedMistake } from '../services/apiMistakes';
+import { saveVocabulary } from '../services/apiVocabulary';
 
 const AI_SERVER = AI_SERVER_URL;
 
@@ -78,26 +79,69 @@ export default function ConversationSummaryScreen() {
 
   const { avatar, duration, conversationHistory, sessionCorrections, avgScore, sessionId } = route.params || {};
 
-  const handleToggleSave = (item: VocabularyItem) => {
+  const handleToggleSave = async (item: VocabularyItem) => {
+    const wasSaved = !!savedWords[item.word];
+    // Optimistic UI update first
     setSavedWords(prev => {
       const next = { ...prev };
-      if (next[item.word]) {
-        delete next[item.word];
-      } else {
+      if (wasSaved) delete next[item.word];
+      else {
         next[item.word] = item;
         setSaveSuccess(item.word);
         setTimeout(() => setSaveSuccess(null), 1500);
       }
       return next;
     });
+
+    if (wasSaved) return; // un-save is local-only for now (no DELETE-by-word endpoint)
+    try {
+      await saveVocabulary([{
+        kind: item.kind,
+        word: item.word,
+        meaning: item.meaning,
+        example: item.example,
+        fromAvatar: avatar?.name_ko,
+        sessionId,
+      }]);
+    } catch (e) {
+      console.log('vocab save failed:', e);
+      // Roll back on failure
+      setSavedWords(prev => {
+        const next = { ...prev };
+        delete next[item.word];
+        return next;
+      });
+      Alert.alert('저장 실패', '단어 저장에 실패했어요. 다시 시도해주세요.');
+    }
   };
 
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     if (!summary) return;
-    const entries: Record<string, VocabularyItem> = {};
-    summary.learnedVocab.forEach(v => { entries[v.word] = v; });
-    setSavedWords(prev => ({ ...prev, ...entries }));
-    Alert.alert('저장 완료', `${summary.learnedVocab.length}개가 저장됐어요!`);
+    const toSave = summary.learnedVocab.filter(v => !savedWords[v.word]);
+    if (toSave.length === 0) {
+      Alert.alert('이미 저장됨', '모든 항목이 이미 저장되어 있어요.');
+      return;
+    }
+    // Optimistic UI
+    setSavedWords(prev => {
+      const next = { ...prev };
+      toSave.forEach(v => { next[v.word] = v; });
+      return next;
+    });
+    try {
+      await saveVocabulary(toSave.map(v => ({
+        kind: v.kind,
+        word: v.word,
+        meaning: v.meaning,
+        example: v.example,
+        fromAvatar: avatar?.name_ko,
+        sessionId,
+      })));
+      Alert.alert('저장 완료', `${toSave.length}개가 저장됐어요!`);
+    } catch (e) {
+      console.log('vocab save-all failed:', e);
+      Alert.alert('저장 실패', '단어 저장에 실패했어요.');
+    }
   };
 
   const buildSummary = useCallback(async () => {
