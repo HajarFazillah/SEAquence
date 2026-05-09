@@ -124,7 +124,7 @@ export type RootStackParamList = {
 
   // Situation Flow
   SituationSelection: { avatar: any };
-  CreateSituation: undefined;
+  CreateSituation: { editing?: any } | undefined;
   SpeechRecommendation: { avatar: any; situation: any };
 
   // Chat

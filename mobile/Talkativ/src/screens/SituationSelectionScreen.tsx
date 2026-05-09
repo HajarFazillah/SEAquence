@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet,
-  ScrollView, TouchableOpacity,
+  ScrollView, TouchableOpacity, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
-import { Check, Plus } from 'lucide-react-native';
+import { Check, Plus, Pencil, Trash2 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Header, Card, Button, Icon } from '../components';
 import { SITUATIONS, SITUATION_CATEGORIES } from '../constants';
@@ -54,6 +54,35 @@ export default function SituationSelectionScreen() {
 
   const handleCreateSituation = () => {
     navigation.navigate('CreateSituation');
+  };
+
+  const handleEditSituation = (situation: any) => {
+    navigation.navigate('CreateSituation', { editing: situation });
+  };
+
+  const handleDeleteSituation = (situation: any) => {
+    Alert.alert(
+      '상황 삭제',
+      `"${situation.name_ko}" 상황을 삭제할까요?`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const next = customSituations.filter((s) => s.id !== situation.id);
+              setCustomSituations(next);
+              if (selectedSituation === situation.id) setSelectedSituation(null);
+              await AsyncStorage.setItem(CUSTOM_SITUATIONS_KEY, JSON.stringify(next));
+            } catch (e) {
+              console.log('Failed to delete situation:', e);
+              Alert.alert('오류', '삭제에 실패했습니다.');
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -145,6 +174,26 @@ export default function SituationSelectionScreen() {
                   </View>
                   <Text style={styles.situationDesc}>{situation.description_ko}</Text>
                 </View>
+
+                {situation.isCustom ? (
+                  <View style={styles.cardActions}>
+                    <TouchableOpacity
+                      style={styles.cardActionBtn}
+                      onPress={(e) => { e.stopPropagation?.(); handleEditSituation(situation); }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Pencil size={16} color="#6C3BFF" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.cardActionBtn}
+                      onPress={(e) => { e.stopPropagation?.(); handleDeleteSituation(situation); }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Trash2 size={16} color="#E53935" />
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+
                 {selectedSituation === situation.id && (
                   <Check size={24} color="#6C3BFF" />
                 )}
@@ -269,6 +318,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: '#6C3BFF',
+  },
+
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 8,
+  },
+  cardActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F7F7FB',
   },
 
   footer: {

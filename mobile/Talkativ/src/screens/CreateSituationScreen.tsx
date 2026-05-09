@@ -4,7 +4,7 @@ import {
   ScrollView, TouchableOpacity, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { 
   Coffee, Briefcase, GraduationCap, ShoppingBag,
   UtensilsCrossed, Users, Building2, Handshake, PartyPopper,
@@ -49,13 +49,16 @@ const CONTEXT_SUGGESTIONS = [
 
 export default function CreateSituationScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const editing = route.params?.editing as any | undefined;
+  const isEditing = !!editing;
 
-  const [name, setName] = useState('');
-  const [nameEn, setNameEn] = useState('');
-  const [description, setDescription] = useState('');
-  const [selectedIcon, setSelectedIcon] = useState('coffee');
-  const [selectedCategory, setSelectedCategory] = useState('casual');
-  const [contexts, setContexts] = useState<string[]>([]);
+  const [name, setName] = useState(editing?.name_ko || '');
+  const [nameEn, setNameEn] = useState(editing?.name_en || '');
+  const [description, setDescription] = useState(editing?.description_ko || '');
+  const [selectedIcon, setSelectedIcon] = useState(editing?.icon || 'coffee');
+  const [selectedCategory, setSelectedCategory] = useState(editing?.category || 'casual');
+  const [contexts, setContexts] = useState<string[]>(editing?.contexts || []);
   const [customContext, setCustomContext] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -80,9 +83,8 @@ export default function CreateSituationScreen() {
     setIsSaving(true);
 
     try {
-      // Build new situation object matching the SITUATIONS data structure
-      const newSituation = {
-        id: `custom_${Date.now()}`,
+      const situationPayload = {
+        id: editing?.id || `custom_${Date.now()}`,
         name_ko: name.trim(),
         name_en: nameEn.trim(),
         description_ko: description.trim(),
@@ -92,19 +94,20 @@ export default function CreateSituationScreen() {
         isCustom: true,
       };
 
-      // Load existing custom situations from AsyncStorage
       const existing = await AsyncStorage.getItem(CUSTOM_SITUATIONS_KEY);
-      const existingList = existing ? JSON.parse(existing) : [];
+      const existingList: any[] = existing ? JSON.parse(existing) : [];
 
-      // Add new situation to the list
-      const updatedList = [...existingList, newSituation];
+      const updatedList = isEditing
+        ? existingList.map((s) => (s.id === editing.id ? situationPayload : s))
+        : [...existingList, situationPayload];
 
-      // Save back to AsyncStorage
       await AsyncStorage.setItem(CUSTOM_SITUATIONS_KEY, JSON.stringify(updatedList));
 
-      Alert.alert('완료', `"${name}" 상황이 저장되었습니다.`, [
-        { text: '확인', onPress: () => navigation.goBack() },
-      ]);
+      Alert.alert(
+        '완료',
+        `"${name}" 상황이 ${isEditing ? '수정' : '저장'}되었습니다.`,
+        [{ text: '확인', onPress: () => navigation.goBack() }],
+      );
     } catch (error) {
       console.log('Failed to save situation:', error);
       Alert.alert('오류', '상황 저장에 실패했습니다. 다시 시도해주세요.');
@@ -117,7 +120,7 @@ export default function CreateSituationScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <Header title="새 상황 만들기" />
+      <Header title={isEditing ? '상황 수정하기' : '새 상황 만들기'} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
@@ -267,7 +270,7 @@ export default function CreateSituationScreen() {
       {/* Create Button */}
       <View style={styles.footer}>
         <Button
-          title={isSaving ? '저장 중...' : '상황 만들기'}
+          title={isSaving ? '저장 중...' : isEditing ? '수정 완료' : '상황 만들기'}
           onPress={handleCreate}
           disabled={!isValid || isSaving}
         />
