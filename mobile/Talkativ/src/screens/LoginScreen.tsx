@@ -62,6 +62,7 @@ export const LoginScreen: React.FC = () => {
 
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('userId', data.userId);
+      await AsyncStorage.setItem('user_id', data.userId);
 
       navigation.navigate('Main');
     } catch (error: any) {
@@ -93,6 +94,7 @@ export const LoginScreen: React.FC = () => {
 
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('userId', data.userId);
+      await AsyncStorage.setItem('user_id', data.userId);
 
       navigation.navigate('Main');
     } catch (error: any) {

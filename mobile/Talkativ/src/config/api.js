@@ -7,7 +7,7 @@ const AI_SERVER = AI_SERVER_URL;
 export const apiService = {
 
   sendMessage: async (sessionId, userId, text, avatar, situation, history) => {
-    const user_id = await AsyncStorage.getItem('user_id') || userId
+    const user_id = await AsyncStorage.getItem('user_id') || await AsyncStorage.getItem('userId') || userId
 
     const res = await fetch(`${AI_SERVER}/api/v1/chat`, {
       method: 'POST',

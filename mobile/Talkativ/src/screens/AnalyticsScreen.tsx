@@ -24,6 +24,11 @@ import {
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AI_SERVER_URL } from '../constants';
+import {
+  fetchMyWeakAreas,
+  fetchMyMistakes,
+  SavedMistake,
+} from '../services/apiMistakes';
 
 const AI_SERVER = AI_SERVER_URL;
 
@@ -188,6 +193,7 @@ export default function AnalyticsScreen() {
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [weakAreas, setWeakAreas] = useState<WeakArea[]>([]);
+  const [recentMistakes, setRecentMistakes] = useState<SavedMistake[]>([]);
 
   useEffect(() => {
     loadAnalytics();
@@ -196,20 +202,34 @@ export default function AnalyticsScreen() {
   const loadAnalytics = async () => {
     try {
       setLoading(true);
-      const userId = (await AsyncStorage.getItem('user_id')) || 'test-user-1';
+      const userId =
+        (await AsyncStorage.getItem('userId')) ||
+        (await AsyncStorage.getItem('user_id')) ||
+        'test-user-1';
 
-      const [summaryRes, weakRes] = await Promise.allSettled([
+      const [summaryRes, aiWeakRes, springWeakRes, mistakesRes] = await Promise.allSettled([
         fetch(`${AI_SERVER}/api/v1/analytics/${userId}/summary`),
         fetch(`${AI_SERVER}/api/v1/analytics/${userId}/weak-areas`),
+        fetchMyWeakAreas(),
+        fetchMyMistakes(),
       ]);
 
       if (summaryRes.status === 'fulfilled' && summaryRes.value.ok) {
         setSummary(await summaryRes.value.json());
       }
 
-      if (weakRes.status === 'fulfilled' && weakRes.value.ok) {
-        const data = await weakRes.value.json();
+      let springCount = 0;
+      if (springWeakRes.status === 'fulfilled') {
+        springCount = springWeakRes.value.length;
+        if (springCount > 0) setWeakAreas(springWeakRes.value);
+      }
+      if (springCount === 0 && aiWeakRes.status === 'fulfilled' && aiWeakRes.value.ok) {
+        const data = await aiWeakRes.value.json();
         setWeakAreas(Array.isArray(data) ? data : []);
+      }
+
+      if (mistakesRes.status === 'fulfilled') {
+        setRecentMistakes(mistakesRes.value);
       }
     } catch (error) {
       console.error('Analytics load error:', error);
@@ -651,7 +671,7 @@ export default function AnalyticsScreen() {
               })}
             </View>
           </View>
-        ) : isHomeAnalysis ? (
+        ) : isHomeAnalysis && recentMistakes.length === 0 ? (
           <View style={styles.section}>
             <View style={[styles.card, styles.emptyCard]}>
               <View style={styles.emptyIcon}>
@@ -664,6 +684,44 @@ export default function AnalyticsScreen() {
             </View>
           </View>
         ) : null}
+
+        {isHomeAnalysis && recentMistakes.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionEye}>RECENT</Text>
+              <Text style={styles.sectionTitle}>최근 실수</Text>
+            </View>
+
+            <View style={styles.card}>
+              {recentMistakes.slice(0, 8).map((m, i) => (
+                <View
+                  key={m.id}
+                  style={[
+                    styles.recentItem,
+                    i < Math.min(recentMistakes.length, 8) - 1 && styles.recentItemBorder,
+                  ]}
+                >
+                  <View style={styles.recentTopRow}>
+                    {!!m.correctionType && (
+                      <View style={styles.recentTypePill}>
+                        <Text style={styles.recentTypeText}>{m.correctionType}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.recentDate}>
+                      {m.createdAt ? new Date(m.createdAt).toLocaleDateString('ko-KR') : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.recentOriginal}>{m.originalText}</Text>
+                  <Text style={styles.recentArrow}>→</Text>
+                  <Text style={styles.recentCorrected}>{m.correctedText}</Text>
+                  {!!m.explanation && (
+                    <Text style={styles.recentExplanation}>{m.explanation}</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {savedItems && savedItems.length > 0 && (
           <View style={styles.section}>
@@ -1124,5 +1182,54 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#fff',
+  },
+  recentItem: {
+    paddingVertical: 12,
+  },
+  recentItemBorder: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#E5E5EA',
+  },
+  recentTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  recentTypePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+    backgroundColor: 'rgba(108,59,255,0.10)',
+  },
+  recentTypeText: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#6C3BFF',
+  },
+  recentDate: {
+    fontSize: 11,
+    color: '#999',
+  },
+  recentOriginal: {
+    fontSize: 13,
+    color: '#888',
+    textDecorationLine: 'line-through',
+  },
+  recentArrow: {
+    fontSize: 12,
+    color: '#bbb',
+    marginVertical: 2,
+  },
+  recentCorrected: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#22C55E',
+  },
+  recentExplanation: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 18,
   },
 });

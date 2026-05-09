@@ -11,6 +11,7 @@ import {
 } from 'lucide-react-native';
 import { Icon } from '../components';
 import { AI_SERVER_URL } from '../constants';
+import { fetchMistakesBySession, SavedMistake } from '../services/apiMistakes';
 
 const AI_SERVER = AI_SERVER_URL;
 
@@ -74,7 +75,7 @@ export default function ConversationSummaryScreen() {
   const [expandedMistake, setExpandedMistake] = useState<number | null>(null);
   const [saveSuccess,     setSaveSuccess]     = useState<string | null>(null);
 
-  const { avatar, duration, conversationHistory, sessionCorrections, avgScore } = route.params || {};
+  const { avatar, duration, conversationHistory, sessionCorrections, avgScore, sessionId } = route.params || {};
 
   const handleToggleSave = (item: VocabularyItem) => {
     setSavedWords(prev => {
@@ -102,7 +103,7 @@ export default function ConversationSummaryScreen() {
     setLoading(true);
     try {
       const speechScore = avgScore ?? 80;
-      const mistakes: MistakeItem[] = sessionCorrections
+      let mistakes: MistakeItem[] = sessionCorrections
         ? sessionCorrections
             .flatMap((s: any) => s.corrections || [])
             .filter((c: any) => c.severity === 'error' || c.severity === 'warning')
@@ -114,6 +115,21 @@ export default function ConversationSummaryScreen() {
               type:        toMistakeType(c.type || ''),
             }))
         : [];
+
+      // Fall back to mistakes persisted in the backend during this session.
+      if (mistakes.length === 0 && sessionId) {
+        try {
+          const saved: SavedMistake[] = await fetchMistakesBySession(sessionId);
+          mistakes = saved.slice(0, 6).map(s => ({
+            original:    s.originalText  || '',
+            correction:  s.correctedText || '',
+            explanation: s.explanation   || '',
+            type:        toMistakeType(s.correctionType || ''),
+          }));
+        } catch (e) {
+          console.log('fetchMistakesBySession failed:', e);
+        }
+      }
 
       const history = (conversationHistory || []).map((m: any) => ({
         role:    m.role || (m.sender === 'ai' ? 'assistant' : 'user'),
@@ -201,7 +217,7 @@ export default function ConversationSummaryScreen() {
     } finally {
       setLoading(false);
     }
-  }, [avatar, avgScore, conversationHistory, sessionCorrections]);
+  }, [avatar, avgScore, conversationHistory, sessionCorrections, sessionId]);
 
   useEffect(() => { buildSummary(); }, [buildSummary]);
 

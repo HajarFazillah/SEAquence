@@ -303,12 +303,18 @@ export const AppNavigator: React.FC = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = await AsyncStorage.getItem('token');
-      setIsAuthenticated(!!token);
-      setIsLoading(false);
+      try {
+        const token = await AsyncStorage.getItem('token');
+        setIsAuthenticated(!!token);
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
-    checkAuth();
+    const timeout = setTimeout(() => setIsLoading(false), 3000);
+    checkAuth().then(() => clearTimeout(timeout));
   }, []);
 
   if (isLoading) {
@@ -423,6 +429,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
   },
   bottomMenu: {
     position: 'absolute',

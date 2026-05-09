@@ -2253,8 +2253,14 @@ class ChatService:
                 port=3307,
                 user='root',
                 password='1234',
-                database='talkativ'
+                database='talkativ',
+                charset='utf8mb4',
+                collation='utf8mb4_unicode_ci',
+                use_unicode=True,
             )
+            cursor = conn.cursor()
+            cursor.execute("SET NAMES utf8mb4")
+            cursor.close()
             yield conn
         finally:
             if conn and conn.is_connected():
@@ -2315,6 +2321,8 @@ class ChatService:
 
     def _save_mistakes(self, session_key: str, correction: "RealTimeCorrection") -> None:
         """Persist per-turn inline corrections to session_mistakes table."""
+        for c in correction.corrections:
+            print(f"[mistakes-debug] type={type(c.original).__name__} original={c.original!r} corrected={c.corrected!r}")
         real = [
             c for c in correction.corrections
             if c.original != c.corrected

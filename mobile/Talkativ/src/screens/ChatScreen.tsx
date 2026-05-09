@@ -14,13 +14,12 @@ import { makePreviewPayload, saveConversationPreview } from '../services/convers
 
 const AI_SERVER = 'http://10.0.2.2:8000';
 
-const SPRING_BASE = 'http://10.0.2.2:8080';
+import { saveMistakesToBackend } from '../services/apiMistakes';
 
 const saveMistakes = async (
   sessionId: string,
   turnNumber: number,
   corrections: Correction[],
-  token: string | null,
 ) => {
   if (!corrections || corrections.length === 0) return;
 
@@ -38,14 +37,7 @@ const saveMistakes = async (
   if (mistakes.length === 0) return;
 
   try {
-    await fetch(`${SPRING_BASE}/api/mistakes`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ sessionId, turnNumber, mistakes }),
-    });
+    await saveMistakesToBackend(sessionId, turnNumber, mistakes);
   } catch (err) {
     console.log('Failed to save mistakes:', err);
   }
@@ -868,17 +860,17 @@ export default function ChatScreen() {
   const [avatarMood,       setAvatarMood]       = useState(70);
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
-  const [jwtToken, setJwtToken] = useState<string | null>(null);
   const [correctStreak,    setCorrectStreak]    = useState(0);
   // Default expanded = true so card opens immediately after send
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
 
-  useEffect(() => { AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); }); }, []);
-
   useEffect(() => {
-  AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); });
-  AsyncStorage.getItem('token').then(token => { if (token) setJwtToken(token); });
-}, []);
+    // Read both keys for backward compatibility ('userId' is the canonical key set on login).
+    (async () => {
+      const id = (await AsyncStorage.getItem('userId')) || (await AsyncStorage.getItem('user_id'));
+      if (id) setUserId(id);
+    })();
+  }, []);
 
   useEffect(() => { if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100); }, [messages]);
   useEffect(() => {
@@ -909,7 +901,7 @@ export default function ChatScreen() {
       // Save mistakes to backend
       if (data.speech_analysis?.has_errors && data.speech_analysis.corrections.length > 0) {
       const turnNumber = messages.filter(m => m.sender === 'user').length + 1;
-      saveMistakes(sessionIdRef.current, turnNumber, data.speech_analysis.corrections, jwtToken);
+      saveMistakes(sessionIdRef.current, turnNumber, data.speech_analysis.corrections);
       }
 
     } catch (error) {
@@ -931,7 +923,7 @@ export default function ChatScreen() {
     const avgScore = sessionCorrections.length > 0 ? Math.round(sessionCorrections.reduce((s, c) => s + (c.accuracy_score ?? 0), 0) / sessionCorrections.length) : 100;
     let sessionReport = null;
     try { sessionReport = await analyzeSessionWithAI(avatar, history); } catch {}
-    navigation.navigate('ConversationSummary', { avatar, duration: durationStr, situation, conversationHistory: history, finalMood: avatarMood, sessionReport, sessionCorrections, avgScore });
+    navigation.navigate('ConversationSummary', { avatar, duration: durationStr, situation, conversationHistory: history, finalMood: avatarMood, sessionReport, sessionCorrections, avgScore, sessionId: sessionIdRef.current });
   };
 
   // ── Pip row ────────────────────────────────────────────────────────────────
