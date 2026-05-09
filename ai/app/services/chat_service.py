@@ -1715,6 +1715,39 @@ class ChatService:
 
         return result
 
+    def _apply_confidence_weighting(
+        self,
+        raw_score: int,
+        message_count: int,
+        baseline: int = 70,
+    ) -> Dict[str, Any]:
+        """Blend raw score toward a baseline when sample size is small.
+
+        - <  3 messages: 50/50 blend with baseline (low confidence)
+        - 3-5 messages: graded blend (medium confidence)
+        - >= 6 messages: raw score (full confidence)
+        """
+        if message_count <= 0:
+            return {"adjusted": raw_score, "confidence": "none", "raw_score": raw_score}
+
+        if message_count < 3:
+            confidence = "low"
+            weight = 0.5
+        elif message_count < 6:
+            confidence = "medium"
+            weight = 0.5 + (message_count - 3) * 0.15  # 0.5 → 0.8
+        else:
+            confidence = "high"
+            weight = 1.0
+
+        adjusted = round(raw_score * weight + baseline * (1 - weight))
+        return {
+            "adjusted": max(0, min(100, adjusted)),
+            "confidence": confidence,
+            "raw_score": raw_score,
+            "weight": round(weight, 2),
+        }
+
     def _calculate_speech_accuracy_score(
         self,
         user_messages: List[str],
@@ -1808,7 +1841,9 @@ class ChatService:
             total_penalty += min(55, message_penalty)
 
         average_penalty = total_penalty / max(1, len(user_messages))
-        score = max(0, min(100, round(100 - average_penalty)))
+        raw_score = max(0, min(100, round(100 - average_penalty)))
+        weighted = self._apply_confidence_weighting(raw_score, len(user_messages))
+        score = weighted["adjusted"]
 
         return {
             "score": score,
@@ -1823,6 +1858,8 @@ class ChatService:
                 "mixed_style_penalty": mixed_style_penalty,
                 "konlpy_samples_used": konlpy_samples_used,
                 "konlpy_sources": sorted(set(konlpy_sources)),
+                "raw_score": weighted["raw_score"],
+                "confidence": weighted["confidence"],
             },
             "note": (
                 "KoNLPy 형태소 분석을 보조로 사용해 말투 어미, 높임 표현, 오타, 혼용 여부를 계산했습니다."
@@ -1868,16 +1905,17 @@ class ChatService:
         diversity_ratio = unique_count / max(1, token_count)
         diversity_score = min(100, round(35 + diversity_ratio * 65))
 
-        advanced_terms = {
-            "괜찮으시면", "도와주십시오", "부탁드립니다", "말씀", "연구실", "상담",
-            "주문", "추가", "테이크아웃", "프로젝트", "발표", "회의", "피드백",
-            "죄송합니다", "감사합니다", "알겠습니다", "어색하다", "자연스럽다",
-        }
-        advanced_token_count = sum(1 for token in tokens if token in advanced_terms or len(token) >= 4)
-        difficulty_ratio = advanced_token_count / max(1, token_count)
-        difficulty_score = min(100, round(25 + difficulty_ratio * 75))
+        # Data-driven difficulty: longer Korean tokens are typically rarer/more advanced.
+        # 4+ syllables = clearly advanced; 3 syllables = mildly advanced.
+        long_tokens = sum(1 for t in tokens if len(t) >= 4)
+        mid_tokens = sum(1 for t in tokens if len(t) == 3)
+        advanced_token_count = long_tokens
+        difficulty_ratio = (long_tokens * 1.0 + mid_tokens * 0.5) / max(1, token_count)
+        difficulty_score = min(100, round(30 + difficulty_ratio * 90))
 
-        score = max(0, min(100, round(diversity_score * 0.7 + difficulty_score * 0.3)))
+        raw_score = max(0, min(100, round(diversity_score * 0.6 + difficulty_score * 0.4)))
+        weighted = self._apply_confidence_weighting(raw_score, len(user_messages))
+        score = weighted["adjusted"]
 
         return {
             "score": score,
@@ -1889,14 +1927,18 @@ class ChatService:
                 "diversity_score": diversity_score,
                 "difficulty_score": difficulty_score,
                 "advanced_token_count": advanced_token_count,
+                "long_tokens": long_tokens,
+                "mid_tokens": mid_tokens,
                 "top_tokens": [token for token, _ in Counter(tokens).most_common(5)],
                 "konlpy_samples_used": konlpy_samples_used,
                 "konlpy_sources": sorted(set(konlpy_sources)),
+                "raw_score": weighted["raw_score"],
+                "confidence": weighted["confidence"],
             },
             "note": (
-                "KoNLPy 형태소 분석으로 명사/동사를 뽑아 단어 다양성과 난도를 계산했습니다."
+                "KoNLPy 형태소 분석으로 명사/동사를 뽑아 단어 다양성과 단어 길이 기반 난도를 계산했습니다."
                 if konlpy_samples_used > 0
-                else "단어 다양성과 상대적으로 난도가 높은 어휘 사용 비율을 함께 반영했습니다."
+                else "단어 다양성과 단어 길이(3음절 이상) 비율을 함께 반영했습니다."
             ),
         }
 
@@ -1971,7 +2013,9 @@ class ChatService:
             total_penalty += min(60, message_penalty)
 
         average_penalty = total_penalty / max(1, len(user_messages))
-        score = max(0, min(100, round(100 - average_penalty)))
+        raw_score = max(0, min(100, round(100 - average_penalty)))
+        weighted = self._apply_confidence_weighting(raw_score, len(user_messages))
+        score = weighted["adjusted"]
 
         return {
             "score": score,
@@ -1985,6 +2029,8 @@ class ChatService:
                 "llm_score": None,
                 "konlpy_samples_used": konlpy_samples_used,
                 "konlpy_sources": sorted(set(konlpy_sources)),
+                "raw_score": weighted["raw_score"],
+                "confidence": weighted["confidence"],
             },
             "note": (
                 "KoNLPy 기반 일관성/형태소 신호와 오류 수를 함께 반영해 자연스러움을 계산했습니다."
@@ -3190,6 +3236,16 @@ class ChatService:
             except Exception as e:
                 print(f"[mistakes] failed to load: {e}")
 
+        # Adjust speech_accuracy down based on actual saved mistakes per message.
+        # 0 mistakes/msg → no change; 1+ mistakes/msg → up to -20.
+        if user_messages:
+            mistake_rate = len(stored_mistakes) / len(user_messages)
+            mistake_penalty = round(min(20, mistake_rate * 20))
+            if mistake_penalty > 0:
+                speech_meta["score"] = max(0, speech_meta["score"] - mistake_penalty)
+                speech_meta["components"]["stored_mistake_count"] = len(stored_mistakes)
+                speech_meta["components"]["stored_mistake_penalty"] = mistake_penalty
+
         prompt = build_conversation_analysis_prompt(
             messages=[{"role": m.role, "content": m.content} for m in conversation_history],
             avatar_name=avatar.name_ko,
@@ -3222,9 +3278,9 @@ class ChatService:
         naturalness_meta["components"]["llm_score"] = llm_naturalness
         naturalness_meta["score"] = max(
             0,
-            min(100, round(naturalness_meta["score"] * 0.7 + llm_naturalness * 0.3)),
+            min(100, round(naturalness_meta["score"] * 0.5 + llm_naturalness * 0.5)),
         )
-        naturalness_meta["note"] = "규칙 기반 점수에 LLM 자연스러움 평가를 보조적으로 섞었습니다."
+        naturalness_meta["note"] = "규칙 기반 점수와 LLM 자연스러움 평가를 50:50으로 결합했습니다."
 
         final_scores = {
             "speech_accuracy": speech_meta["score"],
