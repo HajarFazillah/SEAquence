@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   TouchableOpacity,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   TrendingUp,
@@ -24,6 +24,7 @@ import {
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AI_SERVER_URL } from '../constants';
+import { useHomeData } from '../hooks/useHomeData';
 import {
   fetchMyWeakAreas,
   fetchMyMistakes,
@@ -113,7 +114,10 @@ const buildSessionScores = (
 
     const vocabularyBase =
       0.58 +
-      Math.min(turns.filter((t) => (t.text || '').trim().length > 20).length * 0.03, 0.22) +
+      Math.min(
+        turns.filter((t) => (t.text || '').trim().length > 20).length * 0.03,
+        0.22
+      ) +
       Math.min(stats.successCount * 0.02, 0.12) -
       Math.min(stats.riskCount * 0.025, 0.12);
 
@@ -134,7 +138,8 @@ const buildSessionScores = (
   const finalTurns = turns.filter((turn) => turn.type !== 'partial');
   const successCount = insights.filter((insight) => insight.kind === 'success').length;
   const riskCount = insights.filter((insight) => insight.kind === 'risk').length;
-  const speakerCount = new Set(finalTurns.map((turn) => turn.speaker).filter(Boolean)).size || 1;
+  const speakerCount =
+    new Set(finalTurns.map((turn) => turn.speaker).filter(Boolean)).size || 1;
 
   const speechAccuracy = clamp01(
     0.68 +
@@ -144,7 +149,10 @@ const buildSessionScores = (
 
   const vocabulary = clamp01(
     0.60 +
-      Math.min(finalTurns.filter((t) => (t.text || '').length > 18).length * 0.025, 0.18)
+      Math.min(
+        finalTurns.filter((t) => (t.text || '').length > 18).length * 0.025,
+        0.18
+      )
   );
 
   const naturalness = clamp01(
@@ -165,11 +173,44 @@ const getScoreSourceLabel = (detail?: ScoreDetail) => {
   return '혼합 계산';
 };
 
+const getCorrectionTypeLabel = (type?: string) => {
+  if (!type) return '';
+
+  const labels: Record<string, string> = {
+    speech_level: '말투 수준',
+    formality: '격식 표현',
+    honorific: '높임 표현',
+    honorifics: '높임 표현',
+    particle: '조사',
+    particles: '조사',
+    vocabulary: '어휘',
+    spelling: '맞춤법',
+    grammar: '문법',
+    pronunciation: '발음',
+    word_order: '어순',
+    verb_conjugation: '동사 활용',
+    ending: '종결어미',
+    sentence_ending: '종결어미',
+    politeness: '공손성',
+    expression: '표현',
+    spacing: '띄어쓰기',
+    tense: '시제',
+    context: '맥락 표현',
+    register: '화법',
+  };
+
+  return labels[type] || type.replace(/_/g, ' ');
+};
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AnalyticsScreen() {
+  const insets = useSafeAreaInsets();
+
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+
+  const { stats: homeStats } = useHomeData();
 
   const {
     avatar,
@@ -188,7 +229,8 @@ export default function AnalyticsScreen() {
     stats,
   } = route.params || {};
 
-  const isHomeAnalysis = source === 'home' || (!avatar && !duration && !scores && !turns?.length);
+  const isHomeAnalysis =
+    source === 'home' || (!avatar && !duration && !scores && !turns?.length);
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
@@ -202,28 +244,39 @@ export default function AnalyticsScreen() {
   const loadAnalytics = async () => {
     try {
       setLoading(true);
+
       const userId =
         (await AsyncStorage.getItem('userId')) ||
         (await AsyncStorage.getItem('user_id')) ||
         'test-user-1';
 
-      const [summaryRes, aiWeakRes, springWeakRes, mistakesRes] = await Promise.allSettled([
-        fetch(`${AI_SERVER}/api/v1/analytics/${userId}/summary`),
-        fetch(`${AI_SERVER}/api/v1/analytics/${userId}/weak-areas`),
-        fetchMyWeakAreas(),
-        fetchMyMistakes(),
-      ]);
+      const [summaryRes, aiWeakRes, springWeakRes, mistakesRes] =
+        await Promise.allSettled([
+          fetch(`${AI_SERVER}/api/v1/analytics/${userId}/summary`),
+          fetch(`${AI_SERVER}/api/v1/analytics/${userId}/weak-areas`),
+          fetchMyWeakAreas(),
+          fetchMyMistakes(),
+        ]);
 
       if (summaryRes.status === 'fulfilled' && summaryRes.value.ok) {
         setSummary(await summaryRes.value.json());
       }
 
       let springCount = 0;
+
       if (springWeakRes.status === 'fulfilled') {
         springCount = springWeakRes.value.length;
-        if (springCount > 0) setWeakAreas(springWeakRes.value);
+
+        if (springCount > 0) {
+          setWeakAreas(springWeakRes.value);
+        }
       }
-      if (springCount === 0 && aiWeakRes.status === 'fulfilled' && aiWeakRes.value.ok) {
+
+      if (
+        springCount === 0 &&
+        aiWeakRes.status === 'fulfilled' &&
+        aiWeakRes.value.ok
+      ) {
         const data = await aiWeakRes.value.json();
         setWeakAreas(Array.isArray(data) ? data : []);
       }
@@ -262,20 +315,38 @@ export default function AnalyticsScreen() {
       ? { source: 'rule_based', note: 'turn 길이 및 세션 참여도 기반 추정' }
       : undefined,
     naturalness: !scores
-      ? { source: 'rule_based', note: '화자 수, 평점, risk/success 비율 기반 추정' }
+      ? {
+          source: 'rule_based',
+          note: '화자 수, 평점, risk/success 비율 기반 추정',
+        }
       : undefined,
   };
 
   const effectiveStats: SessionStats | null = useMemo(() => {
     if (stats) return stats;
 
-    const finalTurns = (turns || []).filter((turn: TranscriptTurn) => turn.type !== 'partial');
-    const successCount = (insights || []).filter((insight: Insight) => insight.kind === 'success').length;
-    const riskCount = (insights || []).filter((insight: Insight) => insight.kind === 'risk').length;
-    const speakerCount = new Set(finalTurns.map((turn: TranscriptTurn) => turn.speaker).filter(Boolean)).size;
+    const finalTurns = (turns || []).filter(
+      (turn: TranscriptTurn) => turn.type !== 'partial'
+    );
+
+    const successCount = (insights || []).filter(
+      (insight: Insight) => insight.kind === 'success'
+    ).length;
+
+    const riskCount = (insights || []).filter(
+      (insight: Insight) => insight.kind === 'risk'
+    ).length;
+
+    const speakerCount = new Set(
+      finalTurns.map((turn: TranscriptTurn) => turn.speaker).filter(Boolean)
+    ).size;
 
     const qualityScore = Math.round(
-      ((sessionScores.speechAccuracy + sessionScores.vocabulary + sessionScores.naturalness) / 3) * 100
+      ((sessionScores.speechAccuracy +
+        sessionScores.vocabulary +
+        sessionScores.naturalness) /
+        3) *
+        100
     );
 
     return {
@@ -288,34 +359,70 @@ export default function AnalyticsScreen() {
   }, [stats, turns, insights, sessionScores]);
 
   const overallScore = Math.round(
-    ((sessionScores.speechAccuracy + sessionScores.vocabulary + sessionScores.naturalness) / 3) * 100
+    ((sessionScores.speechAccuracy +
+      sessionScores.vocabulary +
+      sessionScores.naturalness) /
+      3) *
+      100
   );
 
-  const displayScore = isHomeAnalysis ? Math.round(summary?.overall_score || 0) : overallScore;
+  const displayScore = isHomeAnalysis
+    ? Math.round(summary?.overall_score || 0)
+    : overallScore;
+
+  const realCompletedConversations =
+    homeStats?.completedSessions ?? summary?.total_conversations ?? 0;
+
+  const realLearnedWords =
+    homeStats?.learnedWords ?? summary?.total_vocabulary ?? 0;
+
+  const realLearnedPhrases =
+    homeStats?.learnedPhrases ?? 0;
+
   const heroColor = getHeroColor(displayScore);
   const heroLabel = getHeroLabel(displayScore);
   const maxWeakCount = Math.max(1, ...weakAreas.map((a) => a.count || 0));
 
-  const finalTurns = (turns || []).filter((turn: TranscriptTurn) => turn.type !== 'partial');
-  const topSuccessInsights = (insights || []).filter((insight: Insight) => insight.kind === 'success').slice(0, 3);
-  const topRiskInsights = (insights || []).filter((insight: Insight) => insight.kind === 'risk').slice(0, 3);
+  const finalTurns = (turns || []).filter(
+    (turn: TranscriptTurn) => turn.type !== 'partial'
+  );
+
+  const topSuccessInsights = (insights || [])
+    .filter((insight: Insight) => insight.kind === 'success')
+    .slice(0, 3);
+
+  const topRiskInsights = (insights || [])
+    .filter((insight: Insight) => insight.kind === 'risk')
+    .slice(0, 3);
 
   const ratingLabel =
-    rating === 1 ? '아쉬웠어요' :
-    rating === 2 ? '그저 그랬어요' :
-    rating === 3 ? '괜찮았어요' :
-    rating === 4 ? '좋았어요!' :
-    rating === 5 ? '최고였어요!' :
-    '평가 없음';
+    rating === 1
+      ? '아쉬웠어요'
+      : rating === 2
+        ? '그저 그랬어요'
+        : rating === 3
+          ? '괜찮았어요'
+          : rating === 4
+            ? '좋았어요!'
+            : rating === 5
+              ? '최고였어요!'
+              : '평가 없음';
 
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.headerBtn}
+          >
             <ChevronLeft size={22} color="#111" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{isHomeAnalysis ? '실수 분석' : '분석 결과'}</Text>
+
+          <Text style={styles.headerTitle}>
+            {isHomeAnalysis ? '실수 분석' : '분석 결과'}
+          </Text>
+
           <View style={styles.headerBtn} />
         </View>
 
@@ -330,14 +437,25 @@ export default function AnalyticsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerBtn}
+        >
           <ChevronLeft size={22} color="#111" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isHomeAnalysis ? '실수 분석' : '분석 결과'}</Text>
+
+        <Text style={styles.headerTitle}>
+          {isHomeAnalysis ? '실수 분석' : '분석 결과'}
+        </Text>
+
         <View style={styles.headerBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={[styles.heroCard, { backgroundColor: heroColor }]}>
           <View style={styles.heroBlobA} />
           <View style={styles.heroBlobB} />
@@ -349,23 +467,32 @@ export default function AnalyticsScreen() {
                 {isHomeAnalysis ? 'Mistake Report' : 'Session Report'}
               </Text>
             </View>
+
             <Text style={styles.heroLabel}>{heroLabel}</Text>
           </View>
 
           <Text style={styles.heroTitle}>
-            {isHomeAnalysis ? '실수 패턴을 한눈에 봐요' : '이번 대화가 이렇게 쌓였어요'}
+            {isHomeAnalysis
+              ? '실수 패턴을 한눈에 봐요'
+              : '이번 대화가 이렇게 쌓였어요'}
           </Text>
 
           <Text style={styles.heroSub}>
             {isHomeAnalysis
               ? '이전 대화의 반복 실수와 다음 연습 방향을 정리합니다.'
-              : `${avatar?.name_ko || '아바타'}와 ${duration || '5분'} 동안 연습한 결과입니다.`}
+              : `${avatar?.name_ko || '아바타'}와 ${
+                  duration || '5분'
+                } 동안 연습한 결과입니다.`}
           </Text>
 
           <View style={styles.heroBottom}>
             <View style={styles.heroScoreBubble}>
-              <Text style={[styles.heroScore, { color: heroColor }]}>{displayScore}</Text>
-              <Text style={[styles.heroScoreUnit, { color: heroColor }]}>점</Text>
+              <Text style={[styles.heroScore, { color: heroColor }]}>
+                {displayScore}
+              </Text>
+              <Text style={[styles.heroScoreUnit, { color: heroColor }]}>
+                점
+              </Text>
             </View>
 
             <View style={styles.heroInsight}>
@@ -391,9 +518,9 @@ export default function AnalyticsScreen() {
               <View style={styles.summaryGrid}>
                 {[
                   { value: summary.proficiency_level_ko, label: '현재 수준' },
-                  { value: `${summary.current_streak}일`, label: '연속 학습' },
-                  { value: `${summary.total_conversations}회`, label: '총 대화' },
-                  { value: `${summary.total_vocabulary}개`, label: '단어장' },
+                  { value: `${realCompletedConversations}회`, label: '총 대화' },
+                  { value: `${realLearnedWords}개`, label: '배운 단어' },
+                  { value: `${realLearnedPhrases}개`, label: '배운 표현' },
                 ].map((item, i) => (
                   <View key={i} style={styles.summaryItem}>
                     <Text style={styles.summaryValue}>{item.value}</Text>
@@ -408,10 +535,14 @@ export default function AnalyticsScreen() {
                     size={13}
                     color={summary.weekly_change > 0 ? '#22C55E' : '#FF4D4D'}
                   />
+
                   <Text
                     style={[
                       styles.weeklyText,
-                      { color: summary.weekly_change > 0 ? '#22C55E' : '#FF4D4D' },
+                      {
+                        color:
+                          summary.weekly_change > 0 ? '#22C55E' : '#FF4D4D',
+                      },
                     ]}
                   >
                     지난주 대비 {summary.weekly_change > 0 ? '+' : ''}
@@ -448,6 +579,7 @@ export default function AnalyticsScreen() {
               {!!feedbackTags?.length && (
                 <View style={styles.feedbackBlock}>
                   <Text style={styles.feedbackBlockTitle}>선택한 피드백</Text>
+
                   <View style={styles.tagsWrap}>
                     {feedbackTags.map((tag: string, i: number) => (
                       <Tag key={i} label={tag} variant="outline" />
@@ -458,8 +590,13 @@ export default function AnalyticsScreen() {
 
               {(sessionId || recordingUri) && (
                 <View style={styles.metaWrap}>
-                  {!!sessionId && <Text style={styles.metaText}>Session ID: {sessionId}</Text>}
-                  {!!recordingUri && <Text style={styles.metaText}>녹음 파일이 저장되었습니다</Text>}
+                  {!!sessionId && (
+                    <Text style={styles.metaText}>Session ID: {sessionId}</Text>
+                  )}
+
+                  {!!recordingUri && (
+                    <Text style={styles.metaText}>녹음 파일이 저장되었습니다</Text>
+                  )}
                 </View>
               )}
             </View>
@@ -497,10 +634,15 @@ export default function AnalyticsScreen() {
                   detail: derivedScoreDetails.naturalness,
                 },
               ].map((item, i) => (
-                <View key={i} style={[styles.scoreItem, i < 2 && styles.scoreItemBorder]}>
+                <View
+                  key={i}
+                  style={[styles.scoreItem, i < 2 && styles.scoreItemBorder]}
+                >
                   <View style={styles.scoreRow}>
                     <View style={styles.scoreIconWrap}>{item.icon}</View>
+
                     <Text style={styles.scoreLabel}>{item.label}</Text>
+
                     <Text style={[styles.scoreValue, { color: item.color }]}>
                       {Math.round(item.value * 100)}%
                     </Text>
@@ -549,12 +691,18 @@ export default function AnalyticsScreen() {
               <View style={styles.insightHeaderRow}>
                 <View style={styles.insightStat}>
                   <CheckCircle2 size={16} color="#22C55E" />
-                  <Text style={styles.insightStatText}>긍정 신호 {effectiveStats.successCount}</Text>
+                  <Text style={styles.insightStatText}>
+                    긍정 신호 {effectiveStats.successCount}
+                  </Text>
                 </View>
+
                 <View style={styles.insightStat}>
                   <AlertTriangle size={16} color="#FF9800" />
-                  <Text style={styles.insightStatText}>주의 포인트 {effectiveStats.riskCount}</Text>
+                  <Text style={styles.insightStatText}>
+                    주의 포인트 {effectiveStats.riskCount}
+                  </Text>
                 </View>
+
                 <View style={styles.insightStat}>
                   <Star size={16} color="#6C3BFF" />
                   <Text style={styles.insightStatText}>{ratingLabel}</Text>
@@ -567,11 +715,15 @@ export default function AnalyticsScreen() {
                     <Sparkles size={15} color="#22C55E" />
                     <Text style={styles.inlineTitle}>좋았던 점</Text>
                   </View>
+
                   {topSuccessInsights.map((item: Insight) => (
                     <View key={item.id} style={styles.insightItem}>
                       <Text style={styles.insightMessage}>{item.message}</Text>
+
                       {!!item.suggestion && (
-                        <Text style={styles.insightSuggestion}>추천 표현: {item.suggestion}</Text>
+                        <Text style={styles.insightSuggestion}>
+                          추천 표현: {item.suggestion}
+                        </Text>
                       )}
                     </View>
                   ))}
@@ -584,11 +736,15 @@ export default function AnalyticsScreen() {
                     <AlertTriangle size={15} color="#FF9800" />
                     <Text style={styles.inlineTitle}>보완할 점</Text>
                   </View>
+
                   {topRiskInsights.map((item: Insight) => (
                     <View key={item.id} style={styles.insightItem}>
                       <Text style={styles.insightMessage}>{item.message}</Text>
+
                       {!!item.suggestion && (
-                        <Text style={styles.insightSuggestion}>추천 표현: {item.suggestion}</Text>
+                        <Text style={styles.insightSuggestion}>
+                          추천 표현: {item.suggestion}
+                        </Text>
                       )}
                     </View>
                   ))}
@@ -597,7 +753,9 @@ export default function AnalyticsScreen() {
 
               {topSuccessInsights.length === 0 && topRiskInsights.length === 0 && (
                 <View style={styles.emptyMini}>
-                  <Text style={styles.emptyMiniText}>아직 표시할 세션 인사이트가 없습니다.</Text>
+                  <Text style={styles.emptyMiniText}>
+                    아직 표시할 세션 인사이트가 없습니다.
+                  </Text>
                 </View>
               )}
             </View>
@@ -615,7 +773,11 @@ export default function AnalyticsScreen() {
               {finalTurns.slice(0, 6).map((turn: TranscriptTurn, i: number) => (
                 <View
                   key={turn.id}
-                  style={[styles.turnItem, i < Math.min(finalTurns.length, 6) - 1 && styles.turnItemBorder]}
+                  style={[
+                    styles.turnItem,
+                    i < Math.min(finalTurns.length, 6) - 1 &&
+                      styles.turnItemBorder,
+                  ]}
                 >
                   <Text style={styles.turnSpeaker}>{turn.speaker}</Text>
                   <Text style={styles.turnText}>{turn.text}</Text>
@@ -635,36 +797,48 @@ export default function AnalyticsScreen() {
             <View style={styles.card}>
               {weakAreas.slice(0, 5).map((area, i) => {
                 const col = getWeakAreaColor(area.severity, i);
-                const barW = Math.max(12, Math.round(((area.count || 0) / maxWeakCount) * 100));
+                const barW = Math.max(
+                  12,
+                  Math.round(((area.count || 0) / maxWeakCount) * 100)
+                );
 
                 return (
                   <View
                     key={i}
                     style={[
                       styles.weakItem,
-                      i < Math.min(weakAreas.length, 5) - 1 && styles.weakItemBorder,
+                      i < Math.min(weakAreas.length, 5) - 1 &&
+                        styles.weakItemBorder,
                     ]}
                   >
                     <View style={[styles.weakRank, { backgroundColor: col + '18' }]}>
-                      <Text style={[styles.weakRankText, { color: col }]}>{i + 1}</Text>
+                      <Text style={[styles.weakRankText, { color: col }]}>
+                        {i + 1}
+                      </Text>
                     </View>
 
                     <View style={styles.weakInfo}>
                       <Text style={styles.weakLabel}>
-                        {area.error_type_ko || area.error_type}
+                        {area.error_type_ko || getCorrectionTypeLabel(area.error_type)}
                       </Text>
+
                       <View style={styles.weakBarTrack}>
                         <View
                           style={[
                             styles.weakBarFill,
-                            { width: `${barW}%`, backgroundColor: col },
+                            {
+                              width: `${barW}%`,
+                              backgroundColor: col,
+                            },
                           ]}
                         />
                       </View>
                     </View>
 
                     <View style={[styles.weakBadge, { backgroundColor: col + '14' }]}>
-                      <Text style={[styles.weakCount, { color: col }]}>{area.count}회</Text>
+                      <Text style={[styles.weakCount, { color: col }]}>
+                        {area.count}회
+                      </Text>
                     </View>
                   </View>
                 );
@@ -677,7 +851,9 @@ export default function AnalyticsScreen() {
               <View style={styles.emptyIcon}>
                 <AlertCircle size={20} color="#6C3BFF" />
               </View>
+
               <Text style={styles.emptyTitle}>아직 쌓인 실수 데이터가 없어요</Text>
+
               <Text style={styles.emptyText}>
                 대화 후 백엔드가 오류를 저장하면 이곳에 반복되는 약점이 순위로 표시됩니다.
               </Text>
@@ -698,22 +874,30 @@ export default function AnalyticsScreen() {
                   key={m.id}
                   style={[
                     styles.recentItem,
-                    i < Math.min(recentMistakes.length, 8) - 1 && styles.recentItemBorder,
+                    i < Math.min(recentMistakes.length, 8) - 1 &&
+                      styles.recentItemBorder,
                   ]}
                 >
                   <View style={styles.recentTopRow}>
                     {!!m.correctionType && (
                       <View style={styles.recentTypePill}>
-                        <Text style={styles.recentTypeText}>{m.correctionType}</Text>
+                        <Text style={styles.recentTypeText}>
+                          {getCorrectionTypeLabel(m.correctionType)}
+                        </Text>
                       </View>
                     )}
+
                     <Text style={styles.recentDate}>
-                      {m.createdAt ? new Date(m.createdAt).toLocaleDateString('ko-KR') : ''}
+                      {m.createdAt
+                        ? new Date(m.createdAt).toLocaleDateString('ko-KR')
+                        : ''}
                     </Text>
                   </View>
+
                   <Text style={styles.recentOriginal}>{m.originalText}</Text>
                   <Text style={styles.recentArrow}>→</Text>
                   <Text style={styles.recentCorrected}>{m.correctedText}</Text>
+
                   {!!m.explanation && (
                     <Text style={styles.recentExplanation}>{m.explanation}</Text>
                   )}
@@ -729,6 +913,7 @@ export default function AnalyticsScreen() {
               <Text style={styles.sectionEye}>SAVED</Text>
               <Text style={styles.sectionTitle}>저장한 표현 ({savedItems.length})</Text>
             </View>
+
             <View style={styles.tagsWrap}>
               {savedItems.map((item: string, i: number) => (
                 <Tag key={i} label={item} variant="outline" />
@@ -738,7 +923,7 @@ export default function AnalyticsScreen() {
         )}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
         <TouchableOpacity
           style={styles.footerBtnOutline}
           onPress={() => navigation.navigate('Main', { screen: 'Home' })}
@@ -764,8 +949,20 @@ const GREY = '#F2F2F7';
 const BORDER = '#E5E5EA';
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FFFFFF' },
-  content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120 },
+  safe: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+
+  scroll: {
+    flex: 1,
+  },
+
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 24,
+  },
 
   header: {
     flexDirection: 'row',
@@ -776,11 +973,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
   },
-  headerBtn: { width: 36, alignItems: 'center' },
-  headerTitle: { fontSize: 15, fontWeight: '500', color: '#111' },
+  headerBtn: {
+    width: 36,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#111',
+  },
 
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  loadingText: { fontSize: 13, color: '#999' },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: '#999',
+  },
 
   heroCard: {
     position: 'relative',
@@ -829,7 +1041,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     letterSpacing: 0.3,
   },
-  heroLabel: { fontSize: 12, fontWeight: '500', color: 'rgba(255,255,255,0.85)' },
+  heroLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.85)',
+  },
   heroTitle: {
     fontSize: 22,
     fontWeight: '700',
@@ -843,7 +1059,11 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginBottom: 20,
   },
-  heroBottom: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  heroBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   heroScoreBubble: {
     width: 86,
     height: 86,
@@ -852,8 +1072,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroScore: { fontSize: 30, fontWeight: '700', letterSpacing: -1 },
-  heroScoreUnit: { fontSize: 11, fontWeight: '500', marginTop: -3 },
+  heroScore: {
+    fontSize: 30,
+    fontWeight: '700',
+    letterSpacing: -1,
+  },
+  heroScoreUnit: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: -3,
+  },
   heroInsight: {
     flex: 1,
     padding: 13,
@@ -874,8 +1102,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  section: { marginBottom: 20 },
-  sectionHead: { marginBottom: 10 },
+  section: {
+    marginBottom: 20,
+  },
+  sectionHead: {
+    marginBottom: 10,
+  },
   sectionEye: {
     fontSize: 10,
     fontWeight: '600',
@@ -883,7 +1115,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 2,
   },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#111' },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111',
+  },
 
   card: {
     backgroundColor: '#fff',
@@ -893,7 +1129,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
   summaryItem: {
     width: '50%',
     padding: 16,
@@ -906,7 +1145,10 @@ const styles = StyleSheet.create({
     color: '#111',
     marginBottom: 3,
   },
-  summaryLabel: { fontSize: 11, color: '#999' },
+  summaryLabel: {
+    fontSize: 11,
+    color: '#999',
+  },
   weeklyRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -915,7 +1157,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: BORDER,
   },
-  weeklyText: { fontSize: 12, fontWeight: '500' },
+  weeklyText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
 
   sessionGrid: {
     flexDirection: 'row',
@@ -958,9 +1203,18 @@ const styles = StyleSheet.create({
     color: '#888',
   },
 
-  scoreItem: { padding: 14 },
-  scoreItemBorder: { borderBottomWidth: 1, borderBottomColor: BORDER },
-  scoreRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  scoreItem: {
+    padding: 14,
+  },
+  scoreItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   scoreIconWrap: {
     width: 28,
     height: 28,
@@ -970,15 +1224,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 10,
   },
-  scoreLabel: { flex: 1, fontSize: 14, fontWeight: '500', color: '#111' },
-  scoreValue: { fontSize: 14, fontWeight: '600' },
+  scoreLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111',
+  },
+  scoreValue: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   scoreBarTrack: {
     height: 5,
     borderRadius: 3,
     backgroundColor: BORDER,
     overflow: 'hidden',
   },
-  scoreBarFill: { height: '100%', borderRadius: 3 },
+  scoreBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
   scoreFootnote: {
     marginTop: 8,
     fontSize: 11,
@@ -1088,7 +1353,10 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 14,
   },
-  weakItemBorder: { borderBottomWidth: 1, borderBottomColor: BORDER },
+  weakItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
   weakRank: {
     width: 32,
     height: 32,
@@ -1096,22 +1364,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  weakRankText: { fontSize: 13, fontWeight: '600' },
-  weakInfo: { flex: 1, gap: 6 },
-  weakLabel: { fontSize: 13, fontWeight: '500', color: '#111' },
+  weakRankText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  weakInfo: {
+    flex: 1,
+    gap: 6,
+  },
+  weakLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#111',
+  },
   weakBarTrack: {
     height: 4,
     borderRadius: 2,
     backgroundColor: BORDER,
     overflow: 'hidden',
   },
-  weakBarFill: { height: '100%', borderRadius: 2 },
+  weakBarFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
   weakBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 20,
   },
-  weakCount: { fontSize: 11, fontWeight: '600' },
+  weakCount: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
 
   emptyCard: {
     alignItems: 'center',
@@ -1147,13 +1431,10 @@ const styles = StyleSheet.create({
   },
 
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     gap: 10,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: BORDER,
@@ -1183,8 +1464,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#fff',
   },
+
   recentItem: {
-    paddingVertical: 12,
+    padding: 14,
   },
   recentItemBorder: {
     borderBottomWidth: 0.5,
@@ -1215,6 +1497,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#888',
     textDecorationLine: 'line-through',
+    lineHeight: 18,
   },
   recentArrow: {
     fontSize: 12,
@@ -1225,6 +1508,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     color: '#22C55E',
+    lineHeight: 18,
   },
   recentExplanation: {
     marginTop: 6,
