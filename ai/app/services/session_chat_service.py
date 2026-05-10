@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.services.clova_service import clova_service
 from app.services.mistake_tracker import mistake_tracker
-from app.services.politeness_service import politeness_service
+from app.services.speech_analysis_service import analyze_politeness_compat as _politeness_analyze
 from app.services.emotion_service import emotion_calculator
 from app.core.situations import get_situation, get_avatar_situation, SITUATIONS
 from app.core.constants import AVATARS
@@ -121,7 +121,7 @@ class SessionAwareChatService:
         )
         
         # Get politeness analysis
-        politeness = politeness_service.analyze(request.message)
+        politeness = _politeness_analyze(request.message)
         
         # Calculate score (simple scoring)
         score = self._calculate_score(mistakes, politeness, expected_formality)

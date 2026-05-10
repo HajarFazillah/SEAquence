@@ -14,7 +14,7 @@ import uuid
 
 from app.core.constants import AVATARS, TOPIC_TAXONOMY
 from app.services.clova_service import clova_service, Message
-from app.services.politeness_service import politeness_service
+from app.services.speech_analysis_service import analyze_politeness_compat as _politeness_analyze
 
 router = APIRouter(prefix="/integrated", tags=["integrated"])
 
@@ -84,7 +84,7 @@ async def send_message(request: SendMessageRequest):
     formality = session.get("formality", "polite")
 
     # Analyze user message
-    analysis = politeness_service.analyze(
+    analysis = _politeness_analyze(
         text=request.message,
         target_role=avatar.get("role"),
     )

@@ -138,56 +138,36 @@ class CLOVAService:
         return await self.chat(messages, **kwargs)
 
     async def analyze_json(self, prompt: str, **kwargs) -> Dict[str, Any]:
-        """Generate JSON response and parse it."""
+        """Generate a JSON response and return it parsed.
+
+        Always returns a dict for backwards compatibility — if the model emits
+        a JSON array, callers wouldn't have known how to handle it before, so
+        we still surface arrays as `{"items": [...]}` only when explicitly
+        opted in. Parsing/sanitization is delegated to the shared
+        `sanitize_json_like_model_output` so all JSON-handling code in the
+        codebase uses the same rules.
+        """
+        # Local import to avoid any chance of circular import at module load.
+        from app.services.korean_coaching_prompt_builder import (
+            sanitize_json_like_model_output,
+        )
+
         response = await self.chat(
             [Message(role="user", content=prompt)], **kwargs
         )
 
         if response.finish_reason == "mock":
-            print("[CLOVA] ⚠️  analyze_json received mock — returning empty dict")
+            print("[CLOVA] analyze_json received mock — returning empty dict")
             return {}
 
-        try:
-            content = response.content.strip()
-
-            # ── 1단계: ```json ... ``` 마크다운 블록 제거 ─────────────
-            if "```json" in content:
-                start   = content.find("```json") + 7
-                end     = content.find("```", start)
-                content = content[start:end].strip()
-            elif "```" in content:
-                start   = content.find("```") + 3
-                end     = content.find("```", start)
-                content = content[start:end].strip()
-
-            # ── 2단계: JSON 객체/배열만 추출 (앞뒤 텍스트 제거) ──────
-            first_brace  = content.find('{')
-            first_bracket = content.find('[')
-            if first_brace == -1 and first_bracket == -1:
-                print("[CLOVA] ❌ No JSON object found in response")
-                return {}
-            if first_brace == -1:
-                start_idx = first_bracket
-            elif first_bracket == -1:
-                start_idx = first_brace
-            else:
-                start_idx = min(first_brace, first_bracket)
-            content = content[start_idx:]
-
-            # ── 3단계: trailing comma 제거 (CLOVA가 자주 생성) ────────
-            # e.g. [1, 2, 3,] → [1, 2, 3]  /  {"a": 1,} → {"a": 1}
-            content = re.sub(r',\s*([}\]])', r'\1', content)
-
-            # ── 4단계: 파싱 ───────────────────────────────────────────
-            return json.loads(content)
-
-        except json.JSONDecodeError as e:
-            print(f"[CLOVA] ❌ JSON parse error: {e}")
-            print(f"[CLOVA] Raw content: {response.content[:300]}")
+        parsed = sanitize_json_like_model_output(response.content)
+        if parsed is None:
+            print(f"[CLOVA] No usable JSON in response: {response.content[:300]}")
             return {}
-        except Exception as e:
-            print(f"[CLOVA] ❌ Unexpected error in analyze_json: {e}")
-            return {}
+        if isinstance(parsed, list):
+            # Caller expected a dict; surface array under a stable key.
+            return {"items": parsed}
+        return parsed
 
 
 clova_service = CLOVAService()

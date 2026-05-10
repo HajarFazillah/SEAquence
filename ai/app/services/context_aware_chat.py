@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 from app.services.clova_service import clova_service
 from app.services.mistake_tracker import mistake_tracker, MistakeTracker
 from app.services.session_memory import session_memory
-from app.services.politeness_service import politeness_service
+from app.services.speech_analysis_service import analyze_politeness_compat as _politeness_analyze
 from app.core.constants import AVATARS
 from app.schemas.context_schemas import (
     UserLearningContext, MistakeRecord, 
@@ -69,7 +69,7 @@ class ContextAwareChatService:
         )
         
         # Also get politeness analysis
-        politeness = politeness_service.analyze(request.message)
+        politeness = _politeness_analyze(request.message)
         
         # Update context with new findings
         context = self.tracker.update_context(context, mistakes, request.message)

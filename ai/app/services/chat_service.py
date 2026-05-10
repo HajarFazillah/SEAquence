@@ -14,7 +14,11 @@ from app.schemas.avatar import AvatarBase, SpeechLevel, get_speech_levels_for_ro
 from app.schemas.user import UserProfile, KoreanLevel
 from app.services.clova_service import clova_service, Message
 from app.services.simple_speech_analyzer import get_speech_analyzer
-from app.services.sophisticated_speech_analyzer import get_analyzer as get_sophisticated_speech_analyzer
+from app.services.korean_coaching_prompt_builder import (
+    build_native_korean_coaching_prompt,
+    sanitize_json_like_model_output,
+)
+from app.services.speech_analysis_service import analyze_user_korean_message
 from app.services.prompt_builder import (
     build_avatar_system_prompt,
     build_speech_correction_prompt,
@@ -92,7 +96,7 @@ class ChatResponse(BaseModel):
 
     mood_change:  int = 0
     current_mood: int = 100
-    mood_emoji:   str = "😊"
+    mood_emoji:   str = ""
 
     suggestions:    List[str]    = []
     hint:           Optional[str] = None
@@ -1667,11 +1671,6 @@ class ChatService:
         self.user_moods:   Dict[str, int] = {}
         self.session_turns: Dict[str, List[ChatMessage]] = {}
         self.native_speech_analyzer = get_speech_analyzer()
-        self.sophisticated_speech_analyzer = None
-        try:
-            self.sophisticated_speech_analyzer = get_sophisticated_speech_analyzer()
-        except Exception:
-            self.sophisticated_speech_analyzer = None
 
     def _extract_user_messages(self, conversation_history: List[ChatMessage]) -> List[str]:
         return [
@@ -1686,7 +1685,160 @@ class ChatService:
             tokens.extend(re.findall(r"[가-힣]{2,}", text))
         return tokens
 
+    async def coach_user_message(
+        self,
+        *,
+        user_message: str,
+        expected_speech_level: str = "polite",
+        avatar_role: Optional[str] = None,
+        avatar_name: Optional[str] = None,
+        situation: Optional[str] = None,
+        conversation_history: Optional[List[ChatMessage]] = None,
+        use_llm: bool = True,
+        clova_temperature: float = 0.2,
+        clova_max_tokens: int = 1024,
+    ) -> Dict[str, Any]:
+        """Coaching pipeline for a single user message — the blessed path.
+
+        Composes the three new modules:
+        1. `analyze_user_korean_message` for deterministic rule-based analysis.
+        2. `build_native_korean_coaching_prompt` to build a strict-JSON LLM prompt
+            seeded with that rule-based evidence.
+        3. `clova_service.analyze_json` (which delegates to
+            `sanitize_json_like_model_output`) to parse the model's response.
+
+        Returns a unified dict with keys:
+        - `rule_based`:  the deterministic analysis (same shape as
+          `analyze_user_korean_message` returns)
+        - `llm`:         the parsed LLM JSON (or {} if disabled / unavailable)
+        - `corrections`: the merged correction list (LLM-preferred, rule-based fallback)
+        - `corrected_message`: best-effort whole-message rewrite
+        - `has_errors`:  True if any path found at least one issue
+        """
+        history_dicts: Optional[List[Dict[str, str]]] = None
+        if conversation_history:
+            history_dicts = [
+                {"role": m.role, "content": m.content}
+                for m in conversation_history
+                if m.content
+            ]
+
+        rule_based = analyze_user_korean_message(
+            message=user_message,
+            expected_speech_level=expected_speech_level,
+            avatar_role=avatar_role,
+            situation=situation,
+            conversation_history=history_dicts,
+        )
+
+        llm_payload: Dict[str, Any] = {}
+        if use_llm and (rule_based.get("analysis") or {}).get("text"):
+            prompt = build_native_korean_coaching_prompt(
+                user_message=user_message,
+                expected_speech_level=expected_speech_level,
+                avatar_role=avatar_role,
+                avatar_name=avatar_name,
+                situation=situation,
+                conversation_history=history_dicts,
+                detected_speech_level=(rule_based.get("analysis") or {}).get("speech_level"),
+                rule_based_evidence={
+                    "spelling": rule_based.get("spelling") or [],
+                    "inferred_intent": rule_based.get("inferred_intent"),
+                    "is_appropriate": (rule_based.get("analysis") or {}).get("is_appropriate"),
+                    "word_errors": (rule_based.get("analysis") or {}).get("word_errors") or [],
+                    "missing_honorifics": (rule_based.get("analysis") or {}).get("missing_honorifics") or [],
+                },
+            )
+            try:
+                llm_payload = await clova_service.analyze_json(
+                    prompt,
+                    temperature=clova_temperature,
+                    max_tokens=clova_max_tokens,
+                )
+            except Exception as e:
+                print(f"[coach_user_message] LLM call failed: {e}")
+                llm_payload = {}
+
+        # Merge corrections: LLM output preferred, rule-based fills the gaps.
+        merged_corrections: List[Dict[str, Any]] = []
+        seen_pairs = set()
+
+        for c in (llm_payload.get("corrections") or []):
+            original = (c.get("original") or "").strip()
+            corrected = (c.get("corrected") or "").strip()
+            if not original or not corrected:
+                continue
+            key = (original, corrected)
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            merged_corrections.append({
+                "original": original,
+                "corrected": corrected,
+                "type": c.get("type") or "expression",
+                "severity": c.get("severity") or "warning",
+                "explanation": (c.get("explanation") or "").strip(),
+                "tip": (c.get("tip") or None),
+            })
+
+        analysis = rule_based.get("analysis") or {}
+        for source_key in ("word_errors", "missing_honorifics", "directness_errors"):
+            for item in (analysis.get(source_key) or []):
+                original = (item.get("original") or "").strip()
+                corrected = (item.get("corrected") or item.get("expected") or "").strip()
+                if not original or not corrected:
+                    continue
+                key = (original, corrected)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                merged_corrections.append({
+                    "original": original,
+                    "corrected": corrected,
+                    "type": item.get("type") or source_key.rstrip("s"),
+                    "severity": item.get("severity") or "warning",
+                    "explanation": (item.get("explanation") or "").strip(),
+                    "tip": item.get("tip"),
+                })
+
+        for hit in (rule_based.get("spelling") or []):
+            key = (hit["original"], hit["expected"])
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            merged_corrections.append({
+                "original": hit["original"],
+                "corrected": hit["expected"],
+                "type": "spelling",
+                "severity": hit.get("severity") or "warning",
+                "explanation": hit.get("explanation") or "",
+                "tip": None,
+            })
+
+        corrected_message = (
+            (llm_payload.get("corrected_message") or "").strip()
+            or (analysis.get("suggested_correction") or "").strip()
+            or user_message
+        )
+        has_errors = bool(
+            llm_payload.get("has_errors")
+            or merged_corrections
+            or analysis.get("is_appropriate") is False
+        )
+
+        return {
+            "rule_based": rule_based,
+            "llm": llm_payload,
+            "corrections": merged_corrections,
+            "corrected_message": corrected_message,
+            "has_errors": has_errors,
+        }
+
     def _analyze_with_konlpy(self, text: str) -> Dict[str, Any]:
+        # Note: the legacy `speech` field (formerly populated by the deprecated
+        # sophisticated_speech_analyzer) is intentionally always None now.
+        # Downstream scoring code already guards on `if speech_result:` so
+        # those branches simply no-op, falling back to pure rule-based scoring.
         result: Dict[str, Any] = {
             "available": False,
             "source": None,
@@ -1695,21 +1847,11 @@ class ChatService:
         }
 
         try:
-            if self.sophisticated_speech_analyzer and getattr(self.sophisticated_speech_analyzer, "use_morphological", False):
-                speech_result = self.sophisticated_speech_analyzer.analyze(text)
-                result["speech"] = speech_result
-                result["available"] = True
-                result["source"] = getattr(self.sophisticated_speech_analyzer.konlpy, "analyzer_name", "KoNLPy")
-        except Exception:
-            result["speech"] = None
-
-        try:
             morph_result = morpheme_analyzer.analyze(text)
             if getattr(morph_result, "morphemes", None):
                 result["morphemes"] = morph_result
                 result["available"] = True
-                if not result["source"]:
-                    result["source"] = getattr(morpheme_analyzer, "engine", "KoNLPy")
+                result["source"] = getattr(morpheme_analyzer, "engine", "KoNLPy")
         except Exception:
             result["morphemes"] = None
 
@@ -3085,11 +3227,10 @@ class ChatService:
         return new_mood
 
     def _get_mood_emoji(self, mood: int) -> str:
-        if mood >= 90:   return "😄"
-        elif mood >= 70: return "😊"
-        elif mood >= 50: return "😐"
-        elif mood >= 30: return "😕"
-        else:            return "😢"
+        # Emoji surfaces are intentionally empty; the mobile client renders its
+        # own visual based on `current_mood`. Kept as a method for backward
+        # compatibility with callers that still reference it.
+        return ""
 
     async def analyze_message(
         self,
