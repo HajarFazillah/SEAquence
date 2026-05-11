@@ -9,7 +9,7 @@ import { fetchMyVocabulary } from '../services/apiVocabulary';
 import {
   ChevronRight, Bell, Moon, Globe,
   HelpCircle, LogOut, Edit, Heart, BookOpen,
-  Award, Clock, TrendingUp, MessageCircle, MessageSquare,
+  MessageCircle, MessageSquare,
   User, Sparkles, Camera,
 } from 'lucide-react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -236,11 +236,6 @@ export const MyProfileScreen: React.FC = () => {
               <Text style={styles.heroStatValue}>{(stats.learnedWords ?? 0) + (stats.learnedPhrases ?? 0)}</Text>
               <Text style={styles.heroStatLabel}>배운 단어/표현</Text>
             </View>
-            <View style={styles.heroStatDivider} />
-            <View style={styles.heroStatBox}>
-              <Text style={styles.heroStatValue}>{stats.practiceMinutes}분</Text>
-              <Text style={styles.heroStatLabel}>연습 시간</Text>
-            </View>
           </View>
         </Card>
 
@@ -324,7 +319,7 @@ export const MyProfileScreen: React.FC = () => {
         <Text style={styles.sectionTitle}>학습 기록</Text>
         <View style={styles.statsRow}>
           <TouchableOpacity style={[styles.statCard, styles.statCardClickable]} onPress={handleViewWords} activeOpacity={0.75}>
-            <View style={[styles.statIconBg, { backgroundColor: '#F0EDFF' }]}>
+            <View style={[styles.statIconBg, styles.wordsIconBg]}>
               <BookOpen size={20} color="#6C3BFF" />
             </View>
             <View style={styles.statTextContainer}>
@@ -335,7 +330,7 @@ export const MyProfileScreen: React.FC = () => {
           </TouchableOpacity>
 
           <TouchableOpacity style={[styles.statCard, styles.statCardClickable]} onPress={handleViewPhrases} activeOpacity={0.75}>
-            <View style={[styles.statIconBg, { backgroundColor: '#E8F5E9' }]}>
+            <View style={[styles.statIconBg, styles.phrasesIconBg]}>
               <MessageCircle size={20} color="#4CAF50" />
             </View>
             <View style={styles.statTextContainer}>
@@ -344,28 +339,6 @@ export const MyProfileScreen: React.FC = () => {
             </View>
             <ChevronRight size={18} color="#B0B0C5" />
           </TouchableOpacity>
-        </View>
-
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: '#FFF3E0' }]}>
-              <Award size={20} color="#F4A261" />
-            </View>
-            <View style={styles.statTextContainer}>
-              <Text style={styles.statValue}>{stats.completedSessions}일</Text>
-              <Text style={styles.statLabel}>연속 학습</Text>
-            </View>
-          </View>
-
-          <View style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: '#FFEBEE' }]}>
-              <Clock size={20} color="#E53935" />
-            </View>
-            <View style={styles.statTextContainer}>
-              <Text style={styles.statValue}>{stats.practiceMinutes}분</Text>
-              <Text style={styles.statLabel}>연습 시간</Text>
-            </View>
-          </View>
         </View>
 
         {/* ── 설정 ── */}
@@ -378,7 +351,7 @@ export const MyProfileScreen: React.FC = () => {
               onPress={() => handleMenuPress(item.id)}
             >
               <View style={styles.menuItemLeft}>
-                <View style={[styles.menuIconBg, item.danger && { backgroundColor: '#FFEBEE' }]}>
+                <View style={[styles.menuIconBg, item.danger && styles.menuIconDangerBg]}>
                   <item.icon size={18} color={item.danger ? '#E53935' : '#6C6C80'} />
                 </View>
                 <Text style={[styles.menuItemLabel, item.danger && styles.menuItemLabelDanger]}>
@@ -477,6 +450,8 @@ const styles = StyleSheet.create({
   },
   statCardClickable:{ borderWidth: 1, borderColor: '#F0F0F5' },
   statIconBg:       { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  wordsIconBg:      { backgroundColor: '#F0EDFF' },
+  phrasesIconBg:    { backgroundColor: '#E8F5E9' },
   statTextContainer:{ flex: 1 },
   statValue:        { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
   statLabel:        { fontSize: 11, color: '#6C6C80', marginTop: 2 },
@@ -487,6 +462,7 @@ const styles = StyleSheet.create({
   menuItemBorder:      { borderBottomWidth: 1, borderBottomColor: '#F0F0F5' },
   menuItemLeft:        { flexDirection: 'row', alignItems: 'center', gap: 12 },
   menuIconBg:          { width: 36, height: 36, borderRadius: 10, backgroundColor: '#F5F5FA', alignItems: 'center', justifyContent: 'center' },
+  menuIconDangerBg:    { backgroundColor: '#FFEBEE' },
   menuItemLabel:       { fontSize: 15, color: '#1A1A2E', fontWeight: '500' },
   menuItemLabelDanger: { color: '#E53935' },
   menuItemRight:       { flexDirection: 'row', alignItems: 'center', gap: 4 },
