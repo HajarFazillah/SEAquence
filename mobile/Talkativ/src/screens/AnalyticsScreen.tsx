@@ -23,7 +23,7 @@ import {
 } from 'lucide-react-native';
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AI_SERVER_URL, SITUATIONS as APP_SITUATIONS } from '../constants';
+import { AI_SERVER_URL } from '../constants';
 import { useHomeData } from '../hooks/useHomeData';
 import {
   fetchMyWeakAreas,
@@ -248,6 +248,15 @@ interface RankedSignal {
   severity: 'high' | 'medium' | 'low';
 }
 
+interface ScenarioChartItem {
+  key: string;
+  label: string;
+  total: number;
+  errors: number;
+  errorRate: number;
+  practiceRatio: number;
+}
+
 const normalizeMistakeKey = (s: string) =>
   s.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -446,17 +455,18 @@ const buildPersonalizationSignals = (
     severity: lateRate < earlyRate ? 'low' : lateRate > earlyRate ? 'medium' : 'low',
   }] : [];
 
-  const practicedSituationIds = new Set(events.map(e => e.situationId).filter(Boolean));
-  const avoidedScenarios: RankedSignal[] = APP_SITUATIONS
-    .filter(s => !practicedSituationIds.has(s.id))
-    .slice(0, 3)
-    .map(s => ({
-      key: s.id,
-      label: s.name_ko,
-      value: '미연습',
-      note: s.description_ko,
-      severity: 'low',
-    }));
+  const scenarioGroups = groupEvents(events, e => e.situationName || e.situationId)
+    .sort((a, b) => b.total - a.total || b.errors - a.errors)
+    .slice(0, 5);
+  const maxScenarioTotal = Math.max(1, ...scenarioGroups.map(item => item.total));
+  const scenarioPracticeChart: ScenarioChartItem[] = scenarioGroups.map(item => ({
+    key: item.key,
+    label: item.key,
+    total: item.total,
+    errors: item.errors,
+    errorRate: item.rate,
+    practiceRatio: Math.max(8, Math.round((item.total / maxScenarioTotal) * 100)),
+  }));
 
   return {
     repeatedErrorTypes,
@@ -465,7 +475,7 @@ const buildPersonalizationSignals = (
     difficultScenarios,
     hintUsage,
     trend,
-    avoidedScenarios,
+    scenarioPracticeChart,
   };
 };
 
@@ -711,6 +721,54 @@ export default function AnalyticsScreen() {
     );
   };
 
+  const renderScenarioPracticeChart = (items: ScenarioChartItem[]) => {
+    if (!items.length) return null;
+    return (
+      <View style={styles.scenarioChart}>
+        <View style={styles.scenarioChartHeader}>
+          <Text style={styles.scenarioChartTitle}>상황별 연습 분포</Text>
+          <Text style={styles.scenarioChartCaption}>
+            많이 연습한 상황과 오류 비율을 함께 보여줘요
+          </Text>
+        </View>
+
+        {items.map(item => {
+          const severity = signalSeverity(item.errorRate);
+          return (
+            <View key={item.key} style={styles.scenarioChartRow}>
+              <View style={styles.scenarioChartTopRow}>
+                <Text style={styles.scenarioChartLabel} numberOfLines={1}>
+                  {item.label}
+                </Text>
+                <Text style={styles.scenarioChartValue}>
+                  {item.total}회 · 오류 {Math.round(item.errorRate * 100)}%
+                </Text>
+              </View>
+
+              <View style={styles.scenarioBarTrack}>
+                <View
+                  style={[
+                    styles.scenarioBarFill,
+                    severity === 'high' && styles.scenarioBarFillHigh,
+                    severity === 'medium' && styles.scenarioBarFillMedium,
+                    severity === 'low' && styles.scenarioBarFillLow,
+                    { width: `${item.practiceRatio}%` },
+                  ]}
+                />
+              </View>
+
+              <Text style={styles.scenarioChartNote}>
+                {item.errors > 0
+                  ? `${item.errors}번의 실수 신호가 있어요`
+                  : '안정적으로 연습한 상황이에요'}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
   const ratingLabel =
     rating === 1
       ? '아쉬웠어요'
@@ -846,7 +904,7 @@ export default function AnalyticsScreen() {
               {renderSignalGroup('어려운 상황', personalizationSignals.difficultScenarios)}
               {renderSignalGroup('힌트와 재시도', personalizationSignals.hintUsage)}
               {renderSignalGroup('개선 추세', personalizationSignals.trend)}
-              {renderSignalGroup('아직 피하고 있는 상황', personalizationSignals.avoidedScenarios)}
+              {renderScenarioPracticeChart(personalizationSignals.scenarioPracticeChart)}
 
               {recentMistakes.length === 0 && practiceEvents.length === 0 && (
                 <View style={styles.emptyMini}>
@@ -1861,6 +1919,72 @@ const styles = StyleSheet.create({
   },
   signalValueMedium: {
     color: '#EAB308',
+  },
+
+  scenarioChart: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  scenarioChartHeader: {
+    marginBottom: 12,
+  },
+  scenarioChartTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#555',
+    marginBottom: 4,
+  },
+  scenarioChartCaption: {
+    fontSize: 11,
+    color: '#777',
+    lineHeight: 16,
+  },
+  scenarioChartRow: {
+    paddingVertical: 8,
+  },
+  scenarioChartTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 7,
+  },
+  scenarioChartLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111',
+  },
+  scenarioChartValue: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6C6C80',
+  },
+  scenarioBarTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#F0F0F5',
+    overflow: 'hidden',
+  },
+  scenarioBarFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  scenarioBarFillHigh: {
+    backgroundColor: '#FF4D4D',
+  },
+  scenarioBarFillMedium: {
+    backgroundColor: '#EAB308',
+  },
+  scenarioBarFillLow: {
+    backgroundColor: '#22C55E',
+  },
+  scenarioChartNote: {
+    fontSize: 11,
+    color: '#777',
+    lineHeight: 16,
+    marginTop: 6,
   },
 
   turnItem: {
