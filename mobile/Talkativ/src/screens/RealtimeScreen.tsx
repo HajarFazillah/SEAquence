@@ -5,12 +5,26 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Mic } from 'lucide-react-native';
+import { Mic, Sparkles, UserRound } from 'lucide-react-native';
 import { Header, Card, Button, StatusBadge, Icon } from '../components';
 import { createSession, getUserAvatars, AvatarFromDB } from '../services/apiSession';
 
+type RealtimeMode = 'quick' | 'avatar';
+
+const QUICK_START_AVATAR = {
+  id: 'quick_start',
+  name_ko: '상대방',
+  name_en: 'Conversation Partner',
+  role: 'unknown',
+  description: '상대 정보를 모르는 일반 대화',
+  avatar_bg: '#6C3BFF',
+  icon: 'user',
+  difficulty: 'medium',
+};
+
 export default function RealtimeScreen() {
   const navigation = useNavigation<any>();
+  const [mode, setMode] = useState<RealtimeMode>('quick');
   const [selectedAvatarId, setSelectedAvatarId] = useState<number | null>(null);
   const [avatars, setAvatars] = useState<AvatarFromDB[]>([]);
   const [isLoadingAvatars, setIsLoadingAvatars] = useState(true);
@@ -25,6 +39,14 @@ export default function RealtimeScreen() {
       )
       .finally(() => setIsLoadingAvatars(false));
   }, []);
+
+  const handleQuickStart = () => {
+    navigation.navigate('RealtimeSession', {
+      avatar: QUICK_START_AVATAR,
+      sessionId: `quick-realtime-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      situation: '빠른 실시간 대화',
+    });
+  };
 
   // ─── Start session ────────────────────────────────────────────────────────
   const handleStartSession = async () => {
@@ -57,6 +79,16 @@ export default function RealtimeScreen() {
       setIsStarting(false);
     }
   };
+
+  const handlePrimaryAction = () => {
+    if (mode === 'quick') {
+      handleQuickStart();
+    } else {
+      handleStartSession();
+    }
+  };
+
+  const primaryDisabled = mode === 'avatar' && (selectedAvatarId === null || isLoadingAvatars);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -105,45 +137,68 @@ export default function RealtimeScreen() {
           </View>
         </View>
 
-        {/* Avatar Selection */}
-        <Text style={styles.sectionTitle}>아바타 선택</Text>
+        {/* Realtime Mode */}
+        <Text style={styles.sectionTitle}>시작 방식</Text>
+        <View style={styles.modeList}>
+          <TouchableModeCard
+            active={mode === 'quick'}
+            title="빠른 시작"
+            subtitle="상대 정보 없이 바로 말투와 공손도를 분석해요"
+            icon={<Sparkles size={22} color={mode === 'quick' ? '#FFFFFF' : '#6C3BFF'} />}
+            onPress={() => setMode('quick')}
+          />
+          <TouchableModeCard
+            active={mode === 'avatar'}
+            title="아바타와 연습"
+            subtitle="선택한 아바타의 관계와 말투 기준으로 분석해요"
+            icon={<UserRound size={22} color={mode === 'avatar' ? '#FFFFFF' : '#6C3BFF'} />}
+            onPress={() => setMode('avatar')}
+          />
+        </View>
 
-        {isLoadingAvatars ? (
-          <View style={styles.avatarLoading}>
-            <ActivityIndicator size="small" color="#6C3BFF" />
-            <Text style={styles.avatarLoadingText}>아바타 불러오는 중...</Text>
-          </View>
-        ) : avatars.length === 0 ? (
-          <View style={styles.emptyAvatars}>
-            <Text style={styles.emptyAvatarsText}>
-              아직 아바타가 없습니다. 아바타 탭에서 먼저 만들어보세요!
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.avatarList}>
-            {avatars.map((avatar) => (
-              <Card
-                key={avatar.id}
-                variant={selectedAvatarId === avatar.id ? 'outlined' : 'elevated'}
-                style={[
-                  styles.avatarCard,
-                  selectedAvatarId === avatar.id && styles.avatarCardSelected,
-                ]}
-                onPress={() => setSelectedAvatarId(avatar.id)}
-              >
-                <View style={styles.avatarRow}>
-                  <View style={[styles.avatarIcon, { backgroundColor: avatar.avatar_bg }]}>
-                    <Icon name={avatar.icon as any} size={24} color="#FFFFFF" />
-                  </View>
-                  <View style={styles.avatarInfo}>
-                    <Text style={styles.avatarName}>{avatar.name_ko}</Text>
-                    <Text style={styles.avatarRole}>{avatar.description}</Text>
-                  </View>
-                  <StatusBadge status={avatar.difficulty as 'easy' | 'medium' | 'hard'} />
-                </View>
-              </Card>
-            ))}
-          </View>
+        {/* Avatar Selection */}
+        {mode === 'avatar' && (
+          <>
+            <Text style={styles.sectionTitle}>아바타 선택</Text>
+
+            {isLoadingAvatars ? (
+              <View style={styles.avatarLoading}>
+                <ActivityIndicator size="small" color="#6C3BFF" />
+                <Text style={styles.avatarLoadingText}>아바타 불러오는 중...</Text>
+              </View>
+            ) : avatars.length === 0 ? (
+              <View style={styles.emptyAvatars}>
+                <Text style={styles.emptyAvatarsText}>
+                  아직 아바타가 없습니다. 아바타 탭에서 먼저 만들어보세요!
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.avatarList}>
+                {avatars.map((avatar) => (
+                  <Card
+                    key={avatar.id}
+                    variant={selectedAvatarId === avatar.id ? 'outlined' : 'elevated'}
+                    style={[
+                      styles.avatarCard,
+                      selectedAvatarId === avatar.id && styles.avatarCardSelected,
+                    ]}
+                    onPress={() => setSelectedAvatarId(avatar.id)}
+                  >
+                    <View style={styles.avatarRow}>
+                      <View style={[styles.avatarIcon, styles.avatarIconFallback]}>
+                        <Icon name={avatar.icon as any} size={24} color="#FFFFFF" />
+                      </View>
+                      <View style={styles.avatarInfo}>
+                        <Text style={styles.avatarName}>{avatar.name_ko}</Text>
+                        <Text style={styles.avatarRole}>{avatar.description}</Text>
+                      </View>
+                      <StatusBadge status={avatar.difficulty as 'easy' | 'medium' | 'hard'} />
+                    </View>
+                  </Card>
+                ))}
+              </View>
+            )}
+          </>
         )}
 
       </ScrollView>
@@ -157,14 +212,44 @@ export default function RealtimeScreen() {
           </View>
         ) : (
           <Button
-            title="세션 시작하기"
-            onPress={handleStartSession}
+            title={mode === 'quick' ? '빠른 시작하기' : '세션 시작하기'}
+            onPress={handlePrimaryAction}
             showArrow
-            disabled={selectedAvatarId === null || isLoadingAvatars}
+            disabled={primaryDisabled}
           />
         )}
       </View>
     </SafeAreaView>
+  );
+}
+
+function TouchableModeCard({
+  active,
+  title,
+  subtitle,
+  icon,
+  onPress,
+}: {
+  active: boolean;
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  onPress: () => void;
+}) {
+  return (
+    <Card
+      variant={active ? 'outlined' : 'elevated'}
+      style={[styles.modeCard, active && styles.modeCardActive]}
+      onPress={onPress}
+    >
+      <View style={[styles.modeIcon, active && styles.modeIconActive]}>
+        {icon}
+      </View>
+      <View style={styles.modeInfo}>
+        <Text style={styles.modeTitle}>{title}</Text>
+        <Text style={styles.modeSubtitle}>{subtitle}</Text>
+      </View>
+    </Card>
   );
 }
 
@@ -198,6 +283,42 @@ const styles = StyleSheet.create({
   stepTitle: { fontSize: 15, fontWeight: '600', color: '#1A1A2E', marginBottom: 2 },
   stepDesc: { fontSize: 13, color: '#6C6C80' },
 
+  // Mode selection
+  modeList: { gap: 12, marginBottom: 24 },
+  modeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderColor: '#E2E2EC',
+  },
+  modeCardActive: {
+    borderColor: '#6C3BFF',
+    borderWidth: 2,
+  },
+  modeIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#F0EDFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  modeIconActive: {
+    backgroundColor: '#6C3BFF',
+  },
+  modeInfo: { flex: 1 },
+  modeTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 3,
+  },
+  modeSubtitle: {
+    fontSize: 12,
+    color: '#6C6C80',
+    lineHeight: 17,
+  },
+
   // Avatar List
   avatarList: { gap: 12 },
   avatarCard: {},
@@ -207,6 +328,7 @@ const styles = StyleSheet.create({
     width: 48, height: 48, borderRadius: 24,
     alignItems: 'center', justifyContent: 'center',
   },
+  avatarIconFallback: { backgroundColor: '#6C3BFF' },
   avatarInfo: { flex: 1 },
   avatarName: { fontSize: 16, fontWeight: '600', color: '#1A1A2E', marginBottom: 2 },
   avatarRole: { fontSize: 12, color: '#6C6C80' },

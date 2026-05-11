@@ -72,6 +72,7 @@ const C = {
 } as const;
 
 const WAVE_H = [0.25, 0.5, 0.8, 1.0, 0.7, 0.4, 0.9, 0.55, 0.35, 0.75, 0.45];
+const STREAM_CHUNK_MS = 5000;
 
 const pad2 = (n: number) => n.toString().padStart(2, '0');
 const fmt = (s: number) => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
@@ -135,11 +136,11 @@ function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: I
       {/* Bubble + label */}
       <View style={[tn.col, isUser ? tn.colUser : tn.colPartner]}>
         <View style={tn.labelRow}>
-          {!isUser && <View style={[tn.dot, { backgroundColor: C.ink40 }]} />}
+          {!isUser && <View style={[tn.dot, tn.dotPartner]} />}
           <Text style={[tn.speaker, isUser && tn.speakerUser]}>
             {live ? '나 (녹음 중)' : isUser ? '나' : turn.speaker}
           </Text>
-          {isUser && <View style={[tn.dot, { backgroundColor: '#6C3BFF' }]} />}
+          {isUser && <View style={[tn.dot, tn.dotUser]} />}
           {live && (
             <CircleDashed size={9} color={C.recRed} strokeWidth={2.5} />
           )}
@@ -247,6 +248,7 @@ export default function RealtimeSessionScreen() {
   const [duration, setDuration]     = useState(0);
   const [ending, setEnding]         = useState(false);
   const [analyzing, setAnalyzing]   = useState(false);
+  const [processingChunks, setProcessingChunks] = useState(0);
   const [turns, setTurns]           = useState<TranscriptTurn[]>([]);
   const [insights, setInsights]     = useState<Insight[]>([]);
   const [recUri, setRecUri]         = useState('');
@@ -256,10 +258,30 @@ export default function RealtimeSessionScreen() {
   const rippleLoop    = useRef<Animated.CompositeAnimation | null>(null);
   const ended         = useRef(false);
   const scrollRef     = useRef<ScrollView>(null);
+  const recordingRef  = useRef(false);
+  const rotatingRef   = useRef(false);
+  const recorderActiveRef = useRef(false);
+  const chunkTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chunkIndexRef = useRef(0);
+
+  const setRecordingState = (value: boolean) => {
+    recordingRef.current = value;
+    setRecording(value);
+  };
+
+  useEffect(() => {
+    setAnalyzing(processingChunks > 0);
+  }, [processingChunks]);
 
   useEffect(() => {
     const t = setInterval(() => setDuration(d => d + 1), 1000);
-    return () => { clearInterval(t); Sound.removeRecordBackListener(); Sound.stopRecorder().catch(() => {}); };
+    return () => {
+      clearInterval(t);
+      if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
+      Sound.removeRecordBackListener();
+      Sound.stopRecorder().catch(() => {});
+      recorderActiveRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -303,7 +325,16 @@ export default function RealtimeSessionScreen() {
     if (ended.current) return;
     ended.current = true;
     setEnding(true);
-    try { if (recording) { setRecording(false); Sound.removeRecordBackListener(); await Sound.stopRecorder(); } } catch {}
+    try {
+      if (recordingRef.current) {
+        setRecordingState(false);
+        if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
+        chunkTimerRef.current = null;
+        Sound.removeRecordBackListener();
+        await Sound.stopRecorder();
+        recorderActiveRef.current = false;
+      }
+    } catch {}
     try { if (sessionId) await endSession(sessionId); } catch {}
 
     // If we have any final turns, route into the same post-chat flow as the chat screen
@@ -327,7 +358,7 @@ export default function RealtimeSessionScreen() {
     if (feedback) {
       navigation.navigate('Feedback', { avatar, sessionId, situation, duration: fmt(duration), recordingUri: recUri, turns, insights });
     } else navigation.goBack();
-  }, [recording, sessionId, navigation, avatar, situation, duration, recUri, turns, insights]);
+  }, [sessionId, navigation, avatar, situation, duration, recUri, turns, insights]);
 
   useFocusEffect(useCallback(() => {
     const u = navigation.addListener('beforeRemove', (e: any) => {
@@ -341,72 +372,137 @@ export default function RealtimeSessionScreen() {
     return u;
   }, [navigation, ending, finish]));
 
-  const onMic = async () => {
-    if (ending || analyzing) return;
+  const uploadRecordedChunk = useCallback(async (rawUri: string, chunkIndex: number) => {
+    const uri = normalizeRecordingUri(rawUri);
+    setRecUri(uri);
+    setProcessingChunks(count => count + 1);
     try {
-      if (recording) {
-        setRecording(false); setAnalyzing(true);
-        setTurns(p => p.filter(t => t.type !== 'partial'));
-        Sound.removeRecordBackListener();
-        const rawUri = await Sound.stopRecorder();
-        if (!rawUri) throw new Error('녹음 경로를 가져오지 못했습니다.');
-        const uri = normalizeRecordingUri(rawUri);
-        setRecUri(uri);
-        const form = new FormData();
-        form.append('file', { uri, name: 'recording.m4a', type: 'audio/mp4' } as any);
-        if (sessionId) form.append('sessionId', sessionId);
-        if (avatar?.role) form.append('avatarRole', avatar.role);
-        form.append('userId', userId);
-        form.append('expectedSpeechLevel', expectedSpeechLevel);
-        // If we already mapped which label is the user from a previous chunk, send the hint.
-        const knownUserLabel = turns.find(t => t.type === 'final' && t.speaker === '나')?.speaker;
-        if (knownUserLabel && knownUserLabel !== '나') {
-          form.append('userSpeakerLabel', knownUserLabel);
-        }
-        const res = await analyzeRealtimeAudio(form);
-        const nextTurns = normTurns(res?.turns ?? []).filter(t => t.text.trim().length > 0);
+      const form = new FormData();
+      form.append('file', { uri, name: `recording-${chunkIndex}.m4a`, type: 'audio/mp4' } as any);
+      if (sessionId) form.append('sessionId', sessionId);
+      if (avatar?.role) form.append('avatarRole', avatar.role);
+      form.append('userId', userId);
+      form.append('expectedSpeechLevel', expectedSpeechLevel);
+      form.append('chunkIndex', String(chunkIndex));
 
-        // Map raw CLOVA speaker labels (e.g. "0", "1") to user vs. avatar.
-        // First speaker to appear = user, second = avatar.
-        const seenLabels: string[] = [];
+      const res = await analyzeRealtimeAudio(form);
+      const nextTurns = normTurns(res?.turns ?? [])
+        .filter(t => t.text.trim().length > 0);
+
+      const seenLabels: string[] = [];
+      for (const t of nextTurns) {
+        if (!seenLabels.includes(t.speaker)) seenLabels.push(t.speaker);
+      }
+      const avatarLabel = seenLabels[1];
+      if (avatarLabel && avatar?.name_ko) {
         for (const t of nextTurns) {
-          if (!seenLabels.includes(t.speaker)) seenLabels.push(t.speaker);
+          if (t.speaker === avatarLabel) t.speaker = avatar.name_ko;
         }
-        const avatarLabel = seenLabels[1];
-        if (avatarLabel && avatar?.name_ko) {
-          for (const t of nextTurns) {
-            if (t.speaker === avatarLabel) t.speaker = avatar.name_ko;
-          }
-        }
+      }
 
-        const nextInsights = normInsights(res?.insights ?? []);
+      const nextInsights = normInsights(res?.insights ?? []);
 
-        if (nextTurns.length === 0 && nextInsights.length === 0) {
-          nextInsights.push({
-            id: `i-empty-${Date.now()}`,
-            kind: 'risk',
-            message: '음성이 업로드됐지만 인식된 문장이 없어요.',
-            suggestion: '한 문장 이상 또렷하게 말한 뒤 다시 시도해 보세요.',
-            turnId: '',
-          });
-        }
+      if (nextTurns.length === 0 && nextInsights.length === 0 && !recordingRef.current) {
+        nextInsights.push({
+          id: `i-empty-${Date.now()}`,
+          kind: 'risk',
+          message: '음성이 업로드됐지만 인식된 문장이 없어요.',
+          suggestion: '한 문장 이상 또렷하게 말한 뒤 다시 시도해 보세요.',
+          turnId: '',
+        });
+      }
 
-        setTurns(p => [...p, ...nextTurns]);
-        setInsights(p => [...p, ...nextInsights]);
-      } else {
-        if (!(await askMicPerm())) return;
-        setTurns([]); setInsights([]); setRecUri('');
+      setTurns(p => [...p.filter(t => t.type !== 'partial'), ...nextTurns]);
+      setInsights(p => [...p, ...nextInsights]);
+    } finally {
+      setProcessingChunks(count => Math.max(0, count - 1));
+    }
+  }, [avatar, expectedSpeechLevel, sessionId, userId]);
+
+  const rotateRecordingChunk = useCallback(async (restart: boolean) => {
+    if (rotatingRef.current) return;
+    if (!recorderActiveRef.current) return;
+    rotatingRef.current = true;
+    try {
+      setTurns(p => p.filter(t => t.type !== 'partial'));
+      Sound.removeRecordBackListener();
+      const rawUri = await Sound.stopRecorder();
+      recorderActiveRef.current = false;
+      if (!rawUri) throw new Error('녹음 경로를 가져오지 못했습니다.');
+      const chunkIndex = chunkIndexRef.current;
+      chunkIndexRef.current += 1;
+
+      if (restart && recordingRef.current) {
         await Sound.startRecorder();
+        recorderActiveRef.current = true;
         Sound.addRecordBackListener((_: RecordBackType) => {});
-        setRecording(true);
-        setTurns([{ id: `live-${Date.now()}`, speaker: '듣는 중', text: '음성 인식 중입니다', type: 'partial' }]);
+        setTurns(p => [
+          ...p,
+          { id: `live-${Date.now()}`, speaker: '듣는 중', text: '다음 음성 조각을 듣고 있습니다', type: 'partial' },
+        ]);
+      }
+
+      uploadRecordedChunk(rawUri, chunkIndex).catch((e: any) => {
+        Alert.alert('분석 오류', e?.response?.data?.message ?? e?.message ?? '음성 조각 분석에 실패했습니다.');
+      });
+    } finally {
+      rotatingRef.current = false;
+    }
+  }, [uploadRecordedChunk]);
+
+  const startStreamingCapture = useCallback(async () => {
+    if (!(await askMicPerm())) return;
+    chunkIndexRef.current = 0;
+    setTurns([]);
+    setInsights([]);
+    setRecUri('');
+    await Sound.startRecorder();
+    recorderActiveRef.current = true;
+    Sound.addRecordBackListener((_: RecordBackType) => {});
+    setRecordingState(true);
+    setTurns([{ id: `live-${Date.now()}`, speaker: '듣는 중', text: '음성 스트림을 듣고 있습니다', type: 'partial' }]);
+    chunkTimerRef.current = setInterval(() => {
+      if (recordingRef.current) {
+        rotateRecordingChunk(true).catch((e: any) => {
+          Alert.alert('오류', e?.message ?? '음성 조각을 처리하지 못했습니다.');
+        });
+      }
+    }, STREAM_CHUNK_MS);
+  }, [rotateRecordingChunk]);
+
+  const stopStreamingCapture = useCallback(async () => {
+    setRecordingState(false);
+    if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
+    chunkTimerRef.current = null;
+    while (rotatingRef.current) {
+      await new Promise<void>(resolve => setTimeout(resolve, 50));
+    }
+    if (recorderActiveRef.current) {
+      await rotateRecordingChunk(false);
+    }
+  }, [rotateRecordingChunk]);
+
+  const onMic = async () => {
+    if (ending) return;
+    try {
+      if (recordingRef.current) {
+        await stopStreamingCapture();
+      } else {
+        await startStreamingCapture();
       }
     } catch (e: any) {
-      setRecording(false); Sound.removeRecordBackListener(); Sound.stopRecorder().catch(() => {});
+      setRecordingState(false);
+      if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
+      chunkTimerRef.current = null;
+      Sound.removeRecordBackListener();
+      Sound.stopRecorder().catch(() => {});
+      recorderActiveRef.current = false;
       setTurns(p => p.filter(t => t.type !== 'partial'));
       Alert.alert('오류', e?.response?.data?.message ?? e?.message ?? '문제가 발생했습니다.');
-    } finally { setAnalyzing(false); }
+    }
   };
+
+
 
   const ok    = insights.filter(i => i.kind === 'success').length;
   const risk  = insights.filter(i => i.kind === 'risk').length;
@@ -502,14 +598,14 @@ export default function RealtimeSessionScreen() {
               }]} />
             )}
             <TouchableOpacity
-              style={[s.mic, recording && s.micRec, analyzing && s.micBusy]}
+              style={[s.mic, recording && s.micRec, analyzing && !recording && s.micBusy]}
               onPress={onMic} activeOpacity={0.8}
-              disabled={ending || analyzing}
+              disabled={ending}
             >
-              {analyzing
-                ? <Mic size={24} color="rgba(255,255,255,0.3)" strokeWidth={2} />
-                : recording
-                  ? <MicOff size={24} color="#FFF" strokeWidth={2.3} />
+              {recording
+                ? <MicOff size={24} color="#FFF" strokeWidth={2.3} />
+                : analyzing
+                  ? <Mic size={24} color="rgba(255,255,255,0.3)" strokeWidth={2} />
                   : <Mic size={24} color="#FFF" strokeWidth={2.3} />}
             </TouchableOpacity>
           </View>
@@ -523,7 +619,11 @@ export default function RealtimeSessionScreen() {
         </View>
 
         <Text style={s.micHint}>
-          {analyzing ? '분석 중입니다...' : recording ? '탭하여 중지 및 분석' : '탭하여 녹음 시작'}
+          {recording
+            ? `음성을 ${STREAM_CHUNK_MS / 1000}초 단위로 분석 중 · 탭하여 중지`
+            : processingChunks > 0
+              ? '남은 음성 조각을 분석 중입니다...'
+              : '탭하여 스트리밍 녹음 시작'}
         </Text>
 
         <TouchableOpacity
@@ -689,6 +789,8 @@ const tn = StyleSheet.create({
     paddingHorizontal: 2,
   },
   dot: { width: 5, height: 5, borderRadius: 2.5 },
+  dotPartner: { backgroundColor: C.ink40 },
+  dotUser: { backgroundColor: '#6C3BFF' },
   speaker: { fontSize: 10, fontWeight: '700', color: C.ink40, letterSpacing: 0.5, textTransform: 'uppercase' },
   speakerUser: { color: '#6C3BFF' },
 
