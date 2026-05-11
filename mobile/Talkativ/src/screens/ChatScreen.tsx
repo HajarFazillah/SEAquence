@@ -10,6 +10,7 @@ import Svg, { Path, Circle, Polygon } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
 import { makePreviewPayload, saveConversationPreview } from '../services/conversationPreview';
+import { appendPracticePatternEvent } from '../services/personalizationHistory';
 
 
 const AI_SERVER = 'http://10.0.2.2:8000';
@@ -830,6 +831,8 @@ const sendMessageToAI = async (
     speech_analysis: finalSpeechAnalysis,
     mood_change: data.mood_change || 0, current_mood: data.current_mood || 70,
     mood_emoji: data.mood_emoji || '😊', correct_streak: data.correct_streak || 0,
+    hint: data.hint || '',
+    suggestions: data.suggestions || [],
   };
 };
 
@@ -900,6 +903,26 @@ export default function ChatScreen() {
         return [...updated, aiMsg];
       });
       if (data.speech_analysis) setExpandedFeedback(prev => ({ ...prev, [userMsg.id]: true }));
+      const previousUserHadErrors = messages
+        .filter(m => m.sender === 'user')
+        .slice(-1)[0]?.feedback?.has_errors;
+      appendPracticePatternEvent({
+        sessionId: sessionIdRef.current,
+        avatarId: avatar?.id,
+        avatarName: avatar?.name_ko || avatar?.name,
+        relationshipType: avatar?.role || avatar?.custom_role,
+        situationId: situation?.id || situation?.situation_id,
+        situationName: situation?.name_ko || situation?.name,
+        situationCategory: situation?.category,
+        speechLevel: recommendedLevel,
+        correctionTypes: (data.speech_analysis?.corrections || [])
+          .map((c: Correction) => c.type || 'unknown')
+          .filter(Boolean),
+        hadErrors: Boolean(data.speech_analysis?.has_errors),
+        accuracyScore: data.speech_analysis?.accuracy_score,
+        hintShown: Boolean(data.speech_analysis?.has_errors || data.hint || data.suggestions?.length),
+        retrySuccess: Boolean(previousUserHadErrors && data.speech_analysis && !data.speech_analysis.has_errors),
+      }).catch(() => {});
       // Save mistakes to backend
       if (data.speech_analysis?.has_errors && data.speech_analysis.corrections.length > 0) {
       const turnNumber = messages.filter(m => m.sender === 'user').length + 1;

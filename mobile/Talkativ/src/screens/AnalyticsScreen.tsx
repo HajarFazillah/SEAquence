@@ -23,13 +23,17 @@ import {
 } from 'lucide-react-native';
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AI_SERVER_URL } from '../constants';
+import { AI_SERVER_URL, SITUATIONS as APP_SITUATIONS } from '../constants';
 import { useHomeData } from '../hooks/useHomeData';
 import {
   fetchMyWeakAreas,
   fetchMyMistakes,
   SavedMistake,
 } from '../services/apiMistakes';
+import {
+  fetchPracticePatternEvents,
+  PracticePatternEvent,
+} from '../services/personalizationHistory';
 
 const AI_SERVER = AI_SERVER_URL;
 
@@ -202,6 +206,12 @@ const getCorrectionTypeLabel = (type?: string) => {
   return labels[type] || type.replace(/_/g, ' ');
 };
 
+const LEVEL_LABELS: Record<string, string> = {
+  formal: '합쇼체',
+  polite: '해요체',
+  informal: '반말',
+};
+
 // ─── Mistake-pattern aggregation ──────────────────────────────────────────────
 //
 // Two derived signals over the user's mistake history, computed client-side
@@ -228,6 +238,14 @@ interface CategoryTrend {
   lastWeek: number;
   delta: number;
   direction: 'up' | 'down' | 'flat';
+}
+
+interface RankedSignal {
+  key: string;
+  label: string;
+  value: string;
+  note: string;
+  severity: 'high' | 'medium' | 'low';
 }
 
 const normalizeMistakeKey = (s: string) =>
@@ -316,6 +334,141 @@ const computeWeeklyTrend = (mistakes: SavedMistake[]): CategoryTrend[] => {
     .slice(0, 4);
 };
 
+const groupEvents = (
+  events: PracticePatternEvent[],
+  getKey: (event: PracticePatternEvent) => string | undefined,
+) => {
+  const groups = new Map<string, { total: number; errors: number }>();
+  events.forEach(event => {
+    const key = getKey(event);
+    if (!key) return;
+    const current = groups.get(key) || { total: 0, errors: 0 };
+    current.total += 1;
+    if (event.hadErrors) current.errors += 1;
+    groups.set(key, current);
+  });
+  return Array.from(groups.entries()).map(([key, value]) => ({
+    key,
+    total: value.total,
+    errors: value.errors,
+    rate: value.total ? value.errors / value.total : 0,
+  }));
+};
+
+const signalSeverity = (rate: number): RankedSignal['severity'] => {
+  if (rate >= 0.67) return 'high';
+  if (rate >= 0.34) return 'medium';
+  return 'low';
+};
+
+const buildPersonalizationSignals = (
+  mistakes: SavedMistake[],
+  events: PracticePatternEvent[],
+) => {
+  const typeCounts = new Map<string, number>();
+  mistakes.forEach(m => {
+    const type = m.correctionType || 'unknown';
+    typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+  });
+
+  const repeatedErrorTypes: RankedSignal[] = Array.from(typeCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([type, count]) => ({
+      key: type,
+      label: getCorrectionTypeLabel(type) || type,
+      value: `${count}회`,
+      note: count >= 3 ? '반복 패턴으로 추적 중' : '최근 기록됨',
+      severity: count >= 5 ? 'high' : count >= 2 ? 'medium' : 'low',
+    }));
+
+  const weakSpeechLevels: RankedSignal[] = groupEvents(events, e => e.speechLevel)
+    .filter(item => item.errors > 0)
+    .sort((a, b) => b.rate - a.rate || b.errors - a.errors)
+    .slice(0, 2)
+    .map(item => ({
+      key: item.key,
+      label: LEVEL_LABELS[item.key as keyof typeof LEVEL_LABELS] || item.key,
+      value: `${Math.round(item.rate * 100)}%`,
+      note: `${item.total}번 중 ${item.errors}번 실수`,
+      severity: signalSeverity(item.rate),
+    }));
+
+  const difficultRelationships: RankedSignal[] = groupEvents(events, e => e.relationshipType)
+    .filter(item => item.total >= 1 && item.errors > 0)
+    .sort((a, b) => b.rate - a.rate || b.total - a.total)
+    .slice(0, 3)
+    .map(item => ({
+      key: item.key,
+      label: item.key,
+      value: `${Math.round(item.rate * 100)}%`,
+      note: `${item.total}턴 중 ${item.errors}턴에서 오류`,
+      severity: signalSeverity(item.rate),
+    }));
+
+  const difficultScenarios: RankedSignal[] = groupEvents(events, e => e.situationName || e.situationId)
+    .filter(item => item.total >= 1 && item.errors > 0)
+    .sort((a, b) => b.rate - a.rate || b.total - a.total)
+    .slice(0, 3)
+    .map(item => ({
+      key: item.key,
+      label: item.key,
+      value: `${Math.round(item.rate * 100)}%`,
+      note: `${item.total}턴 중 ${item.errors}턴에서 오류`,
+      severity: signalSeverity(item.rate),
+    }));
+
+  const hintShown = events.filter(e => e.hintShown).length;
+  const retrySuccess = events.filter(e => e.retrySuccess).length;
+  const hintUsage: RankedSignal[] = events.length > 0 ? [{
+    key: 'hint_usage',
+    label: '힌트 사용 흐름',
+    value: `${hintShown}회`,
+    note: retrySuccess > 0
+      ? `힌트 이후 성공 전환 ${retrySuccess}회`
+      : '힌트 이후 성공 전환은 아직 적어요',
+    severity: retrySuccess > 0 ? 'low' : hintShown > 2 ? 'medium' : 'low',
+  }] : [];
+
+  const chronological = [...events].sort((a, b) => (
+    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  ));
+  const midpoint = Math.max(1, Math.floor(chronological.length / 2));
+  const early = chronological.slice(0, midpoint);
+  const late = chronological.slice(midpoint);
+  const earlyRate = early.length ? early.filter(e => e.hadErrors).length / early.length : 0;
+  const lateRate = late.length ? late.filter(e => e.hadErrors).length / late.length : earlyRate;
+  const trend: RankedSignal[] = chronological.length >= 4 ? [{
+    key: 'trend',
+    label: '개선 흐름',
+    value: lateRate < earlyRate ? '좋아지는 중' : lateRate > earlyRate ? '주의 필요' : '유지 중',
+    note: `초반 오류율 ${Math.round(earlyRate * 100)}% → 최근 ${Math.round(lateRate * 100)}%`,
+    severity: lateRate < earlyRate ? 'low' : lateRate > earlyRate ? 'medium' : 'low',
+  }] : [];
+
+  const practicedSituationIds = new Set(events.map(e => e.situationId).filter(Boolean));
+  const avoidedScenarios: RankedSignal[] = APP_SITUATIONS
+    .filter(s => !practicedSituationIds.has(s.id))
+    .slice(0, 3)
+    .map(s => ({
+      key: s.id,
+      label: s.name_ko,
+      value: '미연습',
+      note: s.description_ko,
+      severity: 'low',
+    }));
+
+  return {
+    repeatedErrorTypes,
+    weakSpeechLevels,
+    difficultRelationships,
+    difficultScenarios,
+    hintUsage,
+    trend,
+    avoidedScenarios,
+  };
+};
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AnalyticsScreen() {
@@ -350,6 +503,7 @@ export default function AnalyticsScreen() {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [weakAreas, setWeakAreas] = useState<WeakArea[]>([]);
   const [recentMistakes, setRecentMistakes] = useState<SavedMistake[]>([]);
+  const [practiceEvents, setPracticeEvents] = useState<PracticePatternEvent[]>([]);
 
   useEffect(() => {
     loadAnalytics();
@@ -364,12 +518,13 @@ export default function AnalyticsScreen() {
         (await AsyncStorage.getItem('user_id')) ||
         'test-user-1';
 
-      const [summaryRes, aiWeakRes, springWeakRes, mistakesRes] =
+      const [summaryRes, aiWeakRes, springWeakRes, mistakesRes, eventsRes] =
         await Promise.allSettled([
           fetch(`${AI_SERVER}/api/v1/analytics/${userId}/summary`),
           fetch(`${AI_SERVER}/api/v1/analytics/${userId}/weak-areas`),
           fetchMyWeakAreas(),
           fetchMyMistakes(),
+          fetchPracticePatternEvents(),
         ]);
 
       if (summaryRes.status === 'fulfilled' && summaryRes.value.ok) {
@@ -398,6 +553,10 @@ export default function AnalyticsScreen() {
       if (mistakesRes.status === 'fulfilled') {
         setRecentMistakes(mistakesRes.value);
       }
+
+      if (eventsRes.status === 'fulfilled') {
+        setPracticeEvents(eventsRes.value);
+      }
     } catch (error) {
       console.error('Analytics load error:', error);
     } finally {
@@ -424,6 +583,10 @@ export default function AnalyticsScreen() {
   const weeklyTrends = useMemo(
     () => computeWeeklyTrend(recentMistakes),
     [recentMistakes],
+  );
+  const personalizationSignals = useMemo(
+    () => buildPersonalizationSignals(recentMistakes, practiceEvents),
+    [recentMistakes, practiceEvents],
   );
 
   const derivedScoreDetails: {
@@ -517,6 +680,36 @@ export default function AnalyticsScreen() {
   const topRiskInsights = (insights || [])
     .filter((insight: Insight) => insight.kind === 'risk')
     .slice(0, 3);
+
+  const renderSignalGroup = (title: string, items: RankedSignal[]) => {
+    if (!items.length) return null;
+    return (
+      <View style={styles.signalGroup}>
+        <Text style={styles.signalGroupTitle}>{title}</Text>
+        {items.map(item => (
+          <View key={`${title}-${item.key}`} style={styles.signalRow}>
+            <View style={[
+              styles.signalDot,
+              item.severity === 'high' && styles.signalDotHigh,
+              item.severity === 'medium' && styles.signalDotMedium,
+              item.severity === 'low' && styles.signalDotLow,
+            ]} />
+            <View style={styles.signalBody}>
+              <Text style={styles.signalLabel}>{item.label}</Text>
+              <Text style={styles.signalNote}>{item.note}</Text>
+            </View>
+            <Text style={[
+              styles.signalValue,
+              item.severity === 'high' && styles.signalValueHigh,
+              item.severity === 'medium' && styles.signalValueMedium,
+            ]}>
+              {item.value}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
 
   const ratingLabel =
     rating === 1
@@ -630,6 +823,42 @@ export default function AnalyticsScreen() {
           </View>
         </View>
 
+        {isHomeAnalysis && (
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionEye}>PERSONALIZATION</Text>
+              <Text style={styles.sectionTitle}>실제 실수 기반 맞춤 분석</Text>
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.personalIntro}>
+                <Text style={styles.personalIntroTitle}>
+                  선택한 난이도보다 실제 기록을 우선해요
+                </Text>
+                <Text style={styles.personalIntroText}>
+                  반복 오류, 약한 말투, 어려운 관계/상황, 힌트 이후 회복 여부를 함께 봅니다.
+                </Text>
+              </View>
+
+              {renderSignalGroup('반복 오류 유형', personalizationSignals.repeatedErrorTypes)}
+              {renderSignalGroup('약한 말투', personalizationSignals.weakSpeechLevels)}
+              {renderSignalGroup('어려운 관계', personalizationSignals.difficultRelationships)}
+              {renderSignalGroup('어려운 상황', personalizationSignals.difficultScenarios)}
+              {renderSignalGroup('힌트와 재시도', personalizationSignals.hintUsage)}
+              {renderSignalGroup('개선 추세', personalizationSignals.trend)}
+              {renderSignalGroup('아직 피하고 있는 상황', personalizationSignals.avoidedScenarios)}
+
+              {recentMistakes.length === 0 && practiceEvents.length === 0 && (
+                <View style={styles.emptyMini}>
+                  <Text style={styles.emptyMiniText}>
+                    대화 기록이 쌓이면 이곳에 개인화 신호가 표시됩니다.
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
         {summary && (
           <View style={styles.section}>
             <View style={styles.sectionHead}>
@@ -662,10 +891,9 @@ export default function AnalyticsScreen() {
                   <Text
                     style={[
                       styles.weeklyText,
-                      {
-                        color:
-                          summary.weekly_change > 0 ? '#22C55E' : '#FF4D4D',
-                      },
+                      summary.weekly_change > 0
+                        ? styles.weeklyTextPositive
+                        : styles.weeklyTextNegative,
                     ]}
                   >
                     지난주 대비 {summary.weekly_change > 0 ? '+' : ''}
@@ -1387,6 +1615,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  weeklyTextPositive: {
+    color: '#22C55E',
+  },
+  weeklyTextNegative: {
+    color: '#FF4D4D',
+  },
 
   sessionGrid: {
     flexDirection: 'row',
@@ -1552,6 +1786,81 @@ const styles = StyleSheet.create({
   emptyMiniText: {
     fontSize: 12,
     color: '#888',
+  },
+
+  personalIntro: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+    backgroundColor: '#FAFAFD',
+  },
+  personalIntroTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 5,
+  },
+  personalIntroText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#666',
+  },
+  signalGroup: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  signalGroupTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#555',
+    marginBottom: 10,
+  },
+  signalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 7,
+  },
+  signalDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#6C3BFF',
+  },
+  signalDotHigh: {
+    backgroundColor: '#FF4D4D',
+  },
+  signalDotMedium: {
+    backgroundColor: '#EAB308',
+  },
+  signalDotLow: {
+    backgroundColor: '#22C55E',
+  },
+  signalBody: {
+    flex: 1,
+  },
+  signalLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 2,
+  },
+  signalNote: {
+    fontSize: 11,
+    color: '#777',
+    lineHeight: 16,
+  },
+  signalValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#22C55E',
+  },
+  signalValueHigh: {
+    color: '#FF4D4D',
+  },
+  signalValueMedium: {
+    color: '#EAB308',
   },
 
   turnItem: {
