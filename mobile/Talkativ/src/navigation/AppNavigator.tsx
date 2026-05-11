@@ -441,7 +441,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 100,
-    elevation: 16,
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-around',
@@ -449,10 +448,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E8E8F0',
-    shadowColor: '#1A1A2E',
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
   },
   bottomMenuItem: {
     flex: 1,

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, ScrollView,
-  ActivityIndicator, Animated, Platform,
+  ActivityIndicator, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -46,19 +46,19 @@ const CircularProgress = ({ percentage }: { percentage: number }) => {
     Animated.timing(animatedValue, {
       toValue: percentage, duration: 1200, delay: 400, useNativeDriver: false,
     }).start();
-  }, [percentage]);
+  }, [animatedValue, percentage]);
 
   const strokeDashoffset = animatedValue.interpolate({
     inputRange: [0, 100], outputRange: [circumference, 0],
   });
 
   return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size} style={{ position: 'absolute' }}>
+    <View style={styles.circleContainer}>
+      <Svg width={size} height={size} style={styles.circleSvg}>
         <Circle cx={size/2} cy={size/2} r={radius}
           stroke="rgba(255,255,255,0.15)" strokeWidth={strokeWidth} fill="none" />
       </Svg>
-      <Animated.View style={{ position: 'absolute', width: size, height: size }}>
+      <Animated.View style={styles.circleSvg}>
         <Svg width={size} height={size}>
           <AnimatedCircle
             cx={size/2} cy={size/2} r={radius}
@@ -89,7 +89,7 @@ const ProgressCard = ({ item, onPress, index }: {
   useEffect(() => {
     Animated.spring(anim, { toValue: 1, delay: index * 70, tension: 70, friction: 10, useNativeDriver: true }).start();
     Animated.timing(moodWidth, { toValue: item.mood, duration: 900, delay: 300 + index * 70, useNativeDriver: false }).start();
-  }, []);
+  }, [anim, index, item.mood, moodWidth]);
 
   return (
     <Animated.View style={{
@@ -149,7 +149,7 @@ const StatCard = ({ stat, index }: {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.spring(anim, { toValue: 1, delay: 500 + index * 80, tension: 60, friction: 8, useNativeDriver: true }).start();
-  }, []);
+  }, [anim, index]);
 
   return (
     <Animated.View style={[styles.statCardWrapper, {
@@ -171,7 +171,7 @@ const StatCard = ({ stat, index }: {
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const { profile, stats, activeSessions, conversationPreviews, loading } = useHomeData();
+  const { profile, stats, activeSessions, loading } = useHomeData();
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string | null>(null);
 
   useFocusEffect(
@@ -190,14 +190,13 @@ export const HomeScreen: React.FC = () => {
       Animated.spring(headerAnim, { toValue: 1, tension: 60, friction: 10, useNativeDriver: true }),
       Animated.spring(ctaAnim,    { toValue: 1, tension: 60, friction: 10, useNativeDriver: true }),
     ]).start();
-  }, []);
+  }, [ctaAnim, headerAnim]);
 
   const learnedWordsCount   = stats?.learnedWords   ?? 0;
   const learnedPhrasesCount = stats?.learnedPhrases ?? 0;
   const learnedTotal        = learnedWordsCount + learnedPhrasesCount;
 
   const liveStats = [
-    { id: '1', title: '완료한 대화', count: stats?.completedSessions ?? 0,            icon: 'message' as const, color: '#6366F1' },
     { id: '2', title: '배운 단어/표현', count: learnedTotal,                          icon: 'book'    as const, color: '#EC4899' },
     { id: '3', title: '연습 시간',   count: stats?.practiceMinutes   ?? 0, unit: '분', icon: 'clock'   as const, color: '#10B981' },
   ];
@@ -250,9 +249,8 @@ export const HomeScreen: React.FC = () => {
           transform: [{ translateY: ctaAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
         }}>
           <View style={styles.ctaCard}>
-            <View style={styles.ctaBlob} />
             <View style={styles.ctaTop}>
-              <View style={{ flex: 1 }}>
+              <View style={styles.ctaTitleWrap}>
                 <Text style={styles.ctaEyebrow}>오늘의 목표</Text>
                 <Text style={styles.ctaTitle}>한국어 실력을{'\n'}매일 향상시켜보세요!</Text>
               </View>
@@ -304,7 +302,7 @@ export const HomeScreen: React.FC = () => {
         </ScrollView>
 
         {/* ── Stats ── */}
-        <Text style={[styles.sectionTitle, { marginBottom: 14 }]}>학습 통계</Text>
+        <Text style={[styles.sectionTitle, styles.statsTitle]}>학습 통계</Text>
         <View style={styles.statsRow}>
           {liveStats.map((stat, index) => (
             <StatCard key={stat.id} stat={stat} index={index} />
@@ -319,7 +317,7 @@ export const HomeScreen: React.FC = () => {
 // ─── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe:      { flex: 1, backgroundColor: '#F8F8F8' },
+  safe:      { flex: 1, backgroundColor: '#F7F7FB' },
   container: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 40 },
 
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -333,22 +331,33 @@ const styles = StyleSheet.create({
   notifBtn:   {
     width: 40, height: 40, borderRadius: 12,
     backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center',
-    ...Platform.select({
-      ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 4 },
-      android: { elevation: 2 },
-    }),
+    borderWidth: 1,
+    borderColor: '#E8E8F0',
   },
 
-  // CTA Card — dark charcoal, one accent blob, one clean white button
-  ctaCard: {
-    backgroundColor: '#1C1028', borderRadius: 20, padding: 22, marginBottom: 28, overflow: 'hidden',
-    ...Platform.select({
-      ios:     { shadowColor: '#1C1028', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 14 },
-      android: { elevation: 8 },
-    }),
+  // CTA Card
+  circleContainer: {
+    width: 80,
+    height: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  ctaBlob:    { position: 'absolute', width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(99,102,241,0.15)', top: -60, right: -40 },
+  circleSvg: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+  },
+  ctaCard: {
+    backgroundColor: '#211638',
+    borderRadius: 20,
+    padding: 22,
+    marginBottom: 28,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#342654',
+  },
   ctaTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  ctaTitleWrap: { flex: 1 },
   ctaEyebrow: { fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 },
   ctaTitle:   { color: '#FFFFFF', fontSize: 17, fontWeight: '700', lineHeight: 25, letterSpacing: -0.2 },
   ctaBtn:     {
@@ -362,6 +371,7 @@ const styles = StyleSheet.create({
   sectionHeader:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitle:    { fontSize: 15, fontWeight: '700', color: '#111827', letterSpacing: -0.2 },
+  statsTitle:      { marginBottom: 14 },
   countBadge:      { backgroundColor: '#EEF2FF', borderRadius: 7, paddingHorizontal: 7, paddingVertical: 2 },
   countText:       { color: '#6366F1', fontWeight: '700', fontSize: 11 },
   sectionLink:     { flexDirection: 'row', alignItems: 'center', gap: 2 },
@@ -378,10 +388,8 @@ const styles = StyleSheet.create({
   // Progress Card
   progressCard: {
     width: 176, borderRadius: 16, padding: 14, backgroundColor: '#FFFFFF',
-    ...Platform.select({
-      ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 6 },
-      android: { elevation: 2 },
-    }),
+    borderWidth: 1,
+    borderColor: '#E8E8F0',
   },
   progressAvatarRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   progressAvatarIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
@@ -400,10 +408,8 @@ const styles = StyleSheet.create({
   statCardWrapper: { flex: 1 },
   statCard:        {
     backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, alignItems: 'center', gap: 5,
-    ...Platform.select({
-      ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 5 },
-      android: { elevation: 2 },
-    }),
+    borderWidth: 1,
+    borderColor: '#E8E8F0',
   },
   statIconBg: { width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   statCount:  { fontSize: 19, fontWeight: '800', color: '#111827', letterSpacing: -0.4 },

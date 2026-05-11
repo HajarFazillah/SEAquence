@@ -24,7 +24,6 @@ import {
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AI_SERVER_URL } from '../constants';
-import { useHomeData } from '../hooks/useHomeData';
 import {
   fetchMyWeakAreas,
   fetchMyMistakes,
@@ -257,6 +256,17 @@ interface ScenarioChartItem {
   practiceRatio: number;
 }
 
+interface ErrorTypeInsight {
+  type: string;
+  label: string;
+  count: number;
+  ratio: number;
+  severityLabel: string;
+  recentExample?: SavedMistake;
+  lastSeen?: string;
+  trend?: CategoryTrend;
+}
+
 const normalizeMistakeKey = (s: string) =>
   s.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -341,6 +351,53 @@ const computeWeeklyTrend = (mistakes: SavedMistake[]): CategoryTrend[] => {
     .filter(c => c.thisWeek + c.lastWeek > 0)
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || b.thisWeek - a.thisWeek)
     .slice(0, 4);
+};
+
+const computeErrorTypeInsights = (
+  mistakes: SavedMistake[],
+  weeklyTrends: CategoryTrend[],
+): ErrorTypeInsight[] => {
+  const total = Math.max(1, mistakes.length);
+  const groups = new Map<string, { count: number; examples: SavedMistake[] }>();
+
+  mistakes.forEach(m => {
+    const type = m.correctionType || 'unknown';
+    const group = groups.get(type) || { count: 0, examples: [] };
+    group.count += 1;
+    group.examples.push(m);
+    groups.set(type, group);
+  });
+
+  return Array.from(groups.entries())
+    .map(([type, group]) => {
+      const sortedExamples = [...group.examples].sort((a, b) => (
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      ));
+      const severityCounts = group.examples.reduce<Record<string, number>>((acc, m) => {
+        const severity = m.severity || 'low';
+        acc[severity] = (acc[severity] || 0) + 1;
+        return acc;
+      }, {});
+      const severityLabel =
+        severityCounts.error || severityCounts.high
+          ? '높은 영향'
+          : severityCounts.warning || severityCounts.medium
+            ? '주의'
+            : '가벼움';
+
+      return {
+        type,
+        label: getCorrectionTypeLabel(type) || type,
+        count: group.count,
+        ratio: group.count / total,
+        severityLabel,
+        recentExample: sortedExamples[0],
+        lastSeen: sortedExamples[0]?.createdAt,
+        trend: weeklyTrends.find(t => t.type === type),
+      };
+    })
+    .sort((a, b) => b.count - a.count || (b.lastSeen || '').localeCompare(a.lastSeen || ''))
+    .slice(0, 5);
 };
 
 const groupEvents = (
@@ -487,8 +544,6 @@ export default function AnalyticsScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
 
-  const { stats: homeStats } = useHomeData();
-
   const {
     avatar,
     duration,
@@ -514,6 +569,7 @@ export default function AnalyticsScreen() {
   const [weakAreas, setWeakAreas] = useState<WeakArea[]>([]);
   const [recentMistakes, setRecentMistakes] = useState<SavedMistake[]>([]);
   const [practiceEvents, setPracticeEvents] = useState<PracticePatternEvent[]>([]);
+  const [recentTypeFilter, setRecentTypeFilter] = useState('all');
 
   useEffect(() => {
     loadAnalytics();
@@ -594,6 +650,31 @@ export default function AnalyticsScreen() {
     () => computeWeeklyTrend(recentMistakes),
     [recentMistakes],
   );
+  const errorTypeInsights = useMemo(
+    () => computeErrorTypeInsights(recentMistakes, weeklyTrends),
+    [recentMistakes, weeklyTrends],
+  );
+  const recentTypeOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    recentMistakes.forEach(m => {
+      const type = m.correctionType || 'unknown';
+      counts.set(type, (counts.get(type) || 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([type, count]) => ({
+        type,
+        label: getCorrectionTypeLabel(type) || type,
+        count,
+      }));
+  }, [recentMistakes]);
+  const filteredRecentMistakes = useMemo(
+    () => recentTypeFilter === 'all'
+      ? recentMistakes
+      : recentMistakes.filter(m => (m.correctionType || 'unknown') === recentTypeFilter),
+    [recentMistakes, recentTypeFilter],
+  );
   const personalizationSignals = useMemo(
     () => buildPersonalizationSignals(recentMistakes, practiceEvents),
     [recentMistakes, practiceEvents],
@@ -665,15 +746,6 @@ export default function AnalyticsScreen() {
   const displayScore = isHomeAnalysis
     ? Math.round(summary?.overall_score || 0)
     : overallScore;
-
-  const realCompletedConversations =
-    homeStats?.completedSessions ?? summary?.total_conversations ?? 0;
-
-  const realLearnedWords =
-    homeStats?.learnedWords ?? summary?.total_vocabulary ?? 0;
-
-  const realLearnedPhrases =
-    homeStats?.learnedPhrases ?? 0;
 
   const heroColor = getHeroColor(displayScore);
   const heroLabel = getHeroLabel(displayScore);
@@ -898,7 +970,6 @@ export default function AnalyticsScreen() {
                 </Text>
               </View>
 
-              {renderSignalGroup('반복 오류 유형', personalizationSignals.repeatedErrorTypes)}
               {renderSignalGroup('약한 말투', personalizationSignals.weakSpeechLevels)}
               {renderSignalGroup('어려운 관계', personalizationSignals.difficultRelationships)}
               {renderSignalGroup('어려운 상황', personalizationSignals.difficultScenarios)}
@@ -910,52 +981,6 @@ export default function AnalyticsScreen() {
                 <View style={styles.emptyMini}>
                   <Text style={styles.emptyMiniText}>
                     대화 기록이 쌓이면 이곳에 개인화 신호가 표시됩니다.
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-        )}
-
-        {summary && (
-          <View style={styles.section}>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionEye}>PROGRESS</Text>
-              <Text style={styles.sectionTitle}>누적 학습 현황</Text>
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.summaryGrid}>
-                {[
-                  { value: summary.proficiency_level_ko, label: '현재 수준' },
-                  { value: `${realCompletedConversations}회`, label: '총 대화' },
-                  { value: `${realLearnedWords}개`, label: '배운 단어' },
-                  { value: `${realLearnedPhrases}개`, label: '배운 표현' },
-                ].map((item, i) => (
-                  <View key={i} style={styles.summaryItem}>
-                    <Text style={styles.summaryValue}>{item.value}</Text>
-                    <Text style={styles.summaryLabel}>{item.label}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {summary.weekly_change !== 0 && (
-                <View style={styles.weeklyRow}>
-                  <TrendingUp
-                    size={13}
-                    color={summary.weekly_change > 0 ? '#22C55E' : '#FF4D4D'}
-                  />
-
-                  <Text
-                    style={[
-                      styles.weeklyText,
-                      summary.weekly_change > 0
-                        ? styles.weeklyTextPositive
-                        : styles.weeklyTextNegative,
-                    ]}
-                  >
-                    지난주 대비 {summary.weekly_change > 0 ? '+' : ''}
-                    {summary.weekly_change.toFixed(1)}점
                   </Text>
                 </View>
               )}
@@ -1270,6 +1295,84 @@ export default function AnalyticsScreen() {
           </View>
         ) : null}
 
+        {isHomeAnalysis && errorTypeInsights.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionEye}>ERROR TYPES</Text>
+              <Text style={styles.sectionTitle}>오류 유형</Text>
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.errorTypeIntro}>
+                <Text style={styles.errorTypeIntroTitle}>
+                  어떤 종류의 실수가 쌓였는지 봐요
+                </Text>
+                <Text style={styles.errorTypeIntroText}>
+                  약점 순위와 달리, 유형별 비중과 최근 예시를 함께 보여줍니다.
+                </Text>
+              </View>
+
+              {errorTypeInsights.map((item, i) => {
+                const col = getWeakAreaColor(item.severityLabel === '높은 영향' ? 'high' : item.severityLabel === '주의' ? 'medium' : 'low', i);
+                const width = Math.max(8, Math.round(item.ratio * 100));
+                const trendText = item.trend
+                  ? item.trend.direction === 'up'
+                    ? `이번 주 +${item.trend.delta}`
+                    : item.trend.direction === 'down'
+                      ? `이번 주 -${Math.abs(item.trend.delta)}`
+                      : '이번 주 변화 없음'
+                  : '최근 기록 기준';
+
+                return (
+                  <View
+                    key={item.type}
+                    style={[
+                      styles.errorTypeItem,
+                      i < errorTypeInsights.length - 1 && styles.errorTypeItemBorder,
+                    ]}
+                  >
+                    <View style={styles.errorTypeTop}>
+                      <View style={styles.errorTypeNameWrap}>
+                        <Text style={styles.errorTypeName}>{item.label}</Text>
+                        <Text style={styles.errorTypeMeta}>
+                          {item.count}회 · {item.severityLabel} · {trendText}
+                        </Text>
+                      </View>
+
+                      <Text style={[styles.errorTypeRatio, { color: col }]}>
+                        {Math.round(item.ratio * 100)}%
+                      </Text>
+                    </View>
+
+                    <View style={styles.errorTypeBarTrack}>
+                      <View
+                        style={[
+                          styles.errorTypeBarFill,
+                          { width: `${width}%`, backgroundColor: col },
+                        ]}
+                      />
+                    </View>
+
+                    {!!item.recentExample?.originalText && (
+                      <View style={styles.errorTypeExample}>
+                        <Text style={styles.errorTypeExampleLabel}>최근 예시</Text>
+                        <Text style={styles.errorTypeOriginal} numberOfLines={1}>
+                          {item.recentExample.originalText}
+                        </Text>
+                        {!!item.recentExample.correctedText && (
+                          <Text style={styles.errorTypeCorrected} numberOfLines={1}>
+                            {item.recentExample.correctedText}
+                          </Text>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         {isHomeAnalysis &&
           (recurringPatterns.length > 0 || weeklyTrends.length > 0) && (
             <View style={styles.section}>
@@ -1381,12 +1484,58 @@ export default function AnalyticsScreen() {
             </View>
 
             <View style={styles.card}>
-              {recentMistakes.slice(0, 8).map((m, i) => (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.recentFilterRow}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.recentFilterChip,
+                    recentTypeFilter === 'all' && styles.recentFilterChipActive,
+                  ]}
+                  onPress={() => setRecentTypeFilter('all')}
+                >
+                  <Text
+                    style={[
+                      styles.recentFilterText,
+                      recentTypeFilter === 'all' && styles.recentFilterTextActive,
+                    ]}
+                  >
+                    전체 {recentMistakes.length}
+                  </Text>
+                </TouchableOpacity>
+
+                {recentTypeOptions.map(option => {
+                  const active = recentTypeFilter === option.type;
+                  return (
+                    <TouchableOpacity
+                      key={option.type}
+                      style={[
+                        styles.recentFilterChip,
+                        active && styles.recentFilterChipActive,
+                      ]}
+                      onPress={() => setRecentTypeFilter(option.type)}
+                    >
+                      <Text
+                        style={[
+                          styles.recentFilterText,
+                          active && styles.recentFilterTextActive,
+                        ]}
+                      >
+                        {option.label} {option.count}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {filteredRecentMistakes.slice(0, 8).map((m, i) => (
                 <View
                   key={m.id}
                   style={[
                     styles.recentItem,
-                    i < Math.min(recentMistakes.length, 8) - 1 &&
+                    i < Math.min(filteredRecentMistakes.length, 8) - 1 &&
                       styles.recentItemBorder,
                   ]}
                 >
@@ -1415,6 +1564,14 @@ export default function AnalyticsScreen() {
                   )}
                 </View>
               ))}
+
+              {filteredRecentMistakes.length === 0 && (
+                <View style={styles.recentEmpty}>
+                  <Text style={styles.recentEmptyText}>
+                    이 유형의 최근 실수는 아직 없어요.
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         )}
@@ -1639,45 +1796,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     overflow: 'hidden',
-  },
-
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  summaryItem: {
-    width: '50%',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-  },
-  summaryValue: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#111',
-    marginBottom: 3,
-  },
-  summaryLabel: {
-    fontSize: 11,
-    color: '#999',
-  },
-  weeklyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    padding: 12,
-    borderTopWidth: 1,
-    borderTopColor: BORDER,
-  },
-  weeklyText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  weeklyTextPositive: {
-    color: '#22C55E',
-  },
-  weeklyTextNegative: {
-    color: '#FF4D4D',
   },
 
   sessionGrid: {
@@ -2166,6 +2284,90 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
+  errorTypeIntro: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  errorTypeIntroTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 4,
+  },
+  errorTypeIntroText: {
+    fontSize: 11,
+    color: '#777',
+    lineHeight: 16,
+  },
+  errorTypeItem: {
+    padding: 14,
+  },
+  errorTypeItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  errorTypeTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  errorTypeNameWrap: {
+    flex: 1,
+  },
+  errorTypeName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 3,
+  },
+  errorTypeMeta: {
+    fontSize: 11,
+    color: '#777',
+    lineHeight: 16,
+  },
+  errorTypeRatio: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  errorTypeBarTrack: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: '#F0F0F5',
+    overflow: 'hidden',
+  },
+  errorTypeBarFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  errorTypeExample: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#FAFAFC',
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  errorTypeExampleLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#999',
+    marginBottom: 5,
+  },
+  errorTypeOriginal: {
+    fontSize: 12,
+    color: '#888',
+    textDecorationLine: 'line-through',
+    marginBottom: 3,
+  },
+  errorTypeCorrected: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#22C55E',
+  },
+
   emptyCard: {
     alignItems: 'center',
     paddingVertical: 28,
@@ -2237,6 +2439,33 @@ const styles = StyleSheet.create({
   recentItem: {
     padding: 14,
   },
+  recentFilterRow: {
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  recentFilterChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#F7F7FA',
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  recentFilterChipActive: {
+    backgroundColor: BRAND,
+    borderColor: BRAND,
+  },
+  recentFilterText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#777',
+  },
+  recentFilterTextActive: {
+    color: '#fff',
+  },
   recentItemBorder: {
     borderBottomWidth: 0.5,
     borderBottomColor: '#E5E5EA',
@@ -2284,5 +2513,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#555',
     lineHeight: 18,
+  },
+  recentEmpty: {
+    padding: 18,
+    alignItems: 'center',
+  },
+  recentEmptyText: {
+    fontSize: 12,
+    color: '#999',
   },
 });
