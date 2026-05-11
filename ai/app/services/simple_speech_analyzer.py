@@ -461,6 +461,9 @@ INFORMAL_PATTERNS = [
     r"마[.?!]?$",
     r"가[.?!]?$",
     r"데이[.?!]?$",
+    r"돼[.?!]?$",
+    r"줘[.?!]?$",
+    r"봐[.?!]?$",
 ]
 
 
@@ -470,6 +473,107 @@ LEVEL_INFO = {
     SpeechLevel.INFORMAL: {"ko": "반말", "en": "Informal"},
     SpeechLevel.UNKNOWN: {"ko": "알 수 없음", "en": "Unknown"},
 }
+
+
+# ============================================================
+# Morpheme-based speech level detection (Komoran)
+# ============================================================
+#
+# Korean speech level is carried by the final 어미 (sentence ending), which is
+# a *morpheme*, not a substring — so suffix regex on word tails will always
+# miss contractions like "안 해도 돼" (the 어미 is `어`, not `돼`).
+#
+# Komoran POS-tags inflected verbs into stem + endings (e.g.
+# "해주세요" → [(하,VV),(아,EC),(주,VX),(시,EP),(어요,EC)]). We look at the LAST
+# E-tag morpheme and map it to a speech level. This catches the cases that the
+# surface-form regex layer misses.
+#
+# Komoran is not perfect (it sometimes misclassifies set phrases like
+# "안녕하십니까" as a single noun), so this layer is intentionally a *fallback*
+# for cases where the surface regex doesn't fire — the LLM still gets the
+# final say downstream.
+
+_FINAL_ENDINGS_FORMAL = {
+    "습니다", "ㅂ니다", "습니까", "ㅂ니까", "십시오", "으십시오",
+    "십니다", "십니까", "겠습니다", "겠습니까", "셨습니다", "셨습니까",
+    "였습니다", "였습니까", "옵니다", "옵니까",
+}
+
+_FINAL_ENDINGS_POLITE = {
+    "어요", "아요", "여요", "예요", "에요", "이에요",
+    "세요", "으세요", "셔요", "시어요",
+    "네요", "군요", "구나요", "죠", "지요",
+    "나요", "까요", "ㄹ까요", "을까요", "ㄹ게요", "을게요",
+    "는데요", "ㄴ데요", "데요", "거든요", "잖아요",
+    "래요", "ㄹ래요", "을래요", "더라고요", "더라구요",
+    "겠어요", "겠죠",
+}
+
+_FINAL_ENDINGS_INFORMAL = {
+    "어", "아", "여", "지", "네", "군", "구나", "구만",
+    "거야", "거지", "거든", "잖아", "잖니",
+    "ㄹ게", "을게", "ㄹ까", "을까", "ㄹ래", "을래",
+    "냐", "니", "자", "야",
+    "더라", "더라고", "더라구", "ㄴ데", "는데",
+    "겠어", "이야",
+}
+
+_komoran_instance = None
+_komoran_init_attempted = False
+
+
+def _get_komoran():
+    """Lazily initialize a Komoran instance. Returns None if unavailable."""
+    global _komoran_instance, _komoran_init_attempted
+    if _komoran_init_attempted:
+        return _komoran_instance
+    _komoran_init_attempted = True
+    try:
+        from konlpy.tag import Komoran
+        _komoran_instance = Komoran()
+        logger.info("Komoran morpheme analyzer initialized for speech-level detection")
+    except Exception as e:
+        logger.warning(f"Komoran unavailable, morpheme-level detection disabled: {e}")
+        _komoran_instance = None
+    return _komoran_instance
+
+
+def detect_speech_level_by_morpheme(text: str) -> str:
+    """Detect speech level from the final sentence-ending morpheme.
+
+    Returns one of "formal", "polite", "informal", or "" (unknown / not
+    confident). Falls back gracefully to "" if Komoran isn't installed or
+    if the tagger produces no recognizable ending.
+    """
+    if not text:
+        return ""
+
+    komoran = _get_komoran()
+    if komoran is None:
+        return ""
+
+    cleaned = re.sub(r"[.!?…。？！\"')\]\s]+$", "", text.strip())
+    if not cleaned:
+        return ""
+
+    try:
+        morphs = komoran.pos(cleaned)
+    except Exception:
+        return ""
+
+    # Walk back from the end looking for the final ending morpheme.
+    for token, tag in reversed(morphs):
+        if not tag.startswith("E"):
+            continue
+        if token in _FINAL_ENDINGS_FORMAL:
+            return "formal"
+        if token in _FINAL_ENDINGS_POLITE:
+            return "polite"
+        if token in _FINAL_ENDINGS_INFORMAL:
+            return "informal"
+        # Unknown ending shape — keep walking; the very last E-tag may be a
+        # connective like 아도/어서, with the real terminal ending earlier.
+    return ""
 
 
 # ============================================================

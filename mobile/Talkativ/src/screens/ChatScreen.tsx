@@ -1021,7 +1021,15 @@ export default function ChatScreen() {
                   <View style={[styles.scoreFill, { width: `${isScorable ? (fb.accuracy_score ?? 0) : 0}%`, backgroundColor: sc }]} />
                 </View>
                 <Text style={[styles.scoreHint, { color: sc }]}>
-                  {!isScorable ? '분석 제외' : (fb.accuracy_score ?? 0) >= 70 ? '완벽해요' : (fb.accuracy_score ?? 0) >= 40 ? '수정 추천' : '말투 오류 있음'}
+                  {!isScorable
+                    ? '분석 제외'
+                    : (fb.accuracy_score ?? 0) >= 90
+                      ? '완벽해요'
+                      : (fb.accuracy_score ?? 0) >= 70
+                        ? '잘했어요'
+                        : (fb.accuracy_score ?? 0) >= 40
+                          ? '조금 더 다듬어 봐요'
+                          : '말투 오류 있음'}
                 </Text>
               </View>
             </View>

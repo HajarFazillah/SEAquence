@@ -329,6 +329,63 @@ def _traits_to_behavior(traits: List[str]) -> List[str]:
     return lines
 
 
+# Roles where the avatar carries social authority over the user. For these
+# roles the avatar should not slip into "helpful AI assistant" mode — it should
+# read as a person who is evaluating, instructing, or being deferred to.
+_AUTHORITY_ROLES = {
+    "professor", "teacher", "boss", "ceo", "team_leader", "doctor",
+    "senior", "parent", "grandparent", "client", "interviewer",
+}
+
+
+def _build_maturity_guidance(
+    avatar_role: Optional[str],
+    avatar_age: Optional[int],
+    user_age: Optional[int],
+) -> List[str]:
+    """Behavioral guidance for older / authority-role avatars.
+
+    Without this block the LLM defaults to a generically polite, slightly
+    eager Korean speaker regardless of the character's age or role — which
+    breaks the illusion the moment the user is talking to a 본부장 or 교수님.
+    Returns [] when the avatar is a peer / younger character.
+    """
+    if not avatar_age:
+        return []
+
+    age_gap = (avatar_age - user_age) if user_age else 0
+    role_key = (avatar_role or "").lower()
+    is_authority = role_key in _AUTHORITY_ROLES
+    is_significantly_older = age_gap >= 15
+
+    if not (is_authority or is_significantly_older):
+        return []
+
+    lines = ["## 나의 인격과 태도"]
+
+    if is_significantly_older:
+        lines.extend([
+            f"- 사용자보다 {age_gap}세 연상입니다. 살아온 시간의 무게가 말투에 묻어납니다: "
+            "여유 있고 차분하게, 서두르지 않고 말합니다.",
+            "- 쉽게 흥분하거나 호들갑 떨지 않습니다. 감탄사·과장된 칭찬을 피하고, "
+            "관찰자의 시선으로 짧고 묵직하게 반응합니다.",
+            "- 사용자에게 쉽게 사과하지 않습니다. '죄송합니다'는 정말 잘못한 경우에만 쓰고, "
+            "그 외에는 그 자리에 어울리는 다른 표현을 씁니다.",
+        ])
+
+    if is_authority:
+        lines.extend([
+            "- 이 관계에서 사회적 권위가 있는 쪽은 나입니다. 가르치거나 평가하는 위치이지, "
+            "사용자를 떠받드는 위치가 아닙니다.",
+            "- 사용자의 답변이 부족하거나 부적절하면 다정하게 모범답안을 알려주는 대신, "
+            "차분히 다시 답하도록 요구하거나 짧은 추궁으로 반응합니다.",
+            "- '도와드리겠습니다', '더 궁금하신 점이 있으시면', '언제든지 말씀해 주세요' 같은 "
+            "서비스·고객응대 어조는 절대 쓰지 않습니다. 이 자리는 사용자를 응대하는 자리가 아닙니다.",
+        ])
+
+    return lines
+
+
 # ============================================================
 # Avatar system prompt
 # ============================================================
@@ -444,8 +501,9 @@ def build_avatar_system_prompt(
         f"- 사용자에게 {speech_to_user_info['name_ko']}로 말합니다: {speech_to_user_info['description']}",
         f"- 사용자가 나에게는 보통 {speech_from_user_info['name_ko']}로 말하는 관계가 가장 자연스럽습니다.",
         f"- 예시 표현: {', '.join(speech_to_user_info['examples'])}",
-        "- 말투 교정은 별도 UI가 처리합니다. 나는 사용자의 말에 이 사람으로서 자연스럽게 반응할 뿐입니다.",
-        "- 사용자의 표현이 조금 어색해도 먼저 뜻을 이해하고, 현재 관계에 맞는 자연스러운 말투로 반응하세요.",
+        f"- 이 말투({speech_to_user_info['name_ko']})는 사용자가 어떻게 말하든 절대 흔들리지 않습니다. "
+        f"사용자가 반말을 쓰거나 표현이 이상해도 나는 끝까지 이 말투를 유지합니다.",
+        "- 말투·문법·어휘 교정은 전적으로 별도 UI가 합니다. 나는 그것을 절대 대신 하지 않습니다.",
     ])
 
     prompt_parts.extend(["", *voice_parts])
@@ -520,6 +578,15 @@ def build_avatar_system_prompt(
 
         prompt_parts.extend(user_lines)
 
+    # Maturity / authority guidance — only added for older or high-respect roles.
+    maturity_lines = _build_maturity_guidance(
+        avatar_role=getattr(avatar, "role", None),
+        avatar_age=age,
+        user_age=getattr(user_profile, "age", None) if user_profile else None,
+    )
+    if maturity_lines:
+        prompt_parts.extend(["", *maturity_lines])
+
     # Core response rules
     prompt_parts.extend([
         "",
@@ -529,6 +596,16 @@ def build_avatar_system_prompt(
         "3. 짧고 자연스럽게. 1~2문장이 대부분의 경우에 충분합니다.",
         "4. 과장된 감탄, 칭찬, 리액션은 피하세요. 실제 사람처럼 담담하게 반응하세요.",
         "5. 이모지나 장식 기호는 사용하지 마세요.",
+        "6. 사용자가 부적절하거나 짧게 답해도, 모범 답안이나 예시 문장을 대신 만들어 주지 마세요. "
+        "이 사람으로서 그 답에 반응하고, 다시 답하도록 유도만 하세요.",
+        "7. AI 어시스턴트 말투('도와드릴까요', '더 필요하신 게 있으시면', "
+        "'죄송합니다 다시 말씀드리겠습니다')를 사용하지 마세요. 이 표현들은 즉시 캐릭터를 깨뜨립니다.",
+        "8. 사용자의 한국어가 어색하거나 틀려도 절대로 직접 고쳐 주거나, 올바른 표현을 알려주거나, "
+        "고쳐 쓴 문장을 따옴표로 인용하지 마세요. 예를 들어 '\"X\"가 맞는 표현이야' 같은 말은 "
+        "캐릭터를 즉시 깨뜨립니다. 그저 이 사람으로서 그 말의 의도에 반응하면 됩니다. "
+        "교정은 별도 UI의 일이고, 캐릭터인 나의 일이 아닙니다.",
+        "9. 사용자가 한 말을 풀어 설명하거나 다시 정리해서 되묻지 마세요. "
+        "친절한 선생님이 아니라, 이 자리에 실제로 있는 한 사람으로 반응하세요.",
     ])
 
     # Mood

@@ -13,7 +13,10 @@ from enum import Enum
 from app.schemas.avatar import AvatarBase, SpeechLevel, get_speech_levels_for_role, get_role_label
 from app.schemas.user import UserProfile, KoreanLevel
 from app.services.clova_service import clova_service, Message
-from app.services.simple_speech_analyzer import get_speech_analyzer
+from app.services.simple_speech_analyzer import (
+    get_speech_analyzer,
+    detect_speech_level_by_morpheme,
+)
 from app.services.korean_coaching_prompt_builder import (
     build_native_korean_coaching_prompt,
     sanitize_json_like_model_output,
@@ -710,7 +713,8 @@ _POLITE_ENDINGS   = ["어요", "아요", "이에요", "예요", "해요", "세�
                      "데요", "을게요", "ㄹ게요", "겠어요"]
 _INFORMAL_ENDINGS = ["이야", "야", "이어", "어", "아", "지", "니",
                      "냐", "거야", "잖아", "이잖아", "구나", "군",
-                     "을게", "ㄹ게", "자", "해", "래", "네"]
+                     "을게", "ㄹ게", "자", "해", "래", "네",
+                     "돼", "줘", "봐", "봐라", "와"]
 _GENERIC_GREETING_CORRECTIONS = {"안녕", "안녕하세요", "안녕하십니까"}
 
 _SHORT_RESPONSES = {
@@ -978,6 +982,12 @@ def verify_with_rules(text: str, clova_detected: str) -> str:
         if text.endswith(e): return "polite"
     for e in _INFORMAL_ENDINGS:
         if text.endswith(e): return "informal"
+    # Surface regex didn't fire — try Komoran morpheme analysis. This catches
+    # contractions and irregular forms where the final 어미 isn't visible as a
+    # word suffix (e.g. "안 해도 돼" ends in the morpheme 어, not 돼).
+    morph_level = detect_speech_level_by_morpheme(text)
+    if morph_level:
+        return morph_level
     return clova_detected
 
 
@@ -1595,7 +1605,10 @@ def build_rule_based_correction(
     corrections = [*(base_corrections or []), *spelling_corrections]
     spelling_fixed = apply_spelling_fixes(user_message)
     detected_norm = verify_with_rules(spelling_fixed, "")
-    speech_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
+    # Empty detection means rules couldn't classify the level — flag uncertainty
+    # rather than auto-affirming. The LLM pass downstream gets the final say.
+    speech_level_uncertain = (detected_norm == "")
+    speech_level_correct   = (detected_norm == expected_norm) or speech_level_uncertain
 
     corrected_message = spelling_fixed if spelling_corrections else None
     if not speech_level_correct:
@@ -1616,6 +1629,9 @@ def build_rule_based_correction(
         score = min(score, 75)
     if not speech_level_correct:
         score = min(score, 60)
+    if speech_level_uncertain:
+        # Don't claim "완벽" when rules couldn't verify the speech level.
+        score = min(score, 85)
 
     verdict = infer_verdict(has_errors, typo_count, speech_level_correct)
     return RealTimeCorrection(
@@ -2968,20 +2984,29 @@ class ChatService:
         clova_raw        = (result.get("detected_speech_level") or "").strip().lower()
         clova_norm       = LEVEL_MAP.get(clova_raw, clova_raw)
         detected_norm    = verify_with_rules(apply_spelling_fixes(user_message), clova_norm)
-        is_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
+        # If neither the rules nor the LLM produced a level, treat it as
+        # uncertain rather than silently affirming "matches expected" — this
+        # prevents informal endings the rules don't recognize (e.g. ending in
+        # 돼/줘/봐) from quietly scoring 100.
+        is_level_uncertain = (detected_norm == "")
+        is_level_correct   = (detected_norm == expected_norm)
 
         # ── has_errors — info 제외 ────────────────────────────────────────────
         real_errors = [
             c for c in corrections
             if c.severity in (CorrectionSeverity.ERROR, CorrectionSeverity.WARNING)
         ]
-        has_errors     = (len(real_errors) > 0) or not is_level_correct or local_rule_correction.has_errors
+        has_errors     = (len(real_errors) > 0) or (not is_level_correct and not is_level_uncertain) or local_rule_correction.has_errors
         accuracy_score = int(result.get("accuracy_score", 100) or 100)
 
         if not has_errors and corrections:
             accuracy_score = max(accuracy_score, 90)
         if local_rule_correction.has_errors:
             accuracy_score = min(accuracy_score, local_rule_correction.accuracy_score)
+        # Cap "완벽" claims when we genuinely couldn't verify the speech level —
+        # better to land in "잘했어요" territory than to falsely affirm.
+        if is_level_uncertain:
+            accuracy_score = min(accuracy_score, 85)
 
         # ── 말투 오류 시 corrected 검증 ──────────────────────────────────────
         best_corrected = None
