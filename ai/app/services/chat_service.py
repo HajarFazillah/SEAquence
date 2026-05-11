@@ -422,6 +422,7 @@ def build_realtime_correction_prompt(
     }.get(edit_strategy_hint, "- 과교정보다 보수적으로 판단하세요.")
 
     return f"""사용자의 한국어 메시지를 분석하여 실시간 교정 피드백을 제공하세요.
+이 작업은 교정 분석 전용입니다. 아바타 답변이나 역할극 대사는 절대 만들지 마세요.
 
 ## 대화 상황
 - 대화 상대: {avatar_role}
@@ -451,32 +452,42 @@ def build_realtime_correction_prompt(
 4. 현재 문장이 이미 자연스러우면 수정하지 말고 그대로 인정하세요.
 5. 서비스/주문 상황에서는 메뉴 이름, 수량, 핵심 명사는 보존하고 말투와 요청 표현을 먼저 다듬으세요.
 
-## 응답 형식 (JSON)
+## 응답 형식 (JSON only)
 {{
     "edit_strategy": "none / minimal / rewrite",
-    "has_errors": true/false,
-    "corrected_message": "반드시 {speech_info['name_ko']}로 수정된 전체 메시지. 오류 없으면 null",
-    "detected_speech_level": "formal / polite / informal 중 하나",
-    "speech_level_correct": true/false,
-    "accuracy_score": 0-100,
+    "has_errors": true,
+    "corrected_message": "오류가 있으면 의미를 보존하여 {speech_info['name_ko']}로 수정한 전체 메시지. 오류 없으면 null",
+    "detected_speech_level": "formal / polite / informal / unknown 중 하나",
+    "speech_level_correct": false,
+    "accuracy_score": 85,
     "corrections": [
         {{
-            "original": "반드시 사용자 메시지에 실제로 존재하는 표현만",
+            "original": "반드시 사용자 메시지에 실제로 존재하는 정확한 부분 문자열. 부분 문자열로 잡기 어려우면 전체 사용자 메시지",
             "corrected": "올바른 {speech_info['name_ko']} 표현",
             "type": "speech_level/grammar/spelling/vocabulary/expression/honorific",
             "severity": "info/warning/error",
-            "explanation": "왜 틀렸는지 한국어로 설명",
-            "tip": "기억하기 쉬운 팁 (선택사항)"
+            "explanation": "왜 고치면 좋은지 한국어 한 문장",
+            "tip": "짧은 학습 팁 또는 null"
         }}
     ],
     "natural_alternatives": [
         {{
-            "expression": "이렇게도 말할 수 있어요 — 더 자연스러운 {speech_info['name_ko']} 표현",
-            "explanation": "왜 이 표현이 더 자연스러운지 한 줄로"
+            "expression": "사용자가 그대로 따라 말할 수 있는 완전한 한국어 문장",
+            "explanation": "왜 이 표현이 더 자연스러운지 한국어 한 문장"
         }}
     ],
     "encouragement": "잘한 점을 언급한 긍정적인 피드백 (1문장)"
 }}
+
+## JSON 계약
+- JSON 객체 하나만 출력하세요. 마크다운, 코드블록, 설명 문장, 추가 키는 금지합니다.
+- 모든 문자열 값은 한국어로 작성하세요. 단, type/severity/level 코드는 지정된 영어 코드만 사용하세요.
+- corrected_message는 사용자의 원래 의미를 보존해야 합니다. 새 정보, 새 감정, 새 의도를 추가하지 마세요.
+- has_errors가 false이면 corrected_message는 null, corrections는 [], natural_alternatives는 []로 두세요.
+- has_errors가 true이면 corrected_message는 null이 아니어야 합니다.
+- corrections[].original은 반드시 사용자 메시지에 실제로 있는 텍스트와 정확히 일치해야 합니다.
+- 부분 문자열이 애매하면 original에 전체 사용자 메시지를 넣으세요.
+- 같은 오류를 여러 번 반복하지 마세요.
 
 ## natural_alternatives 규칙
 - natural_alternatives는 선택사항입니다. 정말 더 자연스럽고 학습 가치가 있을 때만 0~1개 제안하세요.
@@ -489,7 +500,7 @@ def build_realtime_correction_prompt(
 - corrected_message와 완전히 같은 문장을 natural_alternatives에 다시 넣지 마세요.
 
 ## 절대 규칙
-- detected_speech_level 은 formal / polite / informal 중 하나 (null 불가)
+- detected_speech_level 은 formal / polite / informal / unknown 중 하나 (null 불가)
 - corrected_message 는 반드시 {speech_info['name_ko']} 말투로
 - corrections original 은 사용자 메시지에 실제 존재하는 표현만
 - 맥락상 자연스러운 표현은 오류 처리 금지
@@ -2430,13 +2441,7 @@ class ChatService:
         session_summary: Optional[str] = None,
     ) -> str:
         corrected = correction.corrected_message or self._best_corrected_expression(correction) or user_message
-        recent_mistakes = (correction_context or {}).get("recent_mistakes") or []
         summary_line = f"\n[SESSION SUMMARY]\n{session_summary}\n" if session_summary else ""
-        recent_mistake_lines = "\n".join(
-            f"- {m.get('message', '')} -> {m.get('corrected', '')}"
-            for m in recent_mistakes[-4:]
-            if isinstance(m, dict)
-        )
         extra_guidance = "\n".join(
             f"- {line}" for line in response_instruction if str(line).strip()
         )
@@ -2456,13 +2461,14 @@ class ChatService:
 
 ## 채팅 말풍선 규칙
 - 채팅 답변에는 "polite detected", "감지", "점수", "정확도", "분석 결과" 같은 분석 라벨을 절대 쓰지 마세요.
-- 오류가 있으면 첫 문장에서 자연스러운 수정 문장을 짧게 알려주고, 바로 캐릭터답게 대화를 이어가세요.
-- 오류가 없으면 교정 설명을 길게 하지 말고, 사용자의 내용에 자연스럽게 반응하세요.
+- 교정 내용은 별도 UI가 보여줍니다. 당신은 corrected intent를 조용히 이해하고, 캐릭터답게 대화만 이어가세요.
+- 오류가 있어도 "X가 맞는 표현이야", "이렇게 말하세요"처럼 직접 교정하지 마세요.
+- 문법, 말투, 표현, 점수, 학습 팁, 모범 답안, 예시 문장을 말풍선에서 제공하지 마세요.
+- 당신은 튜터, 코치, 선생님, 평가자가 아닙니다. 오직 현재 아바타 캐릭터입니다.
+- 오류가 없으면 사용자의 내용에 자연스럽게 반응하세요.
 - 답변은 1~3문장으로 짧고 실제 사람이 말하듯 작성하세요.
 - 이모지와 장식 기호는 사용하지 마세요.
 
-## 최근 반복 실수
-{recent_mistake_lines or "- 없음"}
 {extra_guidance}
 """
 
@@ -2634,14 +2640,7 @@ class ChatService:
         )
 
         if correction.has_errors and is_bad_reply:
-            corrected = self._best_corrected_expression(correction) or user_message
-            if correction.verdict == "speech_and_spelling":
-                return f'"{corrected}"라고 하면 더 자연스러워. 좋아, 그 표현으로 다시 이어가 보자.'
-            if correction.verdict == "spelling":
-                return f'"{corrected}"가 맞는 표기야. 무슨 말인지 알겠어. 이어서 말해줘.'
-            if correction.verdict == "wrong_speech_level":
-                return f'"{corrected}"처럼 말하면 지금 관계에 더 잘 맞아. 그럼 계속 이야기해 보자.'
-            return f'"{corrected}"라고 하면 더 자연스러워. 계속 이어가 볼게.'
+            return "무슨 말인지 알겠어. 그 얘기 조금만 더 해 봐."
 
         if is_bad_reply:
             return "좋아, 계속 이야기해 보자."

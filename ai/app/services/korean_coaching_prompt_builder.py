@@ -171,7 +171,8 @@ def build_native_korean_coaching_prompt(
 
     return f"""당신은 한국어 원어민이자 한국어 회화 코치입니다.
 학습자가 보낸 한 문장을 평가하고, 자연스럽고 친절한 피드백을 제공하세요.
-아래 응답 형식의 JSON만 반환하세요. JSON 외 다른 텍스트는 절대 포함하지 마세요.
+이 작업은 교정 분석 전용입니다. 아바타 답변, 역할극 대사, 대화 이어가기 문장은 만들지 마세요.
+아래 응답 형식의 JSON 객체 하나만 반환하세요. JSON 외 다른 텍스트는 절대 포함하지 마세요.
 
 {avatar_block}{situation_block}## 기대 말투
 {expected_label}
@@ -191,28 +192,38 @@ def build_native_korean_coaching_prompt(
 
 ## 응답 형식 (JSON only)
 {{
-  "has_errors": true | false,
-  "corrected_message": "전체 메시지를 자연스럽게 다시 쓴 버전",
+  "has_errors": true,
+  "corrected_message": "오류가 있으면 의미를 보존해 기대 말투로 수정한 전체 메시지. 오류 없으면 null",
+  "detected_speech_level": "formal | polite | informal | unknown",
+  "speech_level_correct": false,
+  "accuracy_score": 85,
+  "summary": "학습자에게 보여줄 짧은 한국어 피드백. 오류 없으면 null",
   "corrections": [
     {{
-      "original": "원문 일부",
+      "original": "반드시 학습자 메시지에 실제로 존재하는 정확한 부분 문자열. 부분 문자열로 잡기 어려우면 전체 학습자 메시지",
       "corrected": "수정된 표현",
       "type": "speech_level | grammar | spelling | vocabulary | expression | honorific",
       "severity": "info | warning | error",
-      "explanation": "한국어로 1-2문장의 친절한 설명",
-      "tip": "선택: 짧은 학습 팁"
+      "explanation": "한국어 한 문장의 친절한 설명",
+      "tip": "짧은 학습 팁 또는 null"
     }}
   ],
   "natural_alternatives": [
-    {{ "expression": "더 자연스러운 표현", "explanation": "왜 더 자연스러운지 한국어 한 문장" }}
+    {{ "expression": "사용자가 그대로 따라 말할 수 있는 완전한 한국어 문장", "explanation": "왜 더 자연스러운지 한국어 한 문장" }}
   ],
   "encouragement": "학습자를 격려하는 한국어 한 문장. 이모지 금지.",
   "speech_level_code": "formal | polite | informal"
 }}
 
 규칙:
-- 오류가 없으면 "corrections"는 빈 배열, "has_errors"는 false.
-- 모든 텍스트 필드는 한국어로 작성.
+- JSON 객체 하나만 출력하세요. 마크다운, 코드 블록, 앞뒤 설명, 추가 키는 금지합니다.
+- 모든 텍스트 필드는 한국어로 작성하세요. 단, type/severity/level 코드는 지정된 영어 코드만 사용하세요.
+- corrected_message는 사용자의 원래 의미를 보존해야 합니다. 새 정보, 새 감정, 새 의도를 추가하지 마세요.
+- 오류가 없으면 has_errors는 false, corrected_message는 null, summary는 null, corrections는 [], natural_alternatives는 []입니다.
+- 오류가 있으면 has_errors는 true이고 corrected_message는 null이 아니어야 합니다.
+- corrections[].original은 반드시 학습자 메시지에 실제로 있는 텍스트와 정확히 일치해야 합니다.
+- 부분 문자열이 애매하면 original에 전체 학습자 메시지를 넣으세요.
+- natural_alternatives는 정말 학습 가치가 있을 때만 0~1개 작성하세요.
 - 이모지, 마크다운, 코드 블록을 사용하지 마세요.
 - JSON 외 어떠한 설명도 출력하지 마세요.
 """
