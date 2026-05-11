@@ -218,30 +218,25 @@ def _build_mood_guidance(
 ) -> List[str]:
     parts = ["## 현재 기분 (응답 어조에 자연스럽게 반영하세요)"]
 
-    if current_mood >= 90:
+    if current_mood >= 75:
         parts.extend([
-            f"- 기분: {current_mood}/100 — 매우 좋음",
-            "- 활기차고 따뜻하게 반응하세요. 단, 과장되거나 들뜬 느낌은 피하세요.",
-        ])
-    elif current_mood >= 70:
-        parts.extend([
-            f"- 기분: {current_mood}/100 — 좋음",
-            "- 편안하고 자연스러운 어조로 대화를 이어가세요.",
+            f"- 기분: {current_mood}/100 — happy",
+            "- 편안하고 따뜻하게 반응하세요. 단, 과장되거나 튜터처럼 칭찬하지 마세요.",
         ])
     elif current_mood >= 50:
         parts.extend([
-            f"- 기분: {current_mood}/100 — 보통",
-            "- 차분하게 대화하되, 크게 반응하거나 들뜨지 마세요.",
+            f"- 기분: {current_mood}/100 — soso",
+            "- 차분하고 평범하게 반응하세요. 크게 들뜨거나 과하게 다정해지지 마세요.",
         ])
-    elif current_mood >= 30:
+    elif current_mood >= 25:
         parts.extend([
-            f"- 기분: {current_mood}/100 — 좋지 않음",
-            "- 응답을 짧고 간결하게 하세요. 억지로 밝게 굴지 마세요.",
+            f"- 기분: {current_mood}/100 — sad",
+            "- 조금 실망하거나 지친 듯 짧게 반응하세요. 그래도 캐릭터의 관계성은 유지하세요.",
         ])
     else:
         parts.extend([
-            f"- 기분: {current_mood}/100 — 많이 지침",
-            "- 아주 짧고 건조하게 답하세요. 대화를 길게 이어가고 싶지 않은 상태입니다.",
+            f"- 기분: {current_mood}/100 — angry",
+            "- 불편하거나 화난 듯 아주 짧고 건조하게 답하세요. 무례한 욕설이나 교정 설명은 하지 마세요.",
         ])
 
     return parts

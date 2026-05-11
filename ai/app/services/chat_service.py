@@ -2352,7 +2352,7 @@ class ChatService:
             correction=correction,
             mood_change=mood_change,
             current_mood=new_mood,
-            mood_emoji="",
+            mood_emoji=mood_emoji,
             suggestions=suggestions,
             hint=hint,
             correct_streak=streak,
@@ -3236,13 +3236,33 @@ class ChatService:
 
     def _calculate_mood_change(self, correction: RealTimeCorrection) -> int:
         if not correction.has_errors:
-            return 8 if correction.streak_bonus else 3
+            if correction.streak_bonus:
+                return 6
+            if correction.accuracy_score >= 95:
+                return 4
+            return 2
+
         error_count   = sum(1 for c in correction.corrections if c.severity == CorrectionSeverity.ERROR)
         warning_count = sum(1 for c in correction.corrections if c.severity == CorrectionSeverity.WARNING)
-        if error_count >= 2:     return -10
-        elif error_count == 1:   return -5
-        elif warning_count >= 2: return -3
-        else:                    return -1
+        accuracy = correction.accuracy_score or 100
+
+        if accuracy < 40:
+            return -18
+        if error_count >= 3:
+            return -16
+        if error_count >= 2:
+            return -14
+        if error_count == 1 and warning_count >= 1:
+            return -10
+        if error_count == 1:
+            return -8
+        if not correction.speech_level_correct:
+            return -6
+        if warning_count >= 2:
+            return -5
+        if warning_count == 1:
+            return -3
+        return -1
 
     def _update_mood(self, avatar_key: str, change: int) -> int:
         current  = self.user_moods.get(avatar_key, 80)
@@ -3251,10 +3271,13 @@ class ChatService:
         return new_mood
 
     def _get_mood_emoji(self, mood: int) -> str:
-        # Emoji surfaces are intentionally empty; the mobile client renders its
-        # own visual based on `current_mood`. Kept as a method for backward
-        # compatibility with callers that still reference it.
-        return ""
+        if mood >= 75:
+            return "happy"
+        if mood >= 50:
+            return "soso"
+        if mood >= 25:
+            return "sad"
+        return "angry"
 
     async def analyze_message(
         self,

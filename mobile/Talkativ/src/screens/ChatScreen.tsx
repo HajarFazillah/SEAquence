@@ -115,32 +115,32 @@ interface CorrectionContext {
 // ─── Mood helpers ─────────────────────────────────────────────────────────────
 
 interface MoodState {
+  key: 'angry' | 'sad' | 'soso' | 'happy';
   label: string;
+  subLabel: string;
+  color: string;
+  bg: string;
   lbrow: string; rbrow: string;
   leye:  string; reye:  string;
   mouth: string;
 }
 
 const MOOD_STATES: MoodState[] = [
-  { label: '화나요!',      lbrow: 'M18 29 Q24 27 28 29', rbrow: 'M44 29 Q48 27 54 29', leye: 'M19 35 Q23 39 27 35', reye: 'M45 35 Q49 39 53 35', mouth: 'M23 50 Q36 44 49 50' },
-  { label: '힘들어요',     lbrow: 'M18 26 Q24 23 28 26', rbrow: 'M44 26 Q48 23 54 26', leye: 'M19 32 Q23 29 27 32', reye: 'M45 32 Q49 29 53 32', mouth: 'M23 48 Q36 44 49 48' },
-  { label: '그저 그래요',  lbrow: 'M18 24 Q24 22 28 24', rbrow: 'M44 24 Q48 22 54 24', leye: 'M19 30 Q23 27 27 30', reye: 'M45 30 Q49 27 53 30', mouth: 'M23 46 Q36 46 49 46' },
-  { label: '좋아요',       lbrow: 'M18 24 Q24 21 28 24', rbrow: 'M44 24 Q48 21 54 24', leye: 'M19 30 Q23 27 27 30', reye: 'M45 30 Q49 27 53 30', mouth: 'M23 46 Q36 56 49 46' },
-  { label: '아주 좋아요!', lbrow: 'M18 22 Q24 17 28 22', rbrow: 'M44 22 Q48 17 54 22', leye: 'M19 29 Q23 24 27 29', reye: 'M45 29 Q49 24 53 29', mouth: 'M21 43 Q36 58 51 43' },
+  { key: 'angry', label: 'angry', subLabel: '불편함', color: '#EF4444', bg: 'rgba(239,68,68,0.10)', lbrow: 'M18 29 Q24 27 28 29', rbrow: 'M44 29 Q48 27 54 29', leye: 'M19 35 Q23 39 27 35', reye: 'M45 35 Q49 39 53 35', mouth: 'M23 50 Q36 44 49 50' },
+  { key: 'sad',   label: 'sad',   subLabel: '속상함', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', lbrow: 'M18 26 Q24 23 28 26', rbrow: 'M44 26 Q48 23 54 26', leye: 'M19 32 Q23 29 27 32', reye: 'M45 32 Q49 29 53 32', mouth: 'M23 48 Q36 44 49 48' },
+  { key: 'soso',  label: 'soso',  subLabel: '보통',   color: '#64748B', bg: 'rgba(100,116,139,0.12)', lbrow: 'M18 24 Q24 22 28 24', rbrow: 'M44 24 Q48 22 54 24', leye: 'M19 30 Q23 27 27 30', reye: 'M45 30 Q49 27 53 30', mouth: 'M23 46 Q36 46 49 46' },
+  { key: 'happy', label: 'happy', subLabel: '좋음',   color: '#22C55E', bg: 'rgba(34,197,94,0.12)', lbrow: 'M18 22 Q24 17 28 22', rbrow: 'M44 22 Q48 17 54 22', leye: 'M19 29 Q23 24 27 29', reye: 'M45 29 Q49 24 53 29', mouth: 'M21 43 Q36 58 51 43' },
 ];
 
 const getMoodState = (mood: number): MoodState => {
-  if (mood >= 80) return MOOD_STATES[4];
-  if (mood >= 60) return MOOD_STATES[3];
-  if (mood >= 40) return MOOD_STATES[2];
-  if (mood >= 20) return MOOD_STATES[1];
+  if (mood >= 75) return MOOD_STATES[3];
+  if (mood >= 50) return MOOD_STATES[2];
+  if (mood >= 25) return MOOD_STATES[1];
   return MOOD_STATES[0];
 };
 
 const moodColor = (mood: number): string => {
-  if (mood >= 70) return '#22C55E';
-  if (mood >= 40) return '#EAB308';
-  return '#FF4D4D';
+  return getMoodState(mood).color;
 };
 
 const scoreColor = (score: number | null): string => {
@@ -154,10 +154,10 @@ const scoreColor = (score: number | null): string => {
 
 const MoodFace = ({ mood }: { mood: number }) => {
   const s = getMoodState(mood);
-  const col = '#6C3BFF';
+  const col = s.color;
   return (
     <Svg width={52} height={52} viewBox="0 0 72 72">
-      <Circle cx={36} cy={36} r={34} fill="rgba(108,59,255,0.12)" />
+      <Circle cx={36} cy={36} r={34} fill={s.bg} />
       <Path d={s.lbrow} stroke={col} strokeWidth={2.2} strokeLinecap="round" fill="none" />
       <Path d={s.rbrow} stroke={col} strokeWidth={2.2} strokeLinecap="round" fill="none" />
       <Path d={s.leye}  stroke={col} strokeWidth={2.5} strokeLinecap="round" fill="none" />
@@ -858,6 +858,7 @@ export default function ChatScreen() {
   const [input,            setInput]            = useState('');
   const [loading,          setLoading]          = useState(false);
   const [avatarMood,       setAvatarMood]       = useState(70);
+  const [avatarMoodChange, setAvatarMoodChange] = useState(0);
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
   const [correctStreak,    setCorrectStreak]    = useState(0);
@@ -892,6 +893,7 @@ export default function ChatScreen() {
       const data = await sendMessageToAI(text, history, avatar, situation, userId, recommendedLevel, sessionIdRef.current, correctionContext);
       const aiMsg: Message = { id: (Date.now() + 1).toString(), text: data.message, sender: 'ai' };
       setAvatarMood(data.current_mood);
+      setAvatarMoodChange(data.mood_change || 0);
       setCorrectStreak(data.correct_streak);
       setMessages(prev => {
         const updated = prev.map(m => m.id === userMsg.id ? { ...m, feedback: data.speech_analysis ?? undefined } : m);
@@ -945,19 +947,19 @@ export default function ChatScreen() {
 
   // ── Pip row ────────────────────────────────────────────────────────────────
   const renderPips = (mood: number) => {
-    const col = moodColor(mood);
-    const filled = Math.floor(mood / 20);
-    const partial = (mood % 20) / 20;
+    const state = getMoodState(mood);
+    const filled = Math.floor(mood / 25);
+    const partial = (mood % 25) / 25;
     return (
       <View style={styles.pipsRow}>
-        {[0,1,2,3,4].map(i => (
+        {[0,1,2,3].map(i => (
           <View
             key={i}
             style={[
               styles.pip,
-              i < filled ? { backgroundColor: col } :
-              i === filled && partial > 0.2 ? { backgroundColor: col, opacity: 0.4 } :
-              { backgroundColor: '#E5E5EA' },
+              i < filled ? { backgroundColor: state.color } :
+              i === filled && partial > 0.2 ? [styles.pipPartial, { backgroundColor: state.color }] :
+              styles.pipEmpty,
             ]}
           />
         ))}
@@ -1163,12 +1165,26 @@ export default function ChatScreen() {
         <View style={styles.moodFaceWrap}>
           <MoodFace mood={avatarMood} />
           <Text style={[styles.moodFaceLabel, { color: mc }]}>{moodState.label}</Text>
+          <Text style={styles.moodFaceSub}>{moodState.subLabel}</Text>
         </View>
         <View style={styles.moodRight}>
           <View style={styles.moodTopRow}>
             <Text style={styles.moodPct}>{avatarMood}%</Text>
             <View style={styles.moodMeta}>
-              <Text style={styles.moodHint}>기분</Text>
+              {avatarMoodChange !== 0 && (
+                <View style={[
+                  styles.moodDeltaBadge,
+                  avatarMoodChange > 0 ? styles.moodDeltaBadgePositive : styles.moodDeltaBadgeNegative,
+                ]}>
+                  <Text style={[
+                    styles.moodDeltaText,
+                    avatarMoodChange > 0 ? styles.moodDeltaTextPositive : styles.moodDeltaTextNegative,
+                  ]}>
+                    {avatarMoodChange > 0 ? `+${avatarMoodChange}` : avatarMoodChange}
+                  </Text>
+                </View>
+              )}
+              <Text style={styles.moodHint}>avatar mood</Text>
               {correctStreak >= 3 && (
                 <View style={styles.streakBadge}>
                   <StarIcon />
@@ -1187,7 +1203,7 @@ export default function ChatScreen() {
         <SpeechLevelBadge level={recommendedLevel} size="small" />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -1255,20 +1271,30 @@ const styles = StyleSheet.create({
   // Mood strip
   moodStrip:     { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: GREY },
   moodFaceWrap:  { alignItems: 'center', gap: 4 },
-  moodFaceLabel: { fontSize: 11, fontWeight: '500' },
+  moodFaceLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
+  moodFaceSub:   { fontSize: 10, color: '#777', marginTop: -2 },
   moodRight:     { flex: 1, gap: 6 },
   moodTopRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   moodPct:       { fontSize: 13, fontWeight: '500', color: '#111' },
   moodMeta:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
   moodHint:      { fontSize: 11, color: '#999' },
+  moodDeltaBadge:{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20 },
+  moodDeltaText: { fontSize: 11, fontWeight: '700' },
   streakBadge:   { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(108,59,255,0.12)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
   streakText:    { fontSize: 11, fontWeight: '500', color: BRAND },
   pipsRow:       { flexDirection: 'row', gap: 4 },
   pip:           { flex: 1, height: 4, borderRadius: 2 },
+  pipPartial:    { opacity: 0.4 },
+  pipEmpty:      { backgroundColor: '#E5E5EA' },
+  moodDeltaBadgePositive: { backgroundColor: 'rgba(34,197,94,0.12)' },
+  moodDeltaBadgeNegative: { backgroundColor: 'rgba(239,68,68,0.10)' },
+  moodDeltaTextPositive:  { color: '#16A34A' },
+  moodDeltaTextNegative:  { color: '#EF4444' },
 
   // Level bar
   levelBar:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: BORDER },
   levelHint: { fontSize: 11, color: '#999' },
+  keyboardView: { flex: 1 },
 
   // Messages
   messageList:    { padding: 14, gap: 4 },
