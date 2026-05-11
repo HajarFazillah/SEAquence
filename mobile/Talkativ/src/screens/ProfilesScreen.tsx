@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   View, Text, StyleSheet,
   TouchableOpacity, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Plus, User } from 'lucide-react-native';
-import { Card, Button } from '../components';
+import { Plus } from 'lucide-react-native';
+import { Button } from '../components';
 
 // Mock profiles
 const mockProfiles = [
@@ -21,7 +21,7 @@ const mockProfiles = [
 export default function ProfilesScreen() {
   const navigation = useNavigation<any>();
 
-  const handleSelectProfile = (profileId: string) => {
+  const handleSelectProfile = () => {
     navigation.navigate('Main');
   };
 
@@ -44,7 +44,7 @@ export default function ProfilesScreen() {
             <TouchableOpacity
               key={profile.id}
               style={styles.profileCard}
-              onPress={() => handleSelectProfile(profile.id)}
+              onPress={handleSelectProfile}
             >
               <Image source={{ uri: profile.avatarUrl }} style={styles.profileAvatar} />
               <Text style={styles.profileName}>{profile.name}</Text>
@@ -107,11 +107,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E8E8F0',
   },
   profileAvatar: {
     width: 72,

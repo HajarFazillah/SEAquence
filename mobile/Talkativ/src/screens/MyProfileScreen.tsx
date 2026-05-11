@@ -391,7 +391,16 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingBottom: 40 },
 
   // Hero
-  heroCard:       { marginTop: 16, marginBottom: 18, padding: 20, borderRadius: 22 },
+  heroCard:       {
+    marginTop: 16,
+    marginBottom: 18,
+    padding: 20,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#E8E8F0',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   heroTopRow:     { flexDirection: 'row', alignItems: 'center' },
   avatarWrap:     { position: 'relative', marginRight: 16 },
   avatar:         { width: 82, height: 82, borderRadius: 41, backgroundColor: '#ECECF4' },
@@ -420,7 +429,14 @@ const styles = StyleSheet.create({
 
   // Section cards
   sectionTitle:    { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
-  sectionCard:     { marginBottom: 16, borderRadius: 20 },
+  sectionCard:     {
+    marginBottom: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E8E8F0',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   sectionHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitleText:{ fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
@@ -457,7 +473,15 @@ const styles = StyleSheet.create({
   statLabel:        { fontSize: 11, color: '#6C6C80', marginTop: 2 },
 
   // Menu
-  menuCard:            { padding: 0, overflow: 'hidden', marginBottom: 20 },
+  menuCard:            {
+    padding: 0,
+    overflow: 'hidden',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E8E8F0',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   menuItem:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   menuItemBorder:      { borderBottomWidth: 1, borderBottomColor: '#F0F0F5' },
   menuItemLeft:        { flexDirection: 'row', alignItems: 'center', gap: 12 },
