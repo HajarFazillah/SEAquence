@@ -25,10 +25,11 @@ public class RealtimeAnalysisController {
             @RequestPart(value = "userId", required = false) String userId,
             @RequestPart(value = "sessionId", required = false) String sessionId,
             @RequestPart(value = "expectedSpeechLevel", required = false) String expectedSpeechLevel,
-            @RequestPart(value = "userSpeakerLabel", required = false) String userSpeakerLabel
+            @RequestPart(value = "userSpeakerLabel", required = false) String userSpeakerLabel,
+            @RequestPart(value = "chunkIndex", required = false) String chunkIndex
     ) {
         RealtimeAnalysisResponse response = realtimeAnalysisService.analyzeRealtimeAudio(
-                file, avatarRole, userId, sessionId, expectedSpeechLevel, userSpeakerLabel
+                file, avatarRole, userId, sessionId, expectedSpeechLevel, userSpeakerLabel, chunkIndex
         );
         return ResponseEntity.ok(response);
     }
