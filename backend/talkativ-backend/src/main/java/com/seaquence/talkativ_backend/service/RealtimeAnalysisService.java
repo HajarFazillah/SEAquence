@@ -46,7 +46,8 @@ public class RealtimeAnalysisService {
             String userId,
             String sessionId,
             String expectedSpeechLevel,
-            String userSpeakerHint
+            String userSpeakerHint,
+            String chunkIndexRaw
     ) {
         ClovaSpeechService.ClovaSpeechResult speechResult = clovaSpeechService.transcribeWithDiarization(file);
 
@@ -63,9 +64,10 @@ public class RealtimeAnalysisService {
                 ? userSpeakerHint
                 : null;
 
+        int chunkIndex = parseChunkIndex(chunkIndexRaw);
         int idx = 1;
         for (ClovaSpeechService.SpeakerTurn turn : speechResult.getTurns()) {
-            String turnId = "turn-" + idx;
+            String turnId = "chunk-" + chunkIndex + "-turn-" + idx;
             turns.add(new TranscriptTurnDto(turnId, turn.getSpeaker(), turn.getText(), "final"));
             if (userSpeakerLabel == null) userSpeakerLabel = turn.getSpeaker();
             idx++;
@@ -97,7 +99,7 @@ public class RealtimeAnalysisService {
                                 c.corrected,
                                 turn.getId()
                         ));
-                        persistMistake(userId, sessionId, turnNumber, c);
+                        persistMistake(userId, sessionId, chunkIndex * 100 + turnNumber, c);
                     }
                 } catch (Exception e) {
                     System.err.println("[Realtime] analyze sentence failed: " + e.getMessage());
@@ -106,6 +108,15 @@ public class RealtimeAnalysisService {
         }
 
         return new RealtimeAnalysisResponse(turns, insights);
+    }
+
+    private int parseChunkIndex(String chunkIndexRaw) {
+        if (chunkIndexRaw == null || chunkIndexRaw.isBlank()) return 0;
+        try {
+            return Math.max(0, Integer.parseInt(chunkIndexRaw.trim()));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     private List<String> splitSentences(String text) {
