@@ -19,6 +19,7 @@ from app.services.chat_service import (
     InlineCorrection,
     StructuredMessageResult,
 )
+from app.services.clova_service import clova_service
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -411,6 +412,439 @@ class BioResponse(BaseModel):
     bio: str
 
 
+class SituationSuggestionItem(BaseModel):
+    id: str
+    name_ko: str
+    name_en: str = ""
+    description_ko: str
+    icon: str = "users"
+    category: str = "casual"
+    contexts: List[str] = Field(default_factory=list)
+
+
+class SituationSuggestRequest(BaseModel):
+    avatar: Dict[str, Any]
+    user_profile: Dict[str, Any] = Field(default_factory=dict)
+    count: int = Field(default=5, ge=1, le=5)
+
+
+class SituationSuggestResponse(BaseModel):
+    situations: List[SituationSuggestionItem]
+    source: str = "ai"
+
+
+def _avatar_field(avatar: Dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = avatar.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _list_field(payload: Dict[str, Any], *keys: str) -> List[str]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _find_topic_overlap(left: List[str], right: List[str]) -> Optional[str]:
+    normalized_right = [item.strip().lower() for item in right]
+    for topic in left:
+        normalized_topic = topic.strip().lower()
+        if any(normalized_topic in candidate or candidate in normalized_topic for candidate in normalized_right):
+            return topic
+    return None
+
+
+def _personalize_situation_suggestions(
+    items: List[SituationSuggestionItem],
+    avatar: Dict[str, Any],
+    user_profile: Dict[str, Any],
+) -> List[SituationSuggestionItem]:
+    user_likes = _list_field(user_profile, "interests", "likes", "preferences")
+    user_dislikes = _list_field(user_profile, "dislikes", "hate", "hates")
+    avatar_likes = _list_field(avatar, "interests", "likes", "preferences")
+    avatar_dislikes = _list_field(avatar, "dislikes", "hate", "hates")
+
+    shared_like = _find_topic_overlap(user_likes, avatar_likes)
+    shared_dislike = _find_topic_overlap(user_dislikes, avatar_dislikes)
+    user_like_avatar_dislikes = _find_topic_overlap(user_likes, avatar_dislikes)
+    avatar_like_user_dislikes = _find_topic_overlap(avatar_likes, user_dislikes)
+    avoid_topic = shared_dislike or user_like_avatar_dislikes or avatar_like_user_dislikes
+    focus_topic = shared_like or (avatar_likes[0] if avatar_likes else None) or (user_likes[0] if user_likes else None)
+
+    personalized: List[SituationSuggestionItem] = []
+    for index, item in enumerate(items):
+        copied = item.model_copy(deep=True)
+        if index == 0 and focus_topic:
+            copied.id = f"{copied.id}_personalized"
+            copied.description_ko = (
+                f'{copied.description_ko} 공통 관심사나 자연스러운 화제로 "{focus_topic}" 이야기를 활용합니다.'
+            )
+            copied.contexts = list(dict.fromkeys([*copied.contexts, "질문하는 상황"]))
+        elif avoid_topic:
+            copied.id = f"{copied.id}_avoid"
+            copied.description_ko = (
+                f'{copied.description_ko} 서로 불편할 수 있는 "{avoid_topic}" 이야기는 피하면서 대화를 이어갑니다.'
+            )
+            copied.contexts = list(dict.fromkeys([*copied.contexts, "질문하는 상황"]))
+        personalized.append(copied)
+    return personalized
+
+
+def _fallback_situation_suggestions(
+    avatar: Dict[str, Any],
+    user_profile: Optional[Dict[str, Any]] = None,
+    count: int = 5,
+) -> List[SituationSuggestionItem]:
+    role_text = " ".join([
+        _avatar_field(avatar, "role", "relationship", "custom_role", "relationship_description"),
+        _avatar_field(avatar, "name_ko", "name"),
+        _avatar_field(avatar, "description_ko", "description"),
+    ]).lower()
+
+    if "professor" in role_text or "교수" in role_text:
+        items = [
+            SituationSuggestionItem(
+                id="professor_feedback",
+                name_ko="과제 피드백 요청하기",
+                name_en="Asking for Assignment Feedback",
+                description_ko="과제 방향이 맞는지 교수님께 정중하게 확인하고 조언을 구합니다.",
+                icon="graduationCap",
+                category="formal",
+                contexts=["도움을 요청하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="professor_office_hours",
+                name_ko="면담 시간 조율하기",
+                name_en="Scheduling Office Hours",
+                description_ko="수업 내용이나 진로 상담을 위해 교수님께 가능한 시간을 여쭤봅니다.",
+                icon="building",
+                category="formal",
+                contexts=["약속을 잡는 상황", "질문하는 상황", "인사하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="professor_extension",
+                name_ko="제출 기한 문의하기",
+                name_en="Asking About a Deadline",
+                description_ko="과제 제출 일정이나 지연 가능성을 교수님께 조심스럽게 문의합니다.",
+                icon="graduationCap",
+                category="formal",
+                contexts=["질문하는 상황", "사과하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="professor_research",
+                name_ko="연구 주제 상담하기",
+                name_en="Discussing a Research Topic",
+                description_ko="관심 있는 연구 주제에 대해 교수님께 의견과 방향을 여쭤봅니다.",
+                icon="building",
+                category="formal",
+                contexts=["질문하는 상황", "도움을 요청하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="professor_class_question",
+                name_ko="수업 내용 질문하기",
+                name_en="Asking About Class Content",
+                description_ko="이해하지 못한 수업 내용을 교수님께 정중하게 다시 설명해 달라고 요청합니다.",
+                icon="graduationCap",
+                category="formal",
+                contexts=["질문하는 상황", "도움을 요청하는 상황", "인사하는 상황"],
+            ),
+        ]
+    elif "senior" in role_text or "선배" in role_text:
+        items = [
+            SituationSuggestionItem(
+                id="senior_advice",
+                name_ko="선배에게 조언 구하기",
+                name_en="Asking a Senior for Advice",
+                description_ko="학교생활이나 동아리 활동에 대해 선배에게 자연스럽게 조언을 구합니다.",
+                icon="users",
+                category="casual",
+                contexts=["도움을 요청하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="senior_project",
+                name_ko="팀 프로젝트 역할 묻기",
+                name_en="Asking About a Project Role",
+                description_ko="팀 프로젝트에서 맡을 역할과 진행 방식을 선배에게 확인합니다.",
+                icon="handshake",
+                category="work",
+                contexts=["질문하는 상황", "도움을 요청하는 상황", "약속을 잡는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="senior_career",
+                name_ko="진로 경험 물어보기",
+                name_en="Asking About Career Experience",
+                description_ko="선배의 경험을 바탕으로 진로 선택이나 준비 방법을 물어봅니다.",
+                icon="briefcase",
+                category="casual",
+                contexts=["질문하는 상황", "도움을 요청하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="senior_club",
+                name_ko="동아리 활동 조언받기",
+                name_en="Getting Club Advice",
+                description_ko="동아리나 학교 활동에서 어떻게 행동하면 좋을지 선배에게 조언을 구합니다.",
+                icon="users",
+                category="casual",
+                contexts=["도움을 요청하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="senior_meeting",
+                name_ko="스터디 약속 잡기",
+                name_en="Planning a Study Meeting",
+                description_ko="선배와 함께 공부하거나 자료를 확인할 시간을 자연스럽게 정합니다.",
+                icon="coffee",
+                category="casual",
+                contexts=["약속을 잡는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+        ]
+    elif any(term in role_text for term in ["boss", "manager", "상사", "팀장"]):
+        items = [
+            SituationSuggestionItem(
+                id="boss_progress",
+                name_ko="업무 진행 상황 보고하기",
+                name_en="Reporting Work Progress",
+                description_ko="상사에게 현재 진행 상황과 막힌 부분을 간결하고 공손하게 보고합니다.",
+                icon="briefcase",
+                category="work",
+                contexts=["질문하는 상황", "도움을 요청하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="boss_deadline",
+                name_ko="마감 일정 조율하기",
+                name_en="Discussing a Deadline",
+                description_ko="업무 마감 일정이나 우선순위를 상사와 조심스럽게 조율합니다.",
+                icon="building",
+                category="work",
+                contexts=["약속을 잡는 상황", "질문하는 상황", "사과하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="boss_feedback",
+                name_ko="업무 피드백 요청하기",
+                name_en="Requesting Work Feedback",
+                description_ko="완성한 업무나 초안에 대해 상사에게 개선점을 정중하게 요청합니다.",
+                icon="briefcase",
+                category="work",
+                contexts=["도움을 요청하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="boss_problem",
+                name_ko="문제 상황 공유하기",
+                name_en="Sharing a Work Issue",
+                description_ko="업무 중 생긴 문제를 숨기지 않고 상사에게 차분하게 설명합니다.",
+                icon="building",
+                category="work",
+                contexts=["질문하는 상황", "도움을 요청하는 상황", "사과하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="boss_meeting",
+                name_ko="회의 의견 말하기",
+                name_en="Giving an Opinion in a Meeting",
+                description_ko="회의에서 상사에게 자신의 의견을 조심스럽지만 분명하게 전달합니다.",
+                icon="handshake",
+                category="work",
+                contexts=["질문하는 상황", "감사를 표현하는 상황", "인사하는 상황"],
+            ),
+        ]
+    elif any(term in role_text for term in ["customer", "고객", "손님"]):
+        items = [
+            SituationSuggestionItem(
+                id="customer_request",
+                name_ko="고객 요청 응대하기",
+                name_en="Responding to a Customer Request",
+                description_ko="고객의 요청을 확인하고 가능한 해결 방법을 친절하게 안내합니다.",
+                icon="shoppingBag",
+                category="service",
+                contexts=["도움을 요청하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="customer_problem",
+                name_ko="불편 사항 사과하기",
+                name_en="Apologizing for an Issue",
+                description_ko="고객이 불편을 말했을 때 사과하고 다음 조치를 설명합니다.",
+                icon="handshake",
+                category="service",
+                contexts=["사과하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="customer_recommendation",
+                name_ko="상품 추천하기",
+                name_en="Recommending an Option",
+                description_ko="고객의 취향과 필요를 물어본 뒤 적절한 선택지를 추천합니다.",
+                icon="shoppingBag",
+                category="service",
+                contexts=["질문하는 상황", "도움을 요청하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="customer_order",
+                name_ko="주문 확인하기",
+                name_en="Confirming an Order",
+                description_ko="고객의 주문 내용을 다시 확인하고 필요한 정보를 친절하게 묻습니다.",
+                icon="utensils",
+                category="service",
+                contexts=["주문하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="customer_delay",
+                name_ko="대기 시간 안내하기",
+                name_en="Explaining a Delay",
+                description_ko="고객에게 대기나 지연 상황을 공손하게 설명하고 양해를 구합니다.",
+                icon="mapPin",
+                category="service",
+                contexts=["사과하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+        ]
+    elif "interviewer" in role_text or "면접" in role_text:
+        items = [
+            SituationSuggestionItem(
+                id="interviewer_intro",
+                name_ko="면접 자기소개하기",
+                name_en="Introducing Yourself in an Interview",
+                description_ko="면접관에게 경험과 강점을 격식 있게 소개하고 후속 질문에 답합니다.",
+                icon="briefcase",
+                category="formal",
+                contexts=["처음 만나는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="interviewer_question",
+                name_ko="면접 질문 되묻기",
+                name_en="Clarifying an Interview Question",
+                description_ko="질문을 정확히 이해하지 못했을 때 정중하게 확인하고 답변합니다.",
+                icon="handshake",
+                category="formal",
+                contexts=["질문하는 상황", "사과하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="interviewer_strength",
+                name_ko="강점 설명하기",
+                name_en="Explaining Your Strengths",
+                description_ko="면접관에게 자신의 강점과 경험을 구체적인 예시로 설명합니다.",
+                icon="briefcase",
+                category="formal",
+                contexts=["질문하는 상황", "감사를 표현하는 상황", "처음 만나는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="interviewer_weakness",
+                name_ko="약점 질문 답하기",
+                name_en="Answering a Weakness Question",
+                description_ko="약점이나 부족한 점을 묻는 질문에 솔직하지만 균형 있게 답합니다.",
+                icon="handshake",
+                category="formal",
+                contexts=["질문하는 상황", "사과하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="interviewer_closing",
+                name_ko="면접 마무리 인사하기",
+                name_en="Closing an Interview",
+                description_ko="면접 마지막에 감사 인사를 전하고 후속 절차를 정중하게 확인합니다.",
+                icon="users",
+                category="formal",
+                contexts=["감사를 표현하는 상황", "질문하는 상황", "인사하는 상황"],
+            ),
+        ]
+    elif "friend" in role_text or "친구" in role_text:
+        items = [
+            SituationSuggestionItem(
+                id="friend_plan",
+                name_ko="카페 약속 잡기",
+                name_en="Making Cafe Plans",
+                description_ko="친구와 편하게 시간과 장소를 정하고 취향을 물어봅니다.",
+                icon="coffee",
+                category="casual",
+                contexts=["약속을 잡는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="friend_help",
+                name_ko="친구에게 부탁하기",
+                name_en="Asking a Friend for a Favor",
+                description_ko="친구에게 작은 도움을 부탁하고 고마움을 자연스럽게 표현합니다.",
+                icon="users",
+                category="casual",
+                contexts=["도움을 요청하는 상황", "감사를 표현하는 상황", "사과하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="friend_movie",
+                name_ko="같이 볼 콘텐츠 고르기",
+                name_en="Choosing Something to Watch",
+                description_ko="친구와 보고 싶은 콘텐츠나 취향을 편하게 이야기하며 선택합니다.",
+                icon="party",
+                category="casual",
+                contexts=["질문하는 상황", "약속을 잡는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="friend_apology",
+                name_ko="약속 변경 사과하기",
+                name_en="Apologizing for Changing Plans",
+                description_ko="친구에게 약속 변경을 말하고 미안한 마음을 자연스럽게 전합니다.",
+                icon="users",
+                category="casual",
+                contexts=["사과하는 상황", "약속을 잡는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="friend_trip",
+                name_ko="주말 계획 이야기하기",
+                name_en="Talking About Weekend Plans",
+                description_ko="친구와 주말에 무엇을 할지 취향을 묻고 편하게 계획을 세웁니다.",
+                icon="mapPin",
+                category="casual",
+                contexts=["약속을 잡는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+        ]
+    else:
+        items = [
+            SituationSuggestionItem(
+                id="default_first_meeting",
+                name_ko="처음 만나 인사하기",
+                name_en="First Meeting Greeting",
+                description_ko="상대와 처음 만난 상황에서 자연스럽게 인사하고 기본 정보를 묻습니다.",
+                icon="users",
+                category="casual",
+                contexts=["처음 만나는 상황", "인사하는 상황", "질문하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="default_help",
+                name_ko="정중하게 도움 요청하기",
+                name_en="Politely Asking for Help",
+                description_ko="상대와의 관계에 맞는 말투로 필요한 도움을 요청합니다.",
+                icon="handshake",
+                category="formal",
+                contexts=["도움을 요청하는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="default_plan",
+                name_ko="약속 시간 정하기",
+                name_en="Setting a Meeting Time",
+                description_ko="상대와 가능한 시간을 확인하고 부담스럽지 않게 약속을 조율합니다.",
+                icon="coffee",
+                category="casual",
+                contexts=["약속을 잡는 상황", "질문하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="default_question",
+                name_ko="궁금한 점 물어보기",
+                name_en="Asking a Question",
+                description_ko="상대에게 궁금한 내용을 관계에 맞는 말투로 자연스럽게 질문합니다.",
+                icon="handshake",
+                category="formal",
+                contexts=["질문하는 상황", "인사하는 상황", "감사를 표현하는 상황"],
+            ),
+            SituationSuggestionItem(
+                id="default_thanks",
+                name_ko="도움에 감사 표현하기",
+                name_en="Thanking Someone for Help",
+                description_ko="상대가 도와준 뒤 고마움을 구체적이고 자연스럽게 표현합니다.",
+                icon="users",
+                category="casual",
+                contexts=["감사를 표현하는 상황", "인사하는 상황", "질문하는 상황"],
+            ),
+        ]
+
+    return _personalize_situation_suggestions(items[:count], avatar, user_profile or {})
+
+
 class EndSessionRequest(BaseModel):
     """End-of-chat hook: extract durable per-avatar memories from the session."""
     user_id: str
@@ -474,6 +908,84 @@ async def generate_bio(request: BioGenerateRequest):
         return BioResponse(bio=bio)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suggest-situations", response_model=SituationSuggestResponse)
+async def suggest_situations(request: SituationSuggestRequest):
+    """Generate avatar-specific practice situations.
+
+    The avatar should never tutor here; this endpoint only creates practice
+    scenario drafts for the UI.
+    """
+    fallback = _fallback_situation_suggestions(request.avatar, request.user_profile, request.count)
+    prompt = f"""
+You create Korean conversation practice situations for one avatar.
+
+Avatar JSON:
+{request.avatar}
+
+User profile JSON:
+{request.user_profile}
+
+Return strict JSON only:
+{{
+  "situations": [
+    {{
+      "id": "short_snake_case_id",
+      "name_ko": "Korean title",
+      "name_en": "English title",
+      "description_ko": "One sentence about what the learner practices",
+      "icon": "coffee|utensils|shoppingBag|graduationCap|briefcase|building|users|handshake|party|mapPin",
+      "category": "casual|service|formal|work",
+      "contexts": ["처음 만나는 상황|도움을 요청하는 상황|주문하는 상황|질문하는 상황|인사하는 상황|약속을 잡는 상황|감사를 표현하는 상황|사과하는 상황"]
+    }}
+  ]
+}}
+
+Rules:
+- Create exactly {request.count} situations.
+- Each situation must fit this avatar's relationship to the user.
+- Base the situation on the pair: user preferences, user dislikes, avatar preferences, and avatar dislikes.
+- Prefer shared interests when they exist.
+- Avoid topics either side dislikes, and avoid topics one side likes if the other explicitly dislikes them.
+- Do not reuse generic fixed situations for every avatar.
+- Do not write tutoring advice, corrections, or meta explanations.
+- Keep each description practical and roleplay-ready.
+"""
+
+    try:
+        data = await clova_service.analyze_json(prompt, max_tokens=900, temperature=0.8)
+        raw_items = data.get("situations") if isinstance(data, dict) else None
+        if not isinstance(raw_items, list):
+            return SituationSuggestResponse(situations=fallback, source="fallback")
+
+        allowed_icons = {"coffee", "utensils", "shoppingBag", "graduationCap", "briefcase", "building", "users", "handshake", "party", "mapPin"}
+        allowed_categories = {"casual", "service", "formal", "work"}
+        suggestions: List[SituationSuggestionItem] = []
+        for index, item in enumerate(raw_items[:request.count]):
+            if not isinstance(item, dict):
+                continue
+            name_ko = str(item.get("name_ko") or "").strip()
+            description_ko = str(item.get("description_ko") or "").strip()
+            if not name_ko or not description_ko:
+                continue
+            contexts = item.get("contexts") if isinstance(item.get("contexts"), list) else []
+            suggestions.append(SituationSuggestionItem(
+                id=str(item.get("id") or f"ai_situation_{index + 1}").strip(),
+                name_ko=name_ko,
+                name_en=str(item.get("name_en") or "").strip(),
+                description_ko=description_ko,
+                icon=item.get("icon") if item.get("icon") in allowed_icons else "users",
+                category=item.get("category") if item.get("category") in allowed_categories else "casual",
+                contexts=[str(context).strip() for context in contexts if str(context).strip()][:4],
+            ))
+
+        if not suggestions:
+            return SituationSuggestResponse(situations=fallback, source="fallback")
+        return SituationSuggestResponse(situations=suggestions, source="ai")
+    except Exception as e:
+        print(f"[suggest-situations] failed: {e}")
+        return SituationSuggestResponse(situations=fallback, source="fallback")
 
 
 # Quick correction check (without generating response)
