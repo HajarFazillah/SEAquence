@@ -202,6 +202,120 @@ const getCorrectionTypeLabel = (type?: string) => {
   return labels[type] || type.replace(/_/g, ' ');
 };
 
+// ─── Mistake-pattern aggregation ──────────────────────────────────────────────
+//
+// Two derived signals over the user's mistake history, computed client-side
+// from the SavedMistake list (no backend changes needed):
+//
+// 1. Recurring patterns: same (type, original phrase) appearing 2+ times.
+//    Tells the learner "you keep doing this exact thing."
+// 2. Weekly trend: per-category count over the last 7 days vs the prior
+//    7 days. Friendly direction signal, not a forecast.
+
+interface RecurringPattern {
+  type: string;
+  typeLabel: string;
+  exampleOriginal: string;
+  exampleCorrected: string;
+  count: number;
+  lastSeen: string;
+}
+
+interface CategoryTrend {
+  type: string;
+  typeLabel: string;
+  thisWeek: number;
+  lastWeek: number;
+  delta: number;
+  direction: 'up' | 'down' | 'flat';
+}
+
+const normalizeMistakeKey = (s: string) =>
+  s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+const computeRecurringPatterns = (
+  mistakes: SavedMistake[],
+  minCount = 2,
+  topN = 3,
+): RecurringPattern[] => {
+  const groups = new Map<string, RecurringPattern>();
+
+  for (const m of mistakes) {
+    const orig = (m.originalText || '').trim();
+    const corr = (m.correctedText || '').trim();
+    if (!orig || !corr) continue;
+
+    const type = m.correctionType || 'unknown';
+    const key = `${type}::${normalizeMistakeKey(orig)}`;
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.count += 1;
+      if (m.createdAt && m.createdAt > existing.lastSeen) {
+        existing.lastSeen = m.createdAt;
+      }
+    } else {
+      groups.set(key, {
+        type,
+        typeLabel: getCorrectionTypeLabel(type),
+        exampleOriginal: orig,
+        exampleCorrected: corr,
+        count: 1,
+        lastSeen: m.createdAt || '',
+      });
+    }
+  }
+
+  return Array.from(groups.values())
+    .filter(p => p.count >= minCount)
+    .sort(
+      (a, b) =>
+        b.count - a.count ||
+        (b.lastSeen > a.lastSeen ? 1 : b.lastSeen < a.lastSeen ? -1 : 0),
+    )
+    .slice(0, topN);
+};
+
+const computeWeeklyTrend = (mistakes: SavedMistake[]): CategoryTrend[] => {
+  const now = Date.now();
+  const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const cutoffThis = now - ONE_WEEK_MS;
+  const cutoffLast = now - 2 * ONE_WEEK_MS;
+
+  const counts = new Map<string, { thisWeek: number; lastWeek: number }>();
+
+  for (const m of mistakes) {
+    if (!m.createdAt) continue;
+    const t = new Date(m.createdAt).getTime();
+    if (Number.isNaN(t)) continue;
+
+    const type = m.correctionType || 'unknown';
+    const slot = counts.get(type) || { thisWeek: 0, lastWeek: 0 };
+    if (t >= cutoffThis) slot.thisWeek += 1;
+    else if (t >= cutoffLast) slot.lastWeek += 1;
+    counts.set(type, slot);
+  }
+
+  return Array.from(counts.entries())
+    .map(([type, c]) => {
+      const delta = c.thisWeek - c.lastWeek;
+      return {
+        type,
+        typeLabel: getCorrectionTypeLabel(type) || type,
+        thisWeek: c.thisWeek,
+        lastWeek: c.lastWeek,
+        delta,
+        direction: (delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat') as
+          | 'up'
+          | 'down'
+          | 'flat',
+      };
+    })
+    .filter(c => c.thisWeek + c.lastWeek > 0)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || b.thisWeek - a.thisWeek)
+    .slice(0, 4);
+};
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AnalyticsScreen() {
@@ -302,6 +416,15 @@ export default function AnalyticsScreen() {
 
     return buildSessionScores(stats, turns, insights, rating);
   }, [scores, stats, turns, insights, rating]);
+
+  const recurringPatterns = useMemo(
+    () => computeRecurringPatterns(recentMistakes),
+    [recentMistakes],
+  );
+  const weeklyTrends = useMemo(
+    () => computeWeeklyTrend(recentMistakes),
+    [recentMistakes],
+  );
 
   const derivedScoreDetails: {
     speechAccuracy?: ScoreDetail;
@@ -861,6 +984,109 @@ export default function AnalyticsScreen() {
           </View>
         ) : null}
 
+        {isHomeAnalysis &&
+          (recurringPatterns.length > 0 || weeklyTrends.length > 0) && (
+            <View style={styles.section}>
+              <View style={styles.sectionHead}>
+                <Text style={styles.sectionEye}>MY HABITS</Text>
+                <Text style={styles.sectionTitle}>내가 자주 하는 실수</Text>
+              </View>
+
+              <View style={styles.card}>
+                {recurringPatterns.length > 0 && (
+                  <View style={styles.habitBlock}>
+                    <Text style={styles.habitBlockLabel}>반복되는 패턴</Text>
+
+                    {recurringPatterns.map((p, i) => (
+                      <View
+                        key={`${p.type}-${i}`}
+                        style={[
+                          styles.recurringRow,
+                          i < recurringPatterns.length - 1 &&
+                            styles.recurringRowBorder,
+                        ]}
+                      >
+                        <View style={styles.recurringHeader}>
+                          {!!p.typeLabel && (
+                            <View style={styles.recurringPill}>
+                              <Text style={styles.recurringPillText}>
+                                {p.typeLabel}
+                              </Text>
+                            </View>
+                          )}
+
+                          <View style={styles.recurringCountWrap}>
+                            <Text style={styles.recurringCount}>
+                              {p.count}회
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.recurringExample}>
+                          <Text
+                            style={styles.recurringOriginal}
+                            numberOfLines={2}
+                          >
+                            {p.exampleOriginal}
+                          </Text>
+                          <Text style={styles.recurringArrow}>→</Text>
+                          <Text
+                            style={styles.recurringCorrected}
+                            numberOfLines={2}
+                          >
+                            {p.exampleCorrected}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {weeklyTrends.length > 0 && (
+                  <View
+                    style={[
+                      styles.habitBlock,
+                      recurringPatterns.length > 0 && styles.habitBlockBordered,
+                    ]}
+                  >
+                    <Text style={styles.habitBlockLabel}>이번 주 흐름</Text>
+
+                    {weeklyTrends.map(t => (
+                      <View key={t.type} style={styles.trendRow}>
+                        <Text style={styles.trendLabel}>{t.typeLabel}</Text>
+
+                        <View style={styles.trendValueWrap}>
+                          <Text style={styles.trendCount}>
+                            이번 주 {t.thisWeek}회
+                          </Text>
+                          <Text
+                            style={[
+                              styles.trendDelta,
+                              t.direction === 'up' && styles.trendDeltaUp,
+                              t.direction === 'down' && styles.trendDeltaDown,
+                              t.direction === 'flat' && styles.trendDeltaFlat,
+                            ]}
+                          >
+                            {t.direction === 'up'
+                              ? `↑ ${t.delta}`
+                              : t.direction === 'down'
+                                ? `↓ ${Math.abs(t.delta)}`
+                                : '변화 없음'}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+
+                    <Text style={styles.trendNote}>
+                      지난 7일과 그 전 7일을 비교한 흐름이에요. 줄고 있다면 잘
+                      가고 있는 거예요.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
         {isHomeAnalysis && recentMistakes.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHead}>
@@ -1395,6 +1621,116 @@ const styles = StyleSheet.create({
   weakCount: {
     fontSize: 11,
     fontWeight: '600',
+  },
+
+  habitBlock: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  habitBlockBordered: {
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+  habitBlockLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#999',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+
+  recurringRow: {
+    paddingVertical: 10,
+  },
+  recurringRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  recurringHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  recurringPill: {
+    backgroundColor: 'rgba(108,59,255,0.10)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  recurringPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: BRAND,
+  },
+  recurringCountWrap: {
+    marginLeft: 'auto',
+  },
+  recurringCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#ef4444',
+  },
+  recurringExample: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  recurringOriginal: {
+    fontSize: 13,
+    color: '#666',
+    textDecorationLine: 'line-through',
+  },
+  recurringArrow: {
+    fontSize: 13,
+    color: '#bbb',
+  },
+  recurringCorrected: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111',
+  },
+
+  trendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  trendLabel: {
+    flex: 1,
+    fontSize: 13,
+    color: '#111',
+  },
+  trendValueWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  trendCount: {
+    fontSize: 12,
+    color: '#999',
+  },
+  trendDelta: {
+    fontSize: 12,
+    fontWeight: '600',
+    minWidth: 56,
+    textAlign: 'right',
+  },
+  trendDeltaUp: {
+    color: '#ef4444',
+  },
+  trendDeltaDown: {
+    color: '#22c55e',
+  },
+  trendDeltaFlat: {
+    color: '#999',
+  },
+  trendNote: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 8,
+    lineHeight: 16,
   },
 
   emptyCard: {
