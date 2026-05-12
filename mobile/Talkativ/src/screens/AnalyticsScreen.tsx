@@ -206,6 +206,18 @@ const getCorrectionTypeLabel = (type?: string) => {
   return labels[type] || type.replace(/_/g, ' ');
 };
 
+const getWeakAreaLabel = (area: WeakArea) =>
+  area.error_type_ko || getCorrectionTypeLabel(area.error_type) || '기타';
+
+const mergeSeverity = (current: string, next: string) => {
+  const rank = (severity: string) => {
+    if (severity === 'high' || severity === 'error') return 3;
+    if (severity === 'medium' || severity === 'warning') return 2;
+    return 1;
+  };
+  return rank(next) > rank(current) ? next : current;
+};
+
 const LEVEL_LABELS: Record<string, string> = {
   formal: '합쇼체',
   polite: '해요체',
@@ -599,10 +611,36 @@ export default function AnalyticsScreen() {
     [recentMistakes],
   );
   const weakChartData = useMemo(() => {
-    const total = Math.max(1, weakAreas.reduce((sum, area) => sum + (area.count || 0), 0));
-    return weakAreas.slice(0, 5).map((area, i) => ({
-      key: area.error_type || `${i}`,
-      label: area.error_type_ko || getCorrectionTypeLabel(area.error_type),
+    const merged = new Map<string, WeakArea>();
+
+    weakAreas.forEach(area => {
+      const label = getWeakAreaLabel(area);
+      const existing = merged.get(label);
+
+      if (existing) {
+        merged.set(label, {
+          ...existing,
+          error_type: existing.error_type || area.error_type,
+          error_type_ko: label,
+          count: (existing.count || 0) + (area.count || 0),
+          severity: mergeSeverity(existing.severity, area.severity),
+        });
+      } else {
+        merged.set(label, {
+          ...area,
+          error_type_ko: label,
+        });
+      }
+    });
+
+    const items = Array.from(merged.values())
+      .sort((a, b) => (b.count || 0) - (a.count || 0))
+      .slice(0, 5);
+    const total = Math.max(1, items.reduce((sum, area) => sum + (area.count || 0), 0));
+
+    return items.map((area, i) => ({
+      key: getWeakAreaLabel(area),
+      label: getWeakAreaLabel(area),
       count: area.count || 0,
       ratio: (area.count || 0) / total,
       color: getWeakAreaColor(area.severity, i),
