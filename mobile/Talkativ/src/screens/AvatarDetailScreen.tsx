@@ -83,12 +83,6 @@ const getAgeDesc = (age?: number): string => {
   return '인생 선배예요';
 };
 
-const getGenderDesc = (gender?: string): string => {
-  if (gender === 'female') return '언니라고 불러도 될 것 같아요';
-  if (gender === 'male')   return '오빠라고 불러도 될 것 같아요';
-  return '성별을 가리지 않아요';
-};
-
 const getDifficultyDesc = (diff?: string): string => {
   if (diff === 'easy') return '편하게 연습하기 좋아요';
   if (diff === 'hard') return '많이 도전적이에요';
@@ -393,7 +387,6 @@ export default function AvatarDetailScreen() {
               </View>
               <Text style={styles.miniLbl}>성별</Text>
               <Text style={[styles.miniBig, { fontSize: 18 }]}>{genderLabel}</Text>
-              <Text style={styles.miniDesc}>{getGenderDesc(avatar?.gender)}</Text>
             </View>
           ) : null}
 
