@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   Star,
 } from 'lucide-react-native';
+import Svg, { Circle, G } from 'react-native-svg';
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AI_SERVER_URL } from '../constants';
@@ -256,17 +257,6 @@ interface ScenarioChartItem {
   practiceRatio: number;
 }
 
-interface ErrorTypeInsight {
-  type: string;
-  label: string;
-  count: number;
-  ratio: number;
-  severityLabel: string;
-  recentExample?: SavedMistake;
-  lastSeen?: string;
-  trend?: CategoryTrend;
-}
-
 const normalizeMistakeKey = (s: string) =>
   s.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -353,53 +343,6 @@ const computeWeeklyTrend = (mistakes: SavedMistake[]): CategoryTrend[] => {
     .slice(0, 4);
 };
 
-const computeErrorTypeInsights = (
-  mistakes: SavedMistake[],
-  weeklyTrends: CategoryTrend[],
-): ErrorTypeInsight[] => {
-  const total = Math.max(1, mistakes.length);
-  const groups = new Map<string, { count: number; examples: SavedMistake[] }>();
-
-  mistakes.forEach(m => {
-    const type = m.correctionType || 'unknown';
-    const group = groups.get(type) || { count: 0, examples: [] };
-    group.count += 1;
-    group.examples.push(m);
-    groups.set(type, group);
-  });
-
-  return Array.from(groups.entries())
-    .map(([type, group]) => {
-      const sortedExamples = [...group.examples].sort((a, b) => (
-        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-      ));
-      const severityCounts = group.examples.reduce<Record<string, number>>((acc, m) => {
-        const severity = m.severity || 'low';
-        acc[severity] = (acc[severity] || 0) + 1;
-        return acc;
-      }, {});
-      const severityLabel =
-        severityCounts.error || severityCounts.high
-          ? '높은 영향'
-          : severityCounts.warning || severityCounts.medium
-            ? '주의'
-            : '가벼움';
-
-      return {
-        type,
-        label: getCorrectionTypeLabel(type) || type,
-        count: group.count,
-        ratio: group.count / total,
-        severityLabel,
-        recentExample: sortedExamples[0],
-        lastSeen: sortedExamples[0]?.createdAt,
-        trend: weeklyTrends.find(t => t.type === type),
-      };
-    })
-    .sort((a, b) => b.count - a.count || (b.lastSeen || '').localeCompare(a.lastSeen || ''))
-    .slice(0, 5);
-};
-
 const groupEvents = (
   events: PracticePatternEvent[],
   getKey: (event: PracticePatternEvent) => string | undefined,
@@ -426,6 +369,11 @@ const signalSeverity = (rate: number): RankedSignal['severity'] => {
   if (rate >= 0.34) return 'medium';
   return 'low';
 };
+
+const DONUT_SIZE = 132;
+const DONUT_RADIUS = 48;
+const DONUT_STROKE = 18;
+const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
 
 const buildPersonalizationSignals = (
   mistakes: SavedMistake[],
@@ -650,10 +598,16 @@ export default function AnalyticsScreen() {
     () => computeWeeklyTrend(recentMistakes),
     [recentMistakes],
   );
-  const errorTypeInsights = useMemo(
-    () => computeErrorTypeInsights(recentMistakes, weeklyTrends),
-    [recentMistakes, weeklyTrends],
-  );
+  const weakChartData = useMemo(() => {
+    const total = Math.max(1, weakAreas.reduce((sum, area) => sum + (area.count || 0), 0));
+    return weakAreas.slice(0, 5).map((area, i) => ({
+      key: area.error_type || `${i}`,
+      label: area.error_type_ko || getCorrectionTypeLabel(area.error_type),
+      count: area.count || 0,
+      ratio: (area.count || 0) / total,
+      color: getWeakAreaColor(area.severity, i),
+    }));
+  }, [weakAreas]);
   const recentTypeOptions = useMemo(() => {
     const counts = new Map<string, number>();
     recentMistakes.forEach(m => {
@@ -749,7 +703,6 @@ export default function AnalyticsScreen() {
 
   const heroColor = getHeroColor(displayScore);
   const heroLabel = getHeroLabel(displayScore);
-  const maxWeakCount = Math.max(1, ...weakAreas.map((a) => a.count || 0));
 
   const finalTurns = (turns || []).filter(
     (turn: TranscriptTurn) => turn.type !== 'partial'
@@ -1229,54 +1182,68 @@ export default function AnalyticsScreen() {
             </View>
 
             <View style={styles.card}>
-              {weakAreas.slice(0, 5).map((area, i) => {
-                const col = getWeakAreaColor(area.severity, i);
-                const barW = Math.max(
-                  12,
-                  Math.round(((area.count || 0) / maxWeakCount) * 100)
-                );
+              <View style={styles.weakChartWrap}>
+                <View style={styles.weakDonutWrap}>
+                  <Svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
+                    <G rotation="-90" origin={`${DONUT_SIZE / 2}, ${DONUT_SIZE / 2}`}>
+                      <Circle
+                        cx={DONUT_SIZE / 2}
+                        cy={DONUT_SIZE / 2}
+                        r={DONUT_RADIUS}
+                        stroke="#F0F0F5"
+                        strokeWidth={DONUT_STROKE}
+                        fill="none"
+                      />
+                      {weakChartData.reduce(
+                        (acc, item) => {
+                          const length = item.ratio * DONUT_CIRCUMFERENCE;
+                          const segment = (
+                            <Circle
+                              key={item.key}
+                              cx={DONUT_SIZE / 2}
+                              cy={DONUT_SIZE / 2}
+                              r={DONUT_RADIUS}
+                              stroke={item.color}
+                              strokeWidth={DONUT_STROKE}
+                              fill="none"
+                              strokeLinecap="butt"
+                              strokeDasharray={`${length} ${DONUT_CIRCUMFERENCE - length}`}
+                              strokeDashoffset={-acc.offset}
+                            />
+                          );
+                          acc.offset += length;
+                          acc.nodes.push(segment);
+                          return acc;
+                        },
+                        { offset: 0, nodes: [] as React.ReactNode[] },
+                      ).nodes}
+                    </G>
+                  </Svg>
 
-                return (
-                  <View
-                    key={i}
-                    style={[
-                      styles.weakItem,
-                      i < Math.min(weakAreas.length, 5) - 1 &&
-                        styles.weakItemBorder,
-                    ]}
-                  >
-                    <View style={[styles.weakRank, { backgroundColor: col + '18' }]}>
-                      <Text style={[styles.weakRankText, { color: col }]}>
-                        {i + 1}
-                      </Text>
-                    </View>
+                  <View style={styles.weakDonutCenter}>
+                    <Text style={styles.weakDonutValue}>
+                      {weakChartData[0]?.count || 0}
+                    </Text>
+                    <Text style={styles.weakDonutLabel}>최다 실수</Text>
+                  </View>
+                </View>
 
-                    <View style={styles.weakInfo}>
-                      <Text style={styles.weakLabel}>
-                        {area.error_type_ko || getCorrectionTypeLabel(area.error_type)}
-                      </Text>
-
-                      <View style={styles.weakBarTrack}>
-                        <View
-                          style={[
-                            styles.weakBarFill,
-                            {
-                              width: `${barW}%`,
-                              backgroundColor: col,
-                            },
-                          ]}
-                        />
+                <View style={styles.weakLegend}>
+                  {weakChartData.map(item => (
+                    <View key={item.key} style={styles.weakLegendRow}>
+                      <View style={[styles.weakLegendDot, { backgroundColor: item.color }]} />
+                      <View style={styles.weakLegendTextWrap}>
+                        <Text style={styles.weakLegendLabel} numberOfLines={1}>
+                          {item.label}
+                        </Text>
+                        <Text style={styles.weakLegendMeta}>
+                          {item.count}회 · {Math.round(item.ratio * 100)}%
+                        </Text>
                       </View>
                     </View>
-
-                    <View style={[styles.weakBadge, { backgroundColor: col + '14' }]}>
-                      <Text style={[styles.weakCount, { color: col }]}>
-                        {area.count}회
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
+                  ))}
+                </View>
+              </View>
             </View>
           </View>
         ) : isHomeAnalysis && recentMistakes.length === 0 ? (
@@ -1294,84 +1261,6 @@ export default function AnalyticsScreen() {
             </View>
           </View>
         ) : null}
-
-        {isHomeAnalysis && errorTypeInsights.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionEye}>ERROR TYPES</Text>
-              <Text style={styles.sectionTitle}>오류 유형</Text>
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.errorTypeIntro}>
-                <Text style={styles.errorTypeIntroTitle}>
-                  어떤 종류의 실수가 쌓였는지 봐요
-                </Text>
-                <Text style={styles.errorTypeIntroText}>
-                  약점 순위와 달리, 유형별 비중과 최근 예시를 함께 보여줍니다.
-                </Text>
-              </View>
-
-              {errorTypeInsights.map((item, i) => {
-                const col = getWeakAreaColor(item.severityLabel === '높은 영향' ? 'high' : item.severityLabel === '주의' ? 'medium' : 'low', i);
-                const width = Math.max(8, Math.round(item.ratio * 100));
-                const trendText = item.trend
-                  ? item.trend.direction === 'up'
-                    ? `이번 주 +${item.trend.delta}`
-                    : item.trend.direction === 'down'
-                      ? `이번 주 -${Math.abs(item.trend.delta)}`
-                      : '이번 주 변화 없음'
-                  : '최근 기록 기준';
-
-                return (
-                  <View
-                    key={item.type}
-                    style={[
-                      styles.errorTypeItem,
-                      i < errorTypeInsights.length - 1 && styles.errorTypeItemBorder,
-                    ]}
-                  >
-                    <View style={styles.errorTypeTop}>
-                      <View style={styles.errorTypeNameWrap}>
-                        <Text style={styles.errorTypeName}>{item.label}</Text>
-                        <Text style={styles.errorTypeMeta}>
-                          {item.count}회 · {item.severityLabel} · {trendText}
-                        </Text>
-                      </View>
-
-                      <Text style={[styles.errorTypeRatio, { color: col }]}>
-                        {Math.round(item.ratio * 100)}%
-                      </Text>
-                    </View>
-
-                    <View style={styles.errorTypeBarTrack}>
-                      <View
-                        style={[
-                          styles.errorTypeBarFill,
-                          { width: `${width}%`, backgroundColor: col },
-                        ]}
-                      />
-                    </View>
-
-                    {!!item.recentExample?.originalText && (
-                      <View style={styles.errorTypeExample}>
-                        <Text style={styles.errorTypeExampleLabel}>최근 예시</Text>
-                        <Text style={styles.errorTypeOriginal} numberOfLines={1}>
-                          {item.recentExample.originalText}
-                        </Text>
-                        {!!item.recentExample.correctedText && (
-                          <Text style={styles.errorTypeCorrected} numberOfLines={1}>
-                            {item.recentExample.correctedText}
-                          </Text>
-                        )}
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        )}
 
         {isHomeAnalysis &&
           (recurringPatterns.length > 0 || weeklyTrends.length > 0) && (
@@ -2124,54 +2013,61 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  weakItem: {
+  weakChartWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 14,
+    gap: 16,
+    padding: 16,
   },
-  weakItemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-  },
-  weakRank: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  weakDonutWrap: {
+    width: DONUT_SIZE,
+    height: DONUT_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  weakRankText: {
-    fontSize: 13,
-    fontWeight: '600',
+  weakDonutCenter: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  weakInfo: {
-    flex: 1,
-    gap: 6,
-  },
-  weakLabel: {
-    fontSize: 13,
-    fontWeight: '500',
+  weakDonutValue: {
+    fontSize: 22,
+    fontWeight: '800',
     color: '#111',
+    lineHeight: 26,
   },
-  weakBarTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: BORDER,
-    overflow: 'hidden',
+  weakDonutLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#999',
+    marginTop: 2,
   },
-  weakBarFill: {
-    height: '100%',
-    borderRadius: 2,
+  weakLegend: {
+    flex: 1,
+    gap: 10,
   },
-  weakBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 20,
+  weakLegendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
   },
-  weakCount: {
+  weakLegendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  weakLegendTextWrap: {
+    flex: 1,
+  },
+  weakLegendLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 2,
+  },
+  weakLegendMeta: {
     fontSize: 11,
-    fontWeight: '600',
+    color: '#777',
   },
 
   habitBlock: {
@@ -2282,90 +2178,6 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 8,
     lineHeight: 16,
-  },
-
-  errorTypeIntro: {
-    padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-  },
-  errorTypeIntroTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#111',
-    marginBottom: 4,
-  },
-  errorTypeIntroText: {
-    fontSize: 11,
-    color: '#777',
-    lineHeight: 16,
-  },
-  errorTypeItem: {
-    padding: 14,
-  },
-  errorTypeItemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-  },
-  errorTypeTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 8,
-  },
-  errorTypeNameWrap: {
-    flex: 1,
-  },
-  errorTypeName: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#111',
-    marginBottom: 3,
-  },
-  errorTypeMeta: {
-    fontSize: 11,
-    color: '#777',
-    lineHeight: 16,
-  },
-  errorTypeRatio: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  errorTypeBarTrack: {
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: '#F0F0F5',
-    overflow: 'hidden',
-  },
-  errorTypeBarFill: {
-    height: '100%',
-    borderRadius: 999,
-  },
-  errorTypeExample: {
-    marginTop: 10,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: '#FAFAFC',
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  errorTypeExampleLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#999',
-    marginBottom: 5,
-  },
-  errorTypeOriginal: {
-    fontSize: 12,
-    color: '#888',
-    textDecorationLine: 'line-through',
-    marginBottom: 3,
-  },
-  errorTypeCorrected: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#22C55E',
   },
 
   emptyCard: {
