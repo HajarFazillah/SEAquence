@@ -54,6 +54,8 @@ interface WeakArea {
   error_type_ko: string;
   count: number;
   severity: string;
+  weighted_score?: number;
+  types?: string[];
 }
 
 interface ScoreDetail {
@@ -206,8 +208,68 @@ const getCorrectionTypeLabel = (type?: string) => {
   return labels[type] || type.replace(/_/g, ' ');
 };
 
-const getWeakAreaLabel = (area: WeakArea) =>
-  area.error_type_ko || getCorrectionTypeLabel(area.error_type) || '기타';
+const canonicalWeakAreaType = (type?: string | null) => {
+  switch ((type || '').toLowerCase()) {
+    case 'speech_level':
+    case 'honorific':
+    case 'honorifics':
+    case 'politeness':
+    case 'formality':
+      return 'politeness';
+    case 'grammar':
+    case 'particle':
+    case 'particles':
+    case 'ending':
+    case 'sentence_ending':
+    case 'verb_conjugation':
+    case 'word_order':
+    case 'tense':
+      return 'grammar';
+    case 'vocabulary':
+    case 'word_choice':
+    case 'expression':
+      return 'expression';
+    case 'spelling':
+    case 'spacing':
+      return 'spelling';
+    case 'naturalness':
+    case 'context':
+    case 'register':
+      return 'naturalness';
+    default:
+      return 'other';
+  }
+};
+
+const canonicalWeakAreaLabel = (key: string) => {
+  const labels: Record<string, string> = {
+    politeness: '존댓말/공손성',
+    grammar: '문법 구조',
+    expression: '표현/어휘',
+    spelling: '표기',
+    naturalness: '자연스러움',
+    other: '기타',
+  };
+  return labels[key] || getCorrectionTypeLabel(key) || '기타';
+};
+
+const severityWeight = (severity?: string | null) => {
+  if (severity === 'error' || severity === 'high') return 3;
+  if (severity === 'warning' || severity === 'medium') return 2;
+  return 1;
+};
+
+const weakAreaReason = (key: string) => {
+  const reasons: Record<string, string> = {
+    politeness: '교수, 상사, 고객처럼 거리감이 있는 관계에서 바로 어색하게 느껴질 수 있어요.',
+    grammar: '문장 구조가 흔들리면 의미는 전달돼도 자연스러운 한국어처럼 들리기 어려워요.',
+    expression: '단어 선택이 어색하면 상황 의도는 맞아도 원어민식 표현에서 멀어질 수 있어요.',
+    spelling: '표기 실수는 짧은 메시지에서도 눈에 잘 띄어서 전체 정확도 인상을 낮출 수 있어요.',
+    naturalness: '문법은 맞아도 대화 맥락과 어울리지 않으면 실제 대화에서 딱딱하게 들릴 수 있어요.',
+    other: '반복되는 작은 오류도 누적되면 특정 상황에서 자신감을 떨어뜨릴 수 있어요.',
+  };
+  return reasons[key] || reasons.other;
+};
 
 const mergeSeverity = (current: string, next: string) => {
   const rank = (severity: string) => {
@@ -611,60 +673,88 @@ export default function AnalyticsScreen() {
     [recentMistakes],
   );
   const weakChartData = useMemo(() => {
-    const merged = new Map<string, WeakArea>();
+    const merged = new Map<string, WeakArea & { typeSet: Set<string> }>();
 
     weakAreas.forEach(area => {
-      const label = getWeakAreaLabel(area);
-      const existing = merged.get(label);
+      const key = canonicalWeakAreaType(area.error_type);
+      const types = area.types?.length ? area.types : [area.error_type || key];
+      const existing = merged.get(key);
+      const weightedScore = area.weighted_score ?? ((area.count || 0) * severityWeight(area.severity));
 
       if (existing) {
-        merged.set(label, {
+        types.forEach(type => existing.typeSet.add(type));
+        merged.set(key, {
           ...existing,
-          error_type: existing.error_type || area.error_type,
-          error_type_ko: label,
+          error_type: key,
+          error_type_ko: canonicalWeakAreaLabel(key),
           count: (existing.count || 0) + (area.count || 0),
+          weighted_score: (existing.weighted_score || 0) + weightedScore,
           severity: mergeSeverity(existing.severity, area.severity),
         });
       } else {
-        merged.set(label, {
+        merged.set(key, {
           ...area,
-          error_type_ko: label,
+          error_type: key,
+          error_type_ko: canonicalWeakAreaLabel(key),
+          weighted_score: weightedScore,
+          typeSet: new Set(types),
         });
       }
     });
 
     const items = Array.from(merged.values())
-      .sort((a, b) => (b.count || 0) - (a.count || 0))
+      .sort((a, b) => (b.weighted_score || 0) - (a.weighted_score || 0))
       .slice(0, 5);
-    const total = Math.max(1, items.reduce((sum, area) => sum + (area.count || 0), 0));
+    const total = Math.max(1, items.reduce((sum, area) => sum + (area.weighted_score || 0), 0));
 
     return items.map((area, i) => ({
-      key: getWeakAreaLabel(area),
-      label: getWeakAreaLabel(area),
+      key: area.error_type,
+      label: canonicalWeakAreaLabel(area.error_type),
+      types: Array.from(area.typeSet),
       count: area.count || 0,
-      ratio: (area.count || 0) / total,
+      weightedScore: area.weighted_score || 0,
+      ratio: (area.weighted_score || 0) / total,
+      reason: weakAreaReason(area.error_type),
       color: getWeakAreaColor(area.severity, i),
+      trend: weeklyTrends
+        .filter(t => area.typeSet.has(t.type) || canonicalWeakAreaType(t.type) === area.error_type)
+        .reduce(
+          (acc, t) => ({
+            thisWeek: acc.thisWeek + t.thisWeek,
+            lastWeek: acc.lastWeek + t.lastWeek,
+          }),
+          { thisWeek: 0, lastWeek: 0 },
+        ),
     }));
-  }, [weakAreas]);
+  }, [weakAreas, weeklyTrends]);
   const recentTypeOptions = useMemo(() => {
-    const counts = new Map<string, number>();
+    const counts = new Map<string, { label: string; count: number; types: Set<string> }>();
     recentMistakes.forEach(m => {
       const type = m.correctionType || 'unknown';
-      counts.set(type, (counts.get(type) || 0) + 1);
+      const key = canonicalWeakAreaType(type);
+      const current = counts.get(key) || {
+        label: canonicalWeakAreaLabel(key),
+        count: 0,
+        types: new Set<string>(),
+      };
+      current.count += 1;
+      current.types.add(type);
+      counts.set(key, current);
     });
     return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
+      .sort((a, b) => b[1].count - a[1].count)
       .slice(0, 6)
-      .map(([type, count]) => ({
+      .map(([type, group]) => ({
         type,
-        label: getCorrectionTypeLabel(type) || type,
-        count,
+        label: group.label,
+        count: group.count,
+        types: Array.from(group.types),
       }));
   }, [recentMistakes]);
   const filteredRecentMistakes = useMemo(
     () => recentTypeFilter === 'all'
       ? recentMistakes
-      : recentMistakes.filter(m => (m.correctionType || 'unknown') === recentTypeFilter),
+      : recentMistakes.filter(m => canonicalWeakAreaType(m.correctionType) === recentTypeFilter),
     [recentMistakes, recentTypeFilter],
   );
   const personalizationSignals = useMemo(
@@ -893,56 +983,45 @@ export default function AnalyticsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.heroCard, { backgroundColor: heroColor }]}>
-          <View style={styles.heroBlobA} />
-          <View style={styles.heroBlobB} />
+        {!isHomeAnalysis && (
+          <View style={[styles.heroCard, { backgroundColor: heroColor }]}>
+            <View style={styles.heroBlobA} />
+            <View style={styles.heroBlobB} />
 
-          <View style={styles.heroTopRow}>
-            <View style={styles.heroPill}>
-              <Target size={12} color="#fff" />
-              <Text style={styles.heroPillText}>
-                {isHomeAnalysis ? 'Mistake Report' : 'Session Report'}
-              </Text>
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroPill}>
+                <Target size={12} color="#fff" />
+                <Text style={styles.heroPillText}>Session Report</Text>
+              </View>
+
+              <Text style={styles.heroLabel}>{heroLabel}</Text>
             </View>
 
-            <Text style={styles.heroLabel}>{heroLabel}</Text>
-          </View>
+            <Text style={styles.heroTitle}>이번 대화가 이렇게 쌓였어요</Text>
 
-          <Text style={styles.heroTitle}>
-            {isHomeAnalysis
-              ? '실수 패턴을 한눈에 봐요'
-              : '이번 대화가 이렇게 쌓였어요'}
-          </Text>
+            <Text style={styles.heroSub}>
+              {avatar?.name_ko || '아바타'}와 {duration || '5분'} 동안 연습한 결과입니다.
+            </Text>
 
-          <Text style={styles.heroSub}>
-            {isHomeAnalysis
-              ? '이전 대화의 반복 실수와 다음 연습 방향을 정리합니다.'
-              : `${avatar?.name_ko || '아바타'}와 ${
-                  duration || '5분'
-                } 동안 연습한 결과입니다.`}
-          </Text>
+            <View style={styles.heroBottom}>
+              <View style={styles.heroScoreBubble}>
+                <Text style={[styles.heroScore, { color: heroColor }]}>
+                  {displayScore}
+                </Text>
+                <Text style={[styles.heroScoreUnit, { color: heroColor }]}>
+                  점
+                </Text>
+              </View>
 
-          <View style={styles.heroBottom}>
-            <View style={styles.heroScoreBubble}>
-              <Text style={[styles.heroScore, { color: heroColor }]}>
-                {displayScore}
-              </Text>
-              <Text style={[styles.heroScoreUnit, { color: heroColor }]}>
-                점
-              </Text>
-            </View>
-
-            <View style={styles.heroInsight}>
-              <Text style={styles.heroInsightEye}>오늘의 포커스</Text>
-              <Text style={styles.heroInsightText}>
-                {topRiskInsights[0]?.message ||
-                  weakAreas[0]?.error_type_ko ||
-                  weakAreas[0]?.error_type ||
-                  '대화 흐름을 꾸준히 유지해보세요'}
-              </Text>
+              <View style={styles.heroInsight}>
+                <Text style={styles.heroInsightEye}>오늘의 포커스</Text>
+                <Text style={styles.heroInsightText}>
+                  {topRiskInsights[0]?.message || '대화 흐름을 꾸준히 유지해보세요'}
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
         {isHomeAnalysis && (
           <View style={styles.section}>
@@ -1247,6 +1326,7 @@ export default function AnalyticsScreen() {
                               strokeLinecap="butt"
                               strokeDasharray={`${length} ${DONUT_CIRCUMFERENCE - length}`}
                               strokeDashoffset={-acc.offset}
+                              onPress={() => setRecentTypeFilter(item.key)}
                             />
                           );
                           acc.offset += length;
@@ -1267,19 +1347,42 @@ export default function AnalyticsScreen() {
                 </View>
 
                 <View style={styles.weakLegend}>
-                  {weakChartData.map(item => (
-                    <View key={item.key} style={styles.weakLegendRow}>
+                  {weakChartData.map(item => {
+                    const active = recentTypeFilter === item.key;
+                    const delta = item.trend.thisWeek - item.trend.lastWeek;
+                    const trendText =
+                      item.trend.thisWeek + item.trend.lastWeek === 0
+                        ? '최근 기록 기준'
+                        : delta < 0
+                          ? `지난 7일 ${Math.abs(delta)}회 감소`
+                          : delta > 0
+                            ? `지난 7일 ${delta}회 증가`
+                            : '지난 7일 변화 없음';
+
+                    return (
+                    <TouchableOpacity
+                      key={item.key}
+                      style={[
+                        styles.weakLegendRow,
+                        active && styles.weakLegendRowActive,
+                      ]}
+                      onPress={() => setRecentTypeFilter(active ? 'all' : item.key)}
+                    >
                       <View style={[styles.weakLegendDot, { backgroundColor: item.color }]} />
                       <View style={styles.weakLegendTextWrap}>
                         <Text style={styles.weakLegendLabel} numberOfLines={1}>
                           {item.label}
                         </Text>
                         <Text style={styles.weakLegendMeta}>
-                          {item.count}회 · {Math.round(item.ratio * 100)}%
+                          {item.count}회 · 영향도 {Math.round(item.ratio * 100)}% · {trendText}
+                        </Text>
+                        <Text style={styles.weakLegendReason} numberOfLines={2}>
+                          {item.reason}
                         </Text>
                       </View>
-                    </View>
-                  ))}
+                    </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </View>
             </View>
@@ -1299,6 +1402,106 @@ export default function AnalyticsScreen() {
             </View>
           </View>
         ) : null}
+
+        {isHomeAnalysis && recentMistakes.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionEye}>RECENT</Text>
+              <Text style={styles.sectionTitle}>최근 실수</Text>
+            </View>
+
+            <View style={styles.card}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.recentFilterRow}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.recentFilterChip,
+                    recentTypeFilter === 'all' && styles.recentFilterChipActive,
+                  ]}
+                  onPress={() => setRecentTypeFilter('all')}
+                >
+                  <Text
+                    style={[
+                      styles.recentFilterText,
+                      recentTypeFilter === 'all' && styles.recentFilterTextActive,
+                    ]}
+                  >
+                    전체 {recentMistakes.length}
+                  </Text>
+                </TouchableOpacity>
+
+                {recentTypeOptions.map(option => {
+                  const active = recentTypeFilter === option.type;
+                  return (
+                    <TouchableOpacity
+                      key={option.type}
+                      style={[
+                        styles.recentFilterChip,
+                        active && styles.recentFilterChipActive,
+                      ]}
+                      onPress={() => setRecentTypeFilter(option.type)}
+                    >
+                      <Text
+                        style={[
+                          styles.recentFilterText,
+                          active && styles.recentFilterTextActive,
+                        ]}
+                      >
+                        {option.label} {option.count}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {filteredRecentMistakes.slice(0, 8).map((m, i) => (
+                <View
+                  key={m.id}
+                  style={[
+                    styles.recentItem,
+                    i < Math.min(filteredRecentMistakes.length, 8) - 1 &&
+                      styles.recentItemBorder,
+                  ]}
+                >
+                  <View style={styles.recentTopRow}>
+                    {!!m.correctionType && (
+                      <View style={styles.recentTypePill}>
+                        <Text style={styles.recentTypeText}>
+                          {getCorrectionTypeLabel(m.correctionType)}
+                        </Text>
+                      </View>
+                    )}
+
+                    <Text style={styles.recentDate}>
+                      {m.createdAt
+                        ? new Date(m.createdAt).toLocaleDateString('ko-KR')
+                        : ''}
+                    </Text>
+                  </View>
+
+                  <Text style={styles.recentOriginal}>{m.originalText}</Text>
+                  <Text style={styles.recentArrow}>→</Text>
+                  <Text style={styles.recentCorrected}>{m.correctedText}</Text>
+
+                  {!!m.explanation && (
+                    <Text style={styles.recentExplanation}>{m.explanation}</Text>
+                  )}
+                </View>
+              ))}
+
+              {filteredRecentMistakes.length === 0 && (
+                <View style={styles.recentEmpty}>
+                  <Text style={styles.recentEmptyText}>
+                    이 유형의 최근 실수는 아직 없어요.
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
 
         {isHomeAnalysis &&
           (recurringPatterns.length > 0 || weeklyTrends.length > 0) && (
@@ -1402,106 +1605,6 @@ export default function AnalyticsScreen() {
               </View>
             </View>
           )}
-
-        {isHomeAnalysis && recentMistakes.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionEye}>RECENT</Text>
-              <Text style={styles.sectionTitle}>최근 실수</Text>
-            </View>
-
-            <View style={styles.card}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.recentFilterRow}
-              >
-                <TouchableOpacity
-                  style={[
-                    styles.recentFilterChip,
-                    recentTypeFilter === 'all' && styles.recentFilterChipActive,
-                  ]}
-                  onPress={() => setRecentTypeFilter('all')}
-                >
-                  <Text
-                    style={[
-                      styles.recentFilterText,
-                      recentTypeFilter === 'all' && styles.recentFilterTextActive,
-                    ]}
-                  >
-                    전체 {recentMistakes.length}
-                  </Text>
-                </TouchableOpacity>
-
-                {recentTypeOptions.map(option => {
-                  const active = recentTypeFilter === option.type;
-                  return (
-                    <TouchableOpacity
-                      key={option.type}
-                      style={[
-                        styles.recentFilterChip,
-                        active && styles.recentFilterChipActive,
-                      ]}
-                      onPress={() => setRecentTypeFilter(option.type)}
-                    >
-                      <Text
-                        style={[
-                          styles.recentFilterText,
-                          active && styles.recentFilterTextActive,
-                        ]}
-                      >
-                        {option.label} {option.count}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              {filteredRecentMistakes.slice(0, 8).map((m, i) => (
-                <View
-                  key={m.id}
-                  style={[
-                    styles.recentItem,
-                    i < Math.min(filteredRecentMistakes.length, 8) - 1 &&
-                      styles.recentItemBorder,
-                  ]}
-                >
-                  <View style={styles.recentTopRow}>
-                    {!!m.correctionType && (
-                      <View style={styles.recentTypePill}>
-                        <Text style={styles.recentTypeText}>
-                          {getCorrectionTypeLabel(m.correctionType)}
-                        </Text>
-                      </View>
-                    )}
-
-                    <Text style={styles.recentDate}>
-                      {m.createdAt
-                        ? new Date(m.createdAt).toLocaleDateString('ko-KR')
-                        : ''}
-                    </Text>
-                  </View>
-
-                  <Text style={styles.recentOriginal}>{m.originalText}</Text>
-                  <Text style={styles.recentArrow}>→</Text>
-                  <Text style={styles.recentCorrected}>{m.correctedText}</Text>
-
-                  {!!m.explanation && (
-                    <Text style={styles.recentExplanation}>{m.explanation}</Text>
-                  )}
-                </View>
-              ))}
-
-              {filteredRecentMistakes.length === 0 && (
-                <View style={styles.recentEmpty}>
-                  <Text style={styles.recentEmptyText}>
-                    이 유형의 최근 실수는 아직 없어요.
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-        )}
 
         {savedItems && savedItems.length > 0 && (
           <View style={styles.section}>
@@ -2086,13 +2189,22 @@ const styles = StyleSheet.create({
   },
   weakLegendRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 9,
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  weakLegendRowActive: {
+    backgroundColor: '#F7F7FA',
+    borderColor: BORDER,
   },
   weakLegendDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
+    marginTop: 3,
   },
   weakLegendTextWrap: {
     flex: 1,
@@ -2106,6 +2218,13 @@ const styles = StyleSheet.create({
   weakLegendMeta: {
     fontSize: 11,
     color: '#777',
+    lineHeight: 16,
+  },
+  weakLegendReason: {
+    fontSize: 10,
+    color: '#999',
+    lineHeight: 15,
+    marginTop: 3,
   },
 
   habitBlock: {
