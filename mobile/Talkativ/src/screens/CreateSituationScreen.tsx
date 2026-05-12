@@ -8,7 +8,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { 
   Coffee, Briefcase, GraduationCap, ShoppingBag,
   UtensilsCrossed, Users, Building2, Handshake, PartyPopper,
-  MapPin, Sparkles, Check,
+  MapPin, Sparkles, Check, RefreshCw, ChevronDown, ChevronUp,
 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Header, Card, Button, InputField, Tag } from '../components';
@@ -38,6 +38,13 @@ const CATEGORIES = [
   { id: 'formal', label: '격식' },
   { id: 'work', label: '업무' },
 ];
+
+const CATEGORY_ICON_MAP: Record<string, string> = {
+  casual: 'coffee',
+  service: 'utensils',
+  formal: 'handshake',
+  work: 'briefcase',
+};
 
 const CONTEXT_SUGGESTIONS = [
   '처음 만나는 상황',
@@ -530,8 +537,8 @@ export default function CreateSituationScreen() {
   const isEditing = !!editing;
 
   const [name, setName] = useState(editing?.name_ko || '');
-  const [nameEn, setNameEn] = useState(editing?.name_en || '');
   const [description, setDescription] = useState(editing?.description_ko || '');
+  const [showDescriptionField, setShowDescriptionField] = useState(Boolean(editing?.description_ko));
   const [scenePlace, setScenePlace] = useState(editing?.scene_place || '');
   const [conversationGoal, setConversationGoal] = useState(editing?.conversation_goal || '');
   const [avatarRoleInScene, setAvatarRoleInScene] = useState(editing?.avatar_role_in_scene || getAvatarSceneRole(avatar));
@@ -565,41 +572,51 @@ export default function CreateSituationScreen() {
     setRecommendations(fallbackRecommendations);
   }, [fallbackRecommendations]);
 
+  const fetchRecommendations = async () => {
+    setIsLoadingRecommendations(true);
+    try {
+      const response = await fetch(`${AI_SERVER}/api/v1/chat/suggest-situations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          avatar: avatar || {},
+          user_profile: userProfile || {},
+          count: 5,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`Situation recommendation error: ${response.status}`);
+      const data = await response.json();
+      if (Array.isArray(data?.situations) && data.situations.length > 0) {
+        setRecommendations(data.situations);
+        setSelectedRecommendation(null);
+        return;
+      }
+      setRecommendations(fallbackRecommendations);
+    } catch (error) {
+      console.log('Failed to load AI situation recommendations:', error);
+      setRecommendations(fallbackRecommendations);
+    } finally {
+      setIsLoadingRecommendations(false);
+    }
+  };
+
   useEffect(() => {
     if (mode !== 'ai' || isEditing || !profileLoaded) return;
+    fetchRecommendations();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, isEditing, profileLoaded, avatar, userProfile]);
 
-    let isMounted = true;
-    const loadRecommendations = async () => {
-      setIsLoadingRecommendations(true);
-      try {
-        const response = await fetch(`${AI_SERVER}/api/v1/chat/suggest-situations`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            avatar: avatar || {},
-            user_profile: userProfile || {},
-            count: 5,
-          }),
-        });
+  useEffect(() => {
+    if (mode === 'ai' && !isEditing && !isLoadingRecommendations && recommendations.length === 0) {
+      setRecommendations(fallbackRecommendations);
+    }
+  }, [fallbackRecommendations, isEditing, isLoadingRecommendations, mode, recommendations.length]);
 
-        if (!response.ok) throw new Error(`Situation recommendation error: ${response.status}`);
-        const data = await response.json();
-        if (isMounted && Array.isArray(data?.situations) && data.situations.length > 0) {
-          setRecommendations(data.situations);
-        }
-      } catch (error) {
-        console.log('Failed to load AI situation recommendations:', error);
-        if (isMounted) setRecommendations(fallbackRecommendations);
-      } finally {
-        if (isMounted) setIsLoadingRecommendations(false);
-      }
-    };
-
-    loadRecommendations();
-    return () => {
-      isMounted = false;
-    };
-  }, [avatar, fallbackRecommendations, isEditing, mode, profileLoaded, userProfile]);
+  useEffect(() => {
+    if (selectedRecommendation) return;
+    setSelectedIcon(CATEGORY_ICON_MAP[selectedCategory] || 'coffee');
+  }, [selectedCategory, selectedRecommendation]);
 
   const toggleContext = (context: string) => {
     if (contexts.includes(context)) {
@@ -619,8 +636,9 @@ export default function CreateSituationScreen() {
   const applyRecommendation = (recommendation: RecommendedSituation) => {
     setSelectedRecommendation(recommendation.id);
     setName(recommendation.name_ko);
-    setNameEn(recommendation.name_en);
-    setDescription(sanitizeRoleShiftText(recommendation.description_ko, avatar));
+    const sanitizedDescription = sanitizeRoleShiftText(recommendation.description_ko, avatar);
+    setDescription(sanitizedDescription);
+    setShowDescriptionField(Boolean(sanitizedDescription));
     setScenePlace(sanitizeRoleShiftText(recommendation.scene_place || '', avatar));
     setConversationGoal(sanitizeRoleShiftText(recommendation.conversation_goal || '', avatar));
     setAvatarRoleInScene(sanitizeRoleShiftText(recommendation.avatar_role_in_scene || getAvatarSceneRole(avatar), avatar));
@@ -639,7 +657,7 @@ export default function CreateSituationScreen() {
       const situationPayload = {
         id: editing?.id || `custom_${Date.now()}`,
         name_ko: name.trim(),
-        name_en: nameEn.trim(),
+        name_en: '',
         description_ko: description.trim(),
         scene_place: scenePlace.trim(),
         conversation_goal: conversationGoal.trim(),
@@ -688,8 +706,18 @@ export default function CreateSituationScreen() {
         {mode === 'ai' && !isEditing && (
           <View style={styles.recommendationSection}>
             <View style={styles.recommendationHeader}>
-              <Sparkles size={18} color="#6C3BFF" />
-              <Text style={styles.recommendationTitle}>이 아바타에게 어울리는 상황</Text>
+              <View style={styles.recommendationHeaderMain}>
+                <Sparkles size={18} color="#6C3BFF" />
+                <Text style={styles.recommendationTitle}>이 아바타에게 어울리는 상황</Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.rerollButton, isLoadingRecommendations && styles.rerollButtonDisabled]}
+                onPress={fetchRecommendations}
+                disabled={isLoadingRecommendations}
+              >
+                <RefreshCw size={14} color="#6C3BFF" />
+                <Text style={styles.rerollButtonText}>다시 추천</Text>
+              </TouchableOpacity>
             </View>
             <Text style={styles.recommendationHint}>
               추천을 고르면 아래 입력칸에 채워지고, 원하는 대로 수정할 수 있어요.
@@ -738,22 +766,33 @@ export default function CreateSituationScreen() {
           placeholder="예: 도서관에서 공부"
         />
 
-        <InputField
-          label="상황 이름 (영어)"
-          value={nameEn}
-          onChangeText={setNameEn}
-          placeholder="예: Studying at Library"
-        />
+        <TouchableOpacity
+          style={styles.optionalFieldToggle}
+          onPress={() => setShowDescriptionField((prev) => !prev)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.optionalFieldToggleText}>
+            <Text style={styles.optionalFieldLabel}>상황 설명</Text>
+            <Text style={styles.optionalFieldHint}>
+              없어도 돼요. 더 구체적인 장면 설명이 필요할 때만 적어 주세요.
+            </Text>
+          </View>
+          {showDescriptionField ? (
+            <ChevronUp size={18} color="#6C6C80" />
+          ) : (
+            <ChevronDown size={18} color="#6C6C80" />
+          )}
+        </TouchableOpacity>
 
-        {/* Description */}
-        <InputField
-          label="상황 설명"
-          value={description}
-          onChangeText={setDescription}
-          placeholder="선택 사항: 이 상황에서 어떤 대화가 이루어지나요?"
-          multiline
-          numberOfLines={3}
-        />
+        {showDescriptionField && (
+          <InputField
+            value={description}
+            onChangeText={setDescription}
+            placeholder="선택 사항: 이 상황에서 어떤 대화가 이루어지나요?"
+            multiline
+            numberOfLines={2}
+          />
+        )}
 
         <InputField
           label="장소/장면"
@@ -782,32 +821,6 @@ export default function CreateSituationScreen() {
           onChangeText={setUserRoleInScene}
           placeholder="예: 친구, 학생, 팀원, 손님"
         />
-
-        {/* Icon Selection */}
-        <Text style={styles.fieldLabel}>아이콘 선택</Text>
-        <View style={styles.iconGrid}>
-          {SITUATION_ICONS.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[
-                styles.iconButton,
-                selectedIcon === item.id && styles.iconButtonActive,
-              ]}
-              onPress={() => setSelectedIcon(item.id)}
-            >
-              <item.icon 
-                size={24} 
-                color={selectedIcon === item.id ? '#FFFFFF' : '#6C6C80'} 
-              />
-              <Text style={[
-                styles.iconLabel,
-                selectedIcon === item.id && styles.iconLabelActive,
-              ]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
 
         {/* Category */}
         <Text style={styles.fieldLabel}>카테고리</Text>
@@ -939,6 +952,34 @@ const styles = StyleSheet.create({
     marginTop: -6,
     marginBottom: 12,
   },
+  optionalFieldToggle: {
+    marginTop: 16,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E2EC',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  optionalFieldToggleText: {
+    flex: 1,
+  },
+  optionalFieldLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1A1A2E',
+  },
+  optionalFieldHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#6C6C80',
+    lineHeight: 17,
+  },
 
   recommendationSection: {
     backgroundColor: '#FFFFFF',
@@ -951,13 +992,36 @@ const styles = StyleSheet.create({
   recommendationHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
     marginBottom: 6,
+    gap: 12,
+  },
+  recommendationHeaderMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   recommendationTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: '#1A1A2E',
+  },
+  rerollButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#F0EDFF',
+  },
+  rerollButtonDisabled: {
+    opacity: 0.6,
+  },
+  rerollButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6C3BFF',
   },
   recommendationHint: {
     fontSize: 12,
@@ -1013,35 +1077,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6C6C80',
     lineHeight: 18,
-  },
-
-  iconGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 8,
-  },
-  iconButton: {
-    width: '18%',
-    aspectRatio: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#E2E2EC',
-  },
-  iconButtonActive: {
-    backgroundColor: '#6C3BFF',
-    borderColor: '#6C3BFF',
-  },
-  iconLabel: {
-    fontSize: 10,
-    color: '#6C6C80',
-    marginTop: 4,
-  },
-  iconLabelActive: {
-    color: '#FFFFFF',
   },
 
   categoryRow: {
