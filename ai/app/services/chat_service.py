@@ -10,6 +10,7 @@ from collections import Counter
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
+from app.core.config import settings
 from app.schemas.avatar import AvatarBase, SpeechLevel, get_speech_levels_for_role, get_role_label
 from app.schemas.user import UserProfile, KoreanLevel
 from app.services.clova_service import clova_service, Message
@@ -2478,11 +2479,11 @@ class ChatService:
         conn = None
         try:
             conn = mysql.connector.connect(
-                host='127.0.0.1',
-                port=3307,
-                user='root',
-                password='1234',
-                database='talkativ',
+                host=settings.DB_HOST,
+                port=settings.DB_PORT,
+                user=settings.DB_USER,
+                password=settings.DB_PASSWORD,
+                database=settings.DB_NAME,
                 charset='utf8mb4',
                 collation='utf8mb4_unicode_ci',
                 use_unicode=True,
