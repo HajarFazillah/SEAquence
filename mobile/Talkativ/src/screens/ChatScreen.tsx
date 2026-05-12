@@ -836,8 +836,12 @@ const sendMessageToAI = async (
   };
 };
 
-const analyzeSessionWithAI = async (avatar: any, history: HistoryItem[]) => {
-  const res = await fetch(`${AI_SERVER}/api/v1/chat/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar, conversation_history: history }) });
+const analyzeSessionWithAI = async (avatar: any, history: HistoryItem[], sessionId?: string) => {
+  const res = await fetch(`${AI_SERVER}/api/v1/chat/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ avatar, conversation_history: history, session_id: sessionId }),
+  });
   if (!res.ok) throw new Error(`Analyze error: ${res.status}`);
   return res.json();
 };
@@ -947,7 +951,7 @@ export default function ChatScreen() {
     }));
     const avgScore = sessionCorrections.length > 0 ? Math.round(sessionCorrections.reduce((s, c) => s + (c.accuracy_score ?? 0), 0) / sessionCorrections.length) : 100;
     let sessionReport = null;
-    try { sessionReport = await analyzeSessionWithAI(avatar, history); } catch {}
+    try { sessionReport = await analyzeSessionWithAI(avatar, history, sessionIdRef.current); } catch {}
 
     // Fire-and-forget: extract durable per-avatar memories so the next chat with
     // this avatar starts already knowing the user.

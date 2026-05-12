@@ -194,6 +194,7 @@ export default function ConversationSummaryScreen() {
             dislikes:           avatar?.dislikes           || [],
           },
           conversation_history: history,
+          session_id: sessionId,
         }),
       });
 
