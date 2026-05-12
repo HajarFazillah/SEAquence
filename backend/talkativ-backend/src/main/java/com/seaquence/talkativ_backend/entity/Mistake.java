@@ -21,10 +21,10 @@ public class Mistake {
     @Column(name = "turn_number")
     private Integer turnNumber;
 
-    @Column(name = "original_text", nullable = false, columnDefinition = "TEXT")
+    @Column(name = "original_text", nullable = false, columnDefinition = "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
     private String originalText;
 
-    @Column(name = "corrected_text", nullable = false, columnDefinition = "TEXT")
+    @Column(name = "corrected_text", nullable = false, columnDefinition = "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
     private String correctedText;
 
     @Column(name = "correction_type", length = 50)
@@ -33,10 +33,10 @@ public class Mistake {
     @Column(name = "severity", length = 20)
     private String severity;
 
-    @Column(name = "explanation", columnDefinition = "TEXT")
+    @Column(name = "explanation", columnDefinition = "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
     private String explanation;
 
-    @Column(name = "tip", columnDefinition = "TEXT")
+    @Column(name = "tip", columnDefinition = "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
     private String tip;
 
     @CreationTimestamp

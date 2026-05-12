@@ -1,6 +1,8 @@
 package com.seaquence.talkativ_backend.service;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -15,6 +17,22 @@ import com.seaquence.talkativ_backend.repository.UserRepository;
 
 @Service
 public class AvatarService {
+    private static final Set<String> EASY_ROLES = Set.of(
+            "friend", "close_friend", "classmate", "classmate_formal",
+            "roommate", "club_member", "younger_sibling", "cousin");
+    private static final Set<String> HARD_ROLES = Set.of(
+            "parent", "grandparent", "professor", "teacher",
+            "team_leader", "boss", "ceo", "client", "doctor");
+    private static final List<String> HARD_ROLE_KEYWORDS = List.of(
+            "교수", "선생", "부장", "상사", "팀장", "대표", "사장",
+            "고객", "클라이언트", "의사", "면접관", "임원", "원장",
+            "회장", "부모", "아버지", "어머니", "할머니", "할아버지");
+    private static final List<String> EASY_ROLE_KEYWORDS = List.of(
+            "친구", "절친", "동기", "룸메", "룸메이트", "동아리", "동생", "사촌");
+    private static final List<String> MEDIUM_ROLE_KEYWORDS = List.of(
+            "선배", "후배", "동료", "팀원", "튜터", "이웃", "직원",
+            "점원", "기사", "배달", "처음 만난", "낯선");
+
 
     private final AvatarRepository avatarRepository;
     private final UserRepository userRepository;
@@ -90,7 +108,10 @@ public class AvatarService {
         avatar.setRole(request.getRole());
         avatar.setCustomRole(request.getCustomRole() != null ? request.getCustomRole().trim() : "");
         avatar.setRelationshipDescription(request.getRelationshipDescription());
-        avatar.setDifficulty(request.getDifficulty());
+        avatar.setDifficulty(deriveDifficulty(
+                request.getRole(),
+                request.getCustomRole(),
+                request.getFormalityFromUser()));
         avatar.setDescription(request.getDescription());
         avatar.setSpeakingStyle(request.getSpeakingStyle());
         avatar.setMemo(request.getMemo());
@@ -110,5 +131,47 @@ public class AvatarService {
         } catch (JsonProcessingException e) {
             return "[]";
         }
+    }
+
+    private String deriveDifficulty(String role, String customRole, String formalityFromUser) {
+        String normalizedRole = role == null ? "" : role.trim().toLowerCase(Locale.ROOT);
+        String normalizedCustomRole = customRole == null ? "" : customRole.trim();
+        String normalizedFormality = formalityFromUser == null ? "" : formalityFromUser.trim().toLowerCase(Locale.ROOT);
+
+        if (HARD_ROLES.contains(normalizedRole)) {
+            return "hard";
+        }
+        if (EASY_ROLES.contains(normalizedRole)) {
+            return "easy";
+        }
+
+        if (!normalizedCustomRole.isEmpty()) {
+            if (containsAnyKeyword(normalizedCustomRole, HARD_ROLE_KEYWORDS)) {
+                return "hard";
+            }
+            if (containsAnyKeyword(normalizedCustomRole, EASY_ROLE_KEYWORDS)) {
+                return "easy";
+            }
+            if (containsAnyKeyword(normalizedCustomRole, MEDIUM_ROLE_KEYWORDS)) {
+                return "medium";
+            }
+        }
+
+        if ("formal".equals(normalizedFormality)) {
+            return "hard";
+        }
+        if ("informal".equals(normalizedFormality)) {
+            return "easy";
+        }
+        return "medium";
+    }
+
+    private boolean containsAnyKeyword(String value, List<String> keywords) {
+        for (String keyword : keywords) {
+            if (value.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

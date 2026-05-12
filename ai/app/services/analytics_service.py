@@ -94,14 +94,27 @@ class DailyStats(BaseModel):
     accuracy: float = 0.0
 
 
+class MistakeExample(BaseModel):
+    original: str
+    corrected: str
+    explanation: str = ""
+
+
 class WeakArea(BaseModel):
     """Identified weak area"""
-    category: str
-    score: float
-    error_count: int
+    error_type: str
+    error_type_ko: str
+    count: int
+    severity: str = "medium"
+    tip: str = ""
+    examples_detail: List[MistakeExample] = []
+    # legacy fields kept for backwards compat
+    category: str = ""
+    score: float = 0.0
+    error_count: int = 0
     examples: List[str] = []
     suggestion: str = ""
-    priority: str = "medium"  # "high", "medium", "low"
+    priority: str = "medium"
 
 
 class Achievement(BaseModel):
@@ -547,56 +560,99 @@ class AnalyticsService:
         )
     
     def identify_weak_areas(self, user_id: str) -> List[WeakArea]:
-        """Identify user's weak areas"""
-        
-        data = self._get_user_data(user_id)
-        weak_areas = []
-        
-        # Error type to category mapping
-        error_categories = {
-            "speech_level": ("말투", "존댓말과 반말을 상황에 맞게 사용하는 연습을 해보세요"),
-            "particle": ("조사", "은/는, 이/가, 을/를 등의 조사 사용을 연습해보세요"),
-            "verb_ending": ("어미", "동사와 형용사의 어미 변화를 연습해보세요"),
-            "tense": ("시제", "과거, 현재, 미래 시제 표현을 연습해보세요"),
-            "honorific": ("존칭", "높임말 사용을 연습해보세요"),
-            "spelling": ("맞춤법", "자주 틀리는 맞춤법을 복습해보세요"),
-            "pronoun": ("대명사", "상황에 맞는 대명사(나/저) 사용을 연습해보세요"),
+        """Identify user's weak areas by reading session_mistakes from DB."""
+        TYPE_KO = {
+            "speech_level": "말투",
+            "honorific":    "존칭",
+            "grammar":      "문법",
+            "spelling":     "맞춤법",
+            "vocabulary":   "어휘",
+            "expression":   "표현",
+            "naturalness":  "자연스러움",
+            "particle":     "조사",
         }
-        
-        for error_type, count in data.error_counts.items():
-            if error_type.startswith("skill_"):
-                continue
-                
-            if error_type in error_categories and count >= 2:
-                category_name, suggestion = error_categories[error_type]
-                
-                # Calculate score for this category
-                correct = data.correct_counts.get(f"skill_{error_type}", 0)
-                total = correct + count
-                score = (correct / total * 100) if total > 0 else 0
-                
-                # Determine priority
-                if score < 50:
-                    priority = "high"
-                elif score < 70:
-                    priority = "medium"
-                else:
-                    priority = "low"
-                
-                weak_areas.append(WeakArea(
-                    category=category_name,
-                    score=round(score, 1),
-                    error_count=count,
-                    examples=data.error_examples.get(error_type, [])[:3],
-                    suggestion=suggestion,
-                    priority=priority,
-                ))
-        
-        # Sort by priority and error count
-        priority_order = {"high": 0, "medium": 1, "low": 2}
-        weak_areas.sort(key=lambda x: (priority_order[x.priority], -x.error_count))
-        
-        return weak_areas[:5]  # Top 5 weak areas
+        TYPE_TIP = {
+            "speech_level": "존댓말과 반말을 상황에 맞게 구분해서 써보세요.",
+            "honorific":    "높임말 표현을 꾸준히 연습해보세요.",
+            "grammar":      "조사와 어미 변화를 다시 한 번 확인해보세요.",
+            "spelling":     "자주 틀리는 맞춤법을 메모해 복습해보세요.",
+            "vocabulary":   "비슷한 단어를 비교하며 뉘앙스 차이를 익혀보세요.",
+            "expression":   "원어민이 자주 쓰는 자연스러운 표현을 따라해 보세요.",
+            "naturalness":  "번역투 표현을 줄이고 한국어 어순에 익숙해져 보세요.",
+            "particle":     "은/는·이/가·을/를 구분 연습을 해보세요.",
+        }
+
+        try:
+            import mysql.connector
+            conn = mysql.connector.connect(
+                host='127.0.0.1', port=3307,
+                user='root', password='1234', database='talkativ',
+                charset='utf8mb4',
+            )
+            cursor = conn.cursor(dictionary=True)
+
+            # Aggregate counts per error type
+            cursor.execute("""
+                SELECT sm.error_type, COUNT(*) AS cnt
+                FROM session_mistakes sm
+                JOIN sessions s ON s.session_id = sm.session_id
+                WHERE s.user_id = %s
+                GROUP BY sm.error_type
+                ORDER BY cnt DESC
+                LIMIT 5
+            """, (user_id,))
+            rows = cursor.fetchall()
+
+            # Fetch up to 3 distinct examples per error type
+            examples_map: dict = {}
+            for row in rows:
+                et = row["error_type"]
+                cursor.execute("""
+                    SELECT sm.original, sm.corrected, sm.explanation
+                    FROM session_mistakes sm
+                    JOIN sessions s ON s.session_id = sm.session_id
+                    WHERE s.user_id = %s AND sm.error_type = %s
+                      AND sm.original != sm.corrected
+                    GROUP BY sm.original, sm.corrected, sm.explanation
+                    ORDER BY MAX(sm.id) DESC
+                    LIMIT 3
+                """, (user_id, et))
+                examples_map[et] = cursor.fetchall()
+
+            cursor.close()
+            conn.close()
+        except Exception:
+            rows = []
+            examples_map = {}
+
+        weak_areas = []
+        for row in rows:
+            error_type = row.get("error_type", "")
+            count = int(row.get("cnt", 0))
+            severity = "high" if count >= 5 else "medium" if count >= 2 else "low"
+            raw_examples = examples_map.get(error_type, [])
+            examples_detail = [
+                MistakeExample(
+                    original=e.get("original", ""),
+                    corrected=e.get("corrected", ""),
+                    explanation=e.get("explanation", ""),
+                )
+                for e in raw_examples
+            ]
+            weak_areas.append(WeakArea(
+                error_type=error_type,
+                error_type_ko=TYPE_KO.get(error_type, error_type),
+                count=count,
+                severity=severity,
+                tip=TYPE_TIP.get(error_type, ""),
+                examples_detail=examples_detail,
+                category=TYPE_KO.get(error_type, error_type),
+                score=0.0,
+                error_count=count,
+                priority=severity,
+            ))
+
+        return weak_areas
     
     def check_achievements(self, user_id: str) -> List[Achievement]:
         """Check and update achievements"""

@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.services.clova_service import clova_service
 from app.services.mistake_tracker import mistake_tracker
-from app.services.politeness_service import politeness_service
+from app.services.speech_analysis_service import analyze_politeness_compat as _politeness_analyze
 from app.services.emotion_service import emotion_calculator
 from app.core.situations import get_situation, get_avatar_situation, SITUATIONS
 from app.core.constants import AVATARS
@@ -121,7 +121,7 @@ class SessionAwareChatService:
         )
         
         # Get politeness analysis
-        politeness = politeness_service.analyze(request.message)
+        politeness = _politeness_analyze(request.message)
         
         # Calculate score (simple scoring)
         score = self._calculate_score(mistakes, politeness, expected_formality)
@@ -454,7 +454,24 @@ class SessionAwareChatService:
         max_history: int = 10
     ) -> List[Dict[str, str]]:
         """Build messages array for CLOVA API."""
-        messages = []
+        formality_map = {
+            "very_polite": "격식체(-습니다)를 사용하세요.",
+            "formal": "격식체(-습니다)를 사용하세요.",
+            "polite": "해요체(-요)를 사용하세요.",
+            "informal": "반말을 사용하세요.",
+            "casual": "반말을 사용하세요.",
+        }
+        messages = [{
+            "role": "system",
+            "content": (
+                f"당신은 '{avatar.get('name_ko', '아바타')}'입니다. "
+                f"{avatar.get('personality', '')} "
+                f"{formality_map.get(avatar.get('formality', 'polite'), '해요체(-요)를 사용하세요.')} "
+                "당신은 튜터, 코치, 선생님, 평가자가 아닙니다. "
+                "사용자의 한국어를 고치거나, 점수·분석·학습 팁·모범 답안을 말하지 마세요. "
+                "오직 이 캐릭터로서 짧고 자연스럽게 대화를 이어가세요."
+            )
+        }]
         
         # Add history (limited)
         recent_history = history[-max_history:] if len(history) > max_history else history

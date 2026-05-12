@@ -52,7 +52,7 @@ const stripMarkdown = (text: string): string =>
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/\*(.*?)\*/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
-    .replace(/^[\-\*]\s/gm, '• ')
+    .replace(/^[-*]\s/gm, '• ')
     .replace(/_{1,2}(.*?)_{1,2}/g, '$1')
     .replace(/~~(.*?)~~/g, '$1')
     .trim();
@@ -81,12 +81,6 @@ const getAgeDesc = (age?: number): string => {
   if (age < 30) return '나보다 연상이에요';
   if (age < 40) return '경험이 풍부해요';
   return '인생 선배예요';
-};
-
-const getGenderDesc = (gender?: string): string => {
-  if (gender === 'female') return '언니라고 불러도 될 것 같아요';
-  if (gender === 'male')   return '오빠라고 불러도 될 것 같아요';
-  return '성별을 가리지 않아요';
 };
 
 const getDifficultyDesc = (diff?: string): string => {
@@ -377,7 +371,7 @@ export default function AvatarDetailScreen() {
         <View style={styles.infoGrid}>
           {avatar?.age ? (
             <View style={styles.miniCard}>
-              <View style={[styles.miniIcon, { backgroundColor: '#EDE9FE' }]}>
+              <View style={[styles.miniIcon, styles.miniIconPurple]}>
                 <MessageCircle size={13} color={BRAND} />
               </View>
               <Text style={styles.miniLbl}>나이</Text>
@@ -388,43 +382,42 @@ export default function AvatarDetailScreen() {
 
           {genderLabel ? (
             <View style={styles.miniCard}>
-              <View style={[styles.miniIcon, { backgroundColor: '#FCE7F3' }]}>
+              <View style={[styles.miniIcon, styles.miniIconPink]}>
                 <Heart size={13} color="#EC4899" />
               </View>
               <Text style={styles.miniLbl}>성별</Text>
-              <Text style={[styles.miniBig, { fontSize: 18 }]}>{genderLabel}</Text>
-              <Text style={styles.miniDesc}>{getGenderDesc(avatar?.gender)}</Text>
+              <Text style={styles.miniBigCompact}>{genderLabel}</Text>
             </View>
           ) : null}
 
           {avatar?.difficulty ? (
             <View style={styles.miniCard}>
-              <View style={[styles.miniIcon, { backgroundColor: '#FEF9C3' }]}>
+              <View style={[styles.miniIcon, styles.miniIconYellow]}>
                 <TrendingUp size={13} color="#EAB308" />
               </View>
               <Text style={styles.miniLbl}>난이도</Text>
-              <Text style={[styles.miniBig, { fontSize: 18 }]}>{getDifficultyLabel(avatar.difficulty)}</Text>
+              <Text style={styles.miniBigCompact}>{getDifficultyLabel(avatar.difficulty)}</Text>
               <Text style={styles.miniDesc}>{getDifficultyDesc(avatar.difficulty)}</Text>
             </View>
           ) : null}
 
           {roleLabel ? (
             <View style={styles.miniCard}>
-              <View style={[styles.miniIcon, { backgroundColor: '#DCFCE7' }]}>
+              <View style={[styles.miniIcon, styles.miniIconGreen]}>
                 <Clock size={13} color="#22C55E" />
               </View>
               <Text style={styles.miniLbl}>관계</Text>
-              <Text style={[styles.miniBig, { fontSize: 15 }]}>{roleLabel}</Text>
+              <Text style={styles.miniBigSmall}>{roleLabel}</Text>
               <Text style={styles.miniDesc}>함께 연습하는 상대예요</Text>
             </View>
           ) : null}
 
           {avatar?.relationship_description ? (
             <View style={styles.miniCardWide}>
-              <View style={[styles.miniIcon, { backgroundColor: '#EDE9FE' }]}>
+              <View style={[styles.miniIcon, styles.miniIconPurple]}>
                 <MessageCircle size={13} color={BRAND} />
               </View>
-              <View style={{ flex: 1 }}>
+              <View style={styles.miniCardWideContent}>
                 <Text style={styles.miniLbl}>관계 설명</Text>
                 <Text style={styles.miniDescWide}>{avatar.relationship_description}</Text>
               </View>
@@ -586,8 +579,8 @@ const styles = StyleSheet.create({
   avatarName: { fontSize: 22, fontWeight: '500', color: '#111' },
   favBtn:     { width: 30, height: 30, borderRadius: 15, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   favBtnOn:   { backgroundColor: '#FFE4E4' },
-  avatarSub:  { fontSize: 13, color: '#aaa', marginTop: -3 },
-  avatarRole: { fontSize: 13, color: '#888' },
+  avatarSub:  { fontSize: 14, color: '#8A8A9E', marginTop: -3 },
+  avatarRole: { fontSize: 14, color: '#6C6C80' },
   heroPills:  { flexDirection: 'row', gap: 7, marginTop: 2 },
   pillType:     { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#EDE9FE' },
   pillTypeText: { fontSize: 11, fontWeight: '500', color: BRAND },
@@ -597,35 +590,42 @@ const styles = StyleSheet.create({
   compatibilityCard:    { width: '100%', marginTop: 14, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 16, borderWidth: 1, borderColor: '#EEE8FF' },
   compatibilityTopRow:  { flexDirection: 'row', alignItems: 'center', gap: 16 },
   compatibilityCopy:    { flex: 1 },
-  compatibilityEyebrow: { fontSize: 11, fontWeight: '600', color: BRAND, marginBottom: 6 },
+  compatibilityEyebrow: { fontSize: 12, fontWeight: '600', color: BRAND, marginBottom: 6 },
   compatibilityHeadline:{ fontSize: 15, fontWeight: '600', color: '#111', lineHeight: 22, marginBottom: 6 },
-  compatibilityCaption: { fontSize: 12, color: '#666', lineHeight: 18 },
+  compatibilityCaption: { fontSize: 13, color: '#666', lineHeight: 19 },
   factorGrid:           { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
   factorCard:           { width: '47.5%', backgroundColor: '#FAFAFD', borderRadius: 16, padding: 12, minHeight: 102 },
   factorIconWrap:       { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  factorTitle:          { fontSize: 11, fontWeight: '600', color: '#7A7A92', marginBottom: 6 },
-  factorValue:          { fontSize: 12, lineHeight: 18, color: '#333' },
+  factorTitle:          { fontSize: 12, fontWeight: '600', color: '#7A7A92', marginBottom: 6 },
+  factorValue:          { fontSize: 13, lineHeight: 19, color: '#333' },
 
   stats:     { flexDirection: 'row', gap: 10, marginBottom: 24 },
   statCard:  { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center', gap: 5 },
   statIcon:  { width: 32, height: 32, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   statValue: { fontSize: 16, fontWeight: '500', color: '#111' },
-  statLabel: { fontSize: 10, color: '#999' },
+  statLabel: { fontSize: 12, color: '#8A8A9E' },
 
-  sectionLabel: { fontSize: 11, fontWeight: '500', color: '#999', letterSpacing: 0.5, marginBottom: 10 },
+  sectionLabel: { fontSize: 12, fontWeight: '600', color: '#8A8A9E', letterSpacing: 0.4, marginBottom: 10 },
 
   infoGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
   miniCard:     { width: '47.5%', backgroundColor: '#fff', borderRadius: 20, padding: 15, gap: 3 },
   miniCardWide: { width: '100%', backgroundColor: '#fff', borderRadius: 20, padding: 15, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   miniIcon:     { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 7 },
-  miniLbl:      { fontSize: 10, color: '#bbb', fontWeight: '500', letterSpacing: 0.4 },
+  miniIconPurple:{ backgroundColor: '#EDE9FE' },
+  miniIconPink: { backgroundColor: '#FCE7F3' },
+  miniIconYellow:{ backgroundColor: '#FEF9C3' },
+  miniIconGreen:{ backgroundColor: '#DCFCE7' },
+  miniLbl:      { fontSize: 12, color: '#9A9AAF', fontWeight: '600', letterSpacing: 0.2 },
   miniBig:      { fontSize: 24, fontWeight: '500', color: '#111', lineHeight: 28, marginTop: 1 },
-  miniDesc:     { fontSize: 11, color: '#888', lineHeight: 16, marginTop: 3 },
-  miniDescWide: { fontSize: 13, color: '#444', lineHeight: 20, marginTop: 4 },
+  miniBigCompact:{ fontSize: 18, fontWeight: '600', color: '#111', lineHeight: 24, marginTop: 1 },
+  miniBigSmall: { fontSize: 15, fontWeight: '600', color: '#111', lineHeight: 21, marginTop: 1 },
+  miniDesc:     { fontSize: 12, color: '#6C6C80', lineHeight: 17, marginTop: 3 },
+  miniCardWideContent:{ flex: 1 },
+  miniDescWide: { fontSize: 13, color: '#4F4F63', lineHeight: 20, marginTop: 4 },
 
   speechRow:       { flexDirection: 'row', gap: 8, marginBottom: 24 },
   speechCard:      { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center', gap: 8 },
-  speechDir:       { fontSize: 10, color: '#aaa' },
+  speechDir:       { fontSize: 12, color: '#8A8A9E' },
   speechBadge:     { backgroundColor: BRAND, paddingHorizontal: 18, paddingVertical: 7, borderRadius: 20 },
   speechBadgeText: { fontSize: 13, fontWeight: '500', color: '#fff' },
 
@@ -645,19 +645,19 @@ const styles = StyleSheet.create({
 
   conversationList: { gap: 10, marginBottom: 24 },
   emptyCard:        { padding: 20, alignItems: 'center' },
-  emptyText:        { fontSize: 13, color: '#999', textAlign: 'center' },
+  emptyText:        { fontSize: 13, color: '#8A8A9E', textAlign: 'center' },
   convCard:         { marginBottom: 0 },
   convRow:          { flexDirection: 'row', alignItems: 'center', gap: 12 },
   convInfo:         { flex: 1 },
   convSituation:    { fontSize: 14, fontWeight: '600', color: '#111', marginBottom: 3 },
-  convDate:         { fontSize: 12, color: '#aaa' },
+  convDate:         { fontSize: 13, color: '#8A8A9E' },
   convScore:        { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#EDE9FE', borderRadius: 10 },
   convScoreText:    { fontSize: 11, fontWeight: '600', color: BRAND },
 
   guideCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 24 },
   guideHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   guideDot:  { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND },
-  guideLbl:  { fontSize: 11, fontWeight: '500', color: BRAND },
+  guideLbl:  { fontSize: 12, fontWeight: '600', color: BRAND },
   guideText: { fontSize: 13, color: '#555', lineHeight: 21 },
   memoText:  { fontSize: 13, color: '#555', lineHeight: 21 },
 

@@ -65,11 +65,15 @@ export default function FeedbackScreen() {
   const [rating, setRating] = useState(0);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
-  const stats = useMemo(() => {
-    const finalTurns: TranscriptTurn[] = (turns || []).filter(
-      (turn: TranscriptTurn) => turn.type !== 'partial'
-    );
+  const finalTurns = useMemo(
+    () =>
+      (turns || []).filter(
+        (turn: TranscriptTurn) => turn.type !== 'partial' && !!turn.text?.trim()
+      ),
+    [turns]
+  );
 
+  const stats = useMemo(() => {
     const messageCount = finalTurns.length;
 
     const successCount = (insights || []).filter(
@@ -94,7 +98,47 @@ export default function FeedbackScreen() {
     const qualityScore = Math.max(45, Math.min(98, score));
 
     return { messageCount, successCount, riskCount, speakerCount, qualityScore };
-  }, [turns, insights]);
+  }, [finalTurns, insights]);
+
+  const summaryCopy = useMemo(() => {
+    if (stats.qualityScore >= 90) {
+      return '대화 흐름이 자연스럽고 안정적으로 이어졌어요.';
+    }
+    if (stats.qualityScore >= 75) {
+      return '좋은 흐름으로 마무리됐어요. 핵심 포인트도 잘 잡혔어요.';
+    }
+    if (stats.qualityScore >= 60) {
+      return '전체 흐름은 괜찮았고, 몇 가지 포인트를 더 다듬으면 더 좋아져요.';
+    }
+    return '이번 대화를 바탕으로 다음 연습에서 더 분명하게 개선할 수 있어요.';
+  }, [stats.qualityScore]);
+
+  const statsCards = useMemo(
+    () => [
+      {
+        key: 'duration',
+        icon: Clock,
+        color: '#6C3BFF',
+        value: duration || '00:00',
+        label: '대화 시간',
+      },
+      {
+        key: 'turns',
+        icon: MessageCircle,
+        color: '#F4A261',
+        value: String(stats.messageCount),
+        label: '대화 턴 수',
+      },
+      {
+        key: 'score',
+        icon: TrendingUp,
+        color: '#22C55E',
+        value: `${stats.qualityScore}%`,
+        label: '세션 점수',
+      },
+    ],
+    [duration, stats.messageCount, stats.qualityScore]
+  );
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) =>
@@ -136,21 +180,30 @@ export default function FeedbackScreen() {
       >
         {/* ── Completion card ── */}
         <Card variant="elevated" style={styles.completionCard}>
-          <View style={styles.avatarCircle}>
-            <View
-              style={[
-                styles.avatarIcon,
-                { backgroundColor: avatar?.avatar_bg || avatar?.avatarBg || '#FFB6C1' },
-              ]}
-            >
-              <Icon name={avatar?.icon || 'user'} size={32} color="#FFFFFF" />
+          <View style={styles.heroRow}>
+            <View style={styles.avatarCircle}>
+              <View
+                style={[
+                  styles.avatarIcon,
+                  { backgroundColor: avatar?.avatar_bg || avatar?.avatarBg || '#FFB6C1' },
+                ]}
+              >
+                <Icon name={avatar?.icon || 'user'} size={32} color="#FFFFFF" />
+              </View>
+            </View>
+
+            <View style={styles.heroTextWrap}>
+              <Text style={styles.eyebrow}>SESSION COMPLETE</Text>
+              <Text style={styles.completionTitle}>대화를 완료했어요!</Text>
+              <Text style={styles.completionSubtitle}>
+                {avatar?.name_ko || '아바타'}와의 세션이 끝났습니다
+              </Text>
             </View>
           </View>
 
-          <Text style={styles.completionTitle}>대화를 완료했어요!</Text>
-          <Text style={styles.completionSubtitle}>
-            {avatar?.name_ko || '아바타'}와의 세션이 끝났습니다
-          </Text>
+          <View style={styles.heroSummaryBox}>
+            <Text style={styles.heroSummaryText}>{summaryCopy}</Text>
+          </View>
 
           {situation ? (
             <View style={styles.situationPill}>
@@ -162,30 +215,52 @@ export default function FeedbackScreen() {
 
         {/* ── Session stats ── */}
         <View style={styles.statsRow}>
-          <Card variant="elevated" style={styles.statCard}>
-            <Clock size={24} color="#6C3BFF" />
-            <Text style={styles.statValue}>{duration || '00:00'}</Text>
-            <Text style={styles.statLabel}>대화 시간</Text>
-          </Card>
-
-          <Card variant="elevated" style={styles.statCard}>
-            <MessageCircle size={24} color="#F4A261" />
-            <Text style={styles.statValue}>{stats.messageCount}</Text>
-            <Text style={styles.statLabel}>Transcript turns</Text>
-          </Card>
-
-          <Card variant="elevated" style={styles.statCard}>
-            <TrendingUp size={24} color="#4CAF50" />
-            <Text style={styles.statValue}>{stats.qualityScore}%</Text>
-            <Text style={styles.statLabel}>세션 점수</Text>
-          </Card>
+          {statsCards.map((item) => {
+            const StatIcon = item.icon;
+            return (
+              <Card key={item.key} variant="elevated" style={styles.statCard}>
+                <View style={[styles.statIconWrap, { backgroundColor: `${item.color}16` }]}>
+                  <StatIcon size={20} color={item.color} />
+                </View>
+                <Text style={styles.statValue}>{item.value}</Text>
+                <Text style={styles.statLabel}>{item.label}</Text>
+              </Card>
+            );
+          })}
         </View>
+
+        {/* ── Transcript preview ── */}
+        <Text style={styles.sectionTitle}>인식된 대화</Text>
+        <Card variant="elevated" style={styles.transcriptCard}>
+          {finalTurns.length > 0 ? (
+            finalTurns.map((turn: TranscriptTurn, index: number) => (
+              <View
+                key={turn.id || `${turn.speaker}-${index}`}
+                style={[
+                  styles.transcriptRow,
+                  index !== finalTurns.length - 1 && styles.transcriptRowBorder,
+                ]}
+              >
+                <Text style={styles.transcriptSpeaker}>{turn.speaker || '나'}</Text>
+                <Text style={styles.transcriptText}>{turn.text}</Text>
+              </View>
+            ))
+          ) : (
+            <View style={styles.transcriptEmpty}>
+              <Text style={styles.transcriptEmptyTitle}>아직 표시할 transcript가 없어요.</Text>
+              <Text style={styles.transcriptEmptyText}>
+                음성이 인식되지 않았거나, 이 세션에서 전달된 대화 기록이 없을 수 있어요.
+              </Text>
+            </View>
+          )}
+        </Card>
 
         {/* ── Insight summary ── */}
         {!!insights?.length && (
           <>
             <Text style={styles.sectionTitle}>세션 인사이트</Text>
             <Card variant="elevated" style={styles.insightSummaryCard}>
+              <Text style={styles.insightSummaryTitle}>이번 세션의 흐름</Text>
               <View style={styles.insightSummaryRow}>
                 <View style={styles.insightMetric}>
                   <Text style={styles.insightMetricValue}>{stats.successCount}</Text>
@@ -267,12 +342,21 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingBottom: 100 },
 
   completionCard: {
-    alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
     marginBottom: 20,
   },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 18,
+  },
+  heroTextWrap: {
+    flex: 1,
+  },
   avatarCircle: {
-    marginBottom: 16,
+    alignSelf: 'flex-start',
   },
   avatarIcon: {
     width: 72,
@@ -280,6 +364,13 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: '#8E8EA9',
+    marginBottom: 6,
   },
   completionTitle: {
     fontSize: 22,
@@ -290,7 +381,19 @@ const styles = StyleSheet.create({
   completionSubtitle: {
     fontSize: 14,
     color: '#6C6C80',
+    lineHeight: 20,
+  },
+  heroSummaryBox: {
+    borderRadius: 18,
+    backgroundColor: '#F6F3FF',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     marginBottom: 14,
+  },
+  heroSummaryText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#5B4C8A',
   },
   situationPill: {
     flexDirection: 'row',
@@ -315,7 +418,15 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 10,
+  },
+  statIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   statValue: {
     fontSize: 20,
@@ -337,10 +448,55 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
+  transcriptCard: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginBottom: 28,
+  },
+  transcriptRow: {
+    paddingVertical: 14,
+    gap: 6,
+  },
+  transcriptRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFEFF5',
+  },
+  transcriptSpeaker: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    color: '#8E8EA9',
+  },
+  transcriptText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#1A1A2E',
+  },
+  transcriptEmpty: {
+    paddingVertical: 18,
+    gap: 6,
+  },
+  transcriptEmptyTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6C6C80',
+  },
+  transcriptEmptyText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#9E9EAE',
+  },
+
   insightSummaryCard: {
     paddingVertical: 18,
     paddingHorizontal: 14,
     marginBottom: 28,
+  },
+  insightSummaryTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#6C6C80',
+    marginBottom: 14,
   },
   insightSummaryRow: {
     flexDirection: 'row',

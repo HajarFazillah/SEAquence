@@ -1,6 +1,7 @@
 // Nalin's AI server — port 8000
-const AI_BASE_URL = 'http://10.0.2.2:8000'; // 10.0.2.2 = host machine from Android emulator
-// On physical device, replace with your actual LAN IP e.g. 'http://192.168.x.x:8000'
+import { AI_SERVER_URL } from '../constants';
+
+const AI_BASE_URL = AI_SERVER_URL;
 
 export type HonorificResult = {
   kind: 'risk' | 'success' | 'neutral';

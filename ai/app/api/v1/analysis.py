@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from typing import Optional, List
 
-from app.services.politeness_service import politeness_service
+from app.services.speech_analysis_service import analyze_politeness_compat as _politeness_analyze
 from app.schemas.enhanced_schemas import (
     EnhancedPolitenessRequest,
     EnhancedPolitenessResponse,
@@ -32,7 +32,7 @@ class PolitenessRequest(BaseModel):
 @router.post("/politeness")
 async def analyze_politeness(request: PolitenessRequest):
     """Basic politeness analysis."""
-    result = politeness_service.analyze(
+    result = _politeness_analyze(
         text=request.text,
         target_role=request.target_role,
         target_age=request.target_age,
@@ -47,7 +47,7 @@ async def analyze_enhanced(request: EnhancedPolitenessRequest):
     Enhanced word-level politeness analysis.
     Returns per-word highlights, corrections, and error breakdown.
     """
-    result = politeness_service.analyze(
+    result = _politeness_analyze(
         text=request.text,
         target_role=request.target_role,
         target_age=request.target_age,
@@ -104,7 +104,7 @@ async def quick_check(
     target_role: Optional[str] = Query(None),
 ):
     """Quick one-line politeness check."""
-    result = politeness_service.analyze(text=text, target_role=target_role)
+    result = _politeness_analyze(text=text, target_role=target_role)
     return {
         "level": result.get("level"),
         "score": result.get("score"),

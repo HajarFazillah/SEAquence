@@ -10,17 +10,17 @@ import Svg, { Path, Circle, Polygon } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SpeechLevelBadge, Icon } from '../components';
 import { makePreviewPayload, saveConversationPreview } from '../services/conversationPreview';
+import { appendPracticePatternEvent } from '../services/personalizationHistory';
 
 
 const AI_SERVER = 'http://10.0.2.2:8000';
 
-const SPRING_BASE = 'http://10.0.2.2:8080';
+import { saveMistakesToBackend } from '../services/apiMistakes';
 
 const saveMistakes = async (
   sessionId: string,
   turnNumber: number,
   corrections: Correction[],
-  token: string | null,
 ) => {
   if (!corrections || corrections.length === 0) return;
 
@@ -38,14 +38,7 @@ const saveMistakes = async (
   if (mistakes.length === 0) return;
 
   try {
-    await fetch(`${SPRING_BASE}/api/mistakes`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ sessionId, turnNumber, mistakes }),
-    });
+    await saveMistakesToBackend(sessionId, turnNumber, mistakes);
   } catch (err) {
     console.log('Failed to save mistakes:', err);
   }
@@ -123,32 +116,32 @@ interface CorrectionContext {
 // ─── Mood helpers ─────────────────────────────────────────────────────────────
 
 interface MoodState {
+  key: 'angry' | 'sad' | 'soso' | 'happy';
   label: string;
+  subLabel: string;
+  color: string;
+  bg: string;
   lbrow: string; rbrow: string;
   leye:  string; reye:  string;
   mouth: string;
 }
 
 const MOOD_STATES: MoodState[] = [
-  { label: '화나요!',      lbrow: 'M18 29 Q24 27 28 29', rbrow: 'M44 29 Q48 27 54 29', leye: 'M19 35 Q23 39 27 35', reye: 'M45 35 Q49 39 53 35', mouth: 'M23 50 Q36 44 49 50' },
-  { label: '힘들어요',     lbrow: 'M18 26 Q24 23 28 26', rbrow: 'M44 26 Q48 23 54 26', leye: 'M19 32 Q23 29 27 32', reye: 'M45 32 Q49 29 53 32', mouth: 'M23 48 Q36 44 49 48' },
-  { label: '그저 그래요',  lbrow: 'M18 24 Q24 22 28 24', rbrow: 'M44 24 Q48 22 54 24', leye: 'M19 30 Q23 27 27 30', reye: 'M45 30 Q49 27 53 30', mouth: 'M23 46 Q36 46 49 46' },
-  { label: '좋아요',       lbrow: 'M18 24 Q24 21 28 24', rbrow: 'M44 24 Q48 21 54 24', leye: 'M19 30 Q23 27 27 30', reye: 'M45 30 Q49 27 53 30', mouth: 'M23 46 Q36 56 49 46' },
-  { label: '아주 좋아요!', lbrow: 'M18 22 Q24 17 28 22', rbrow: 'M44 22 Q48 17 54 22', leye: 'M19 29 Q23 24 27 29', reye: 'M45 29 Q49 24 53 29', mouth: 'M21 43 Q36 58 51 43' },
+  { key: 'angry', label: 'angry', subLabel: '불편함', color: '#EF4444', bg: 'rgba(239,68,68,0.10)', lbrow: 'M18 29 Q24 27 28 29', rbrow: 'M44 29 Q48 27 54 29', leye: 'M19 35 Q23 39 27 35', reye: 'M45 35 Q49 39 53 35', mouth: 'M23 50 Q36 44 49 50' },
+  { key: 'sad',   label: 'sad',   subLabel: '속상함', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', lbrow: 'M18 26 Q24 23 28 26', rbrow: 'M44 26 Q48 23 54 26', leye: 'M19 32 Q23 29 27 32', reye: 'M45 32 Q49 29 53 32', mouth: 'M23 48 Q36 44 49 48' },
+  { key: 'soso',  label: 'soso',  subLabel: '보통',   color: '#64748B', bg: 'rgba(100,116,139,0.12)', lbrow: 'M18 24 Q24 22 28 24', rbrow: 'M44 24 Q48 22 54 24', leye: 'M19 30 Q23 27 27 30', reye: 'M45 30 Q49 27 53 30', mouth: 'M23 46 Q36 46 49 46' },
+  { key: 'happy', label: 'happy', subLabel: '좋음',   color: '#22C55E', bg: 'rgba(34,197,94,0.12)', lbrow: 'M18 22 Q24 17 28 22', rbrow: 'M44 22 Q48 17 54 22', leye: 'M19 29 Q23 24 27 29', reye: 'M45 29 Q49 24 53 29', mouth: 'M21 43 Q36 58 51 43' },
 ];
 
 const getMoodState = (mood: number): MoodState => {
-  if (mood >= 80) return MOOD_STATES[4];
-  if (mood >= 60) return MOOD_STATES[3];
-  if (mood >= 40) return MOOD_STATES[2];
-  if (mood >= 20) return MOOD_STATES[1];
+  if (mood >= 75) return MOOD_STATES[3];
+  if (mood >= 50) return MOOD_STATES[2];
+  if (mood >= 25) return MOOD_STATES[1];
   return MOOD_STATES[0];
 };
 
 const moodColor = (mood: number): string => {
-  if (mood >= 70) return '#22C55E';
-  if (mood >= 40) return '#EAB308';
-  return '#FF4D4D';
+  return getMoodState(mood).color;
 };
 
 const scoreColor = (score: number | null): string => {
@@ -162,10 +155,10 @@ const scoreColor = (score: number | null): string => {
 
 const MoodFace = ({ mood }: { mood: number }) => {
   const s = getMoodState(mood);
-  const col = '#6C3BFF';
+  const col = s.color;
   return (
     <Svg width={52} height={52} viewBox="0 0 72 72">
-      <Circle cx={36} cy={36} r={34} fill="rgba(108,59,255,0.12)" />
+      <Circle cx={36} cy={36} r={34} fill={s.bg} />
       <Path d={s.lbrow} stroke={col} strokeWidth={2.2} strokeLinecap="round" fill="none" />
       <Path d={s.rbrow} stroke={col} strokeWidth={2.2} strokeLinecap="round" fill="none" />
       <Path d={s.leye}  stroke={col} strokeWidth={2.5} strokeLinecap="round" fill="none" />
@@ -685,15 +678,26 @@ const buildSituationPromptContext = (situation: any) => {
   if (typeof situation === 'string') return situation.trim() || null;
   const name = situation?.name_ko || situation?.title || situation?.name || '';
   const description = situation?.description_ko || situation?.description || '';
+  const scenePlace = situation?.scene_place || situation?.scenePlace || '';
+  const conversationGoal = situation?.conversation_goal || situation?.conversationGoal || '';
+  const avatarRoleInScene = situation?.avatar_role_in_scene || situation?.avatarRoleInScene || '';
+  const userRoleInScene = situation?.user_role_in_scene || situation?.userRoleInScene || '';
   const contexts = Array.isArray(situation?.contexts) ? situation.contexts.filter((item: any) => String(item).trim()) : [];
   const categoryId = String(situation?.category || '').trim();
   const categoryLabel = SITUATION_CATEGORY_LABELS[categoryId] || categoryId;
   const isCustom = Boolean(situation?.isCustom);
   const parts = [
+    '상황은 대화가 벌어지는 장면/목표일 뿐이며, 아바타의 직업이나 관계를 바꾸지 않습니다.',
+    '예: 카페 상황이어도 아바타가 원래 친구/교수/상사라면 카페 직원이나 점원이 아닙니다.',
     name ? `상황 이름: ${name}` : '',
+    scenePlace ? `장소/장면: ${scenePlace}` : '',
+    conversationGoal ? `연습 목표: ${conversationGoal}` : '',
+    avatarRoleInScene ? `아바타의 장면 속 역할: ${avatarRoleInScene}` : '',
+    userRoleInScene ? `사용자의 장면 속 역할: ${userRoleInScene}` : '',
     description ? `상황 설명: ${description}` : '',
     categoryLabel ? `상황 카테고리: ${categoryLabel}` : '',
     contexts.length > 0 ? `상황 맥락: ${contexts.join(', ')}` : '',
+    '금지: 상황의 장소나 활동 때문에 아바타를 직원/점원/면접관/선생님 등 새 역할로 바꾸지 마세요.',
     isCustom ? '이 상황은 사용자가 직접 만든 맞춤 상황입니다.' : '',
   ].filter(Boolean);
   return parts.join('\n') || null;
@@ -721,11 +725,53 @@ const buildCorrectionAwareFallbackReply = (originalText: string, feedback?: Spee
   return `"${corrected}"라고 하면 더 자연스러워. 계속 이어가 볼게.`;
 };
 
+const avatarAllowsServiceRole = (avatar: any) => {
+  const roleText = `${avatar?.role || ''} ${avatar?.custom_role || ''} ${avatar?.relationship || ''} ${avatar?.description_ko || ''} ${avatar?.description || ''}`.toLowerCase();
+  return /(staff|employee|clerk|server|cashier|barista|waiter|customer|client|직원|점원|알바|아르바이트|종업원|바리스타|손님|고객|사장)/.test(roleText);
+};
+
+const avatarAllowsInterviewRole = (avatar: any) => {
+  const roleText = `${avatar?.role || ''} ${avatar?.custom_role || ''} ${avatar?.relationship || ''} ${avatar?.description_ko || ''} ${avatar?.description || ''}`.toLowerCase();
+  return /(interviewer|recruiter|hr|면접관|채용|인사담당)/.test(roleText);
+};
+
+const isRoleConsistencyBrokenReply = (message: string, avatar: any) => {
+  const text = String(message || '');
+  if (!avatarAllowsServiceRole(avatar)) {
+    if (/(손님|고객님|주문\s*도와|주문하시|메뉴|저희\s*(카페|매장|식당|가게)|계산해\s*드릴|포장해\s*드릴)/.test(text)) {
+      return true;
+    }
+  }
+  if (!avatarAllowsInterviewRole(avatar)) {
+    if (/(면접을\s*시작|지원자|채용\s*절차|면접관|자기소개\s*해\s*보세요)/.test(text)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const buildRoleSafeFallbackReply = (avatar: any, situation: any) => {
+  const situationName = situation?.name_ko || situation?.name || situation?.title;
+  const roleLabel = avatar?.relationship || avatar?.custom_role || avatar?.role;
+  if (situationName) {
+    return `응, ${situationName} 상황으로 계속 이야기해 보자. 나는 ${roleLabel || '네 대화 상대'}로서 여기에 있는 거야.`;
+  }
+  return `응, 계속 이야기해 보자. 나는 ${roleLabel || '네 대화 상대'}로서 여기에 있는 거야.`;
+};
+
 const makeContextAwareAiReply = (rawMessage: string, originalText: string, feedback?: SpeechAnalysis | null) => {
   const cleaned = sanitizeAiReply(rawMessage || '');
   if (!feedback?.has_errors) return cleaned || '좋아, 계속 이야기해 보자.';
   if (!isDiagnosticOrGenericReply(cleaned)) return cleaned;
   return buildCorrectionAwareFallbackReply(originalText, feedback) || cleaned;
+};
+
+const makeRoleSafeAiReply = (rawMessage: string, originalText: string, avatar: any, situation: any, feedback?: SpeechAnalysis | null) => {
+  const reply = makeContextAwareAiReply(rawMessage, originalText, feedback);
+  if (isRoleConsistencyBrokenReply(reply, avatar)) {
+    return buildRoleSafeFallbackReply(avatar, situation);
+  }
+  return reply;
 };
 
 const feedbackTitle = (fb: SpeechAnalysis) => {
@@ -834,15 +880,21 @@ const sendMessageToAI = async (
     );
   }
   return {
-    message: makeContextAwareAiReply(data.message || data.response || data.reply || '', text, finalSpeechAnalysis),
+    message: makeRoleSafeAiReply(data.message || data.response || data.reply || '', text, avatar, situation, finalSpeechAnalysis),
     speech_analysis: finalSpeechAnalysis,
     mood_change: data.mood_change || 0, current_mood: data.current_mood || 70,
     mood_emoji: data.mood_emoji || '😊', correct_streak: data.correct_streak || 0,
+    hint: data.hint || '',
+    suggestions: data.suggestions || [],
   };
 };
 
-const analyzeSessionWithAI = async (avatar: any, history: HistoryItem[]) => {
-  const res = await fetch(`${AI_SERVER}/api/v1/chat/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar, conversation_history: history }) });
+const analyzeSessionWithAI = async (avatar: any, history: HistoryItem[], sessionId?: string) => {
+  const res = await fetch(`${AI_SERVER}/api/v1/chat/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ avatar, conversation_history: history, session_id: sessionId }),
+  });
   if (!res.ok) throw new Error(`Analyze error: ${res.status}`);
   return res.json();
 };
@@ -866,19 +918,20 @@ export default function ChatScreen() {
   const [input,            setInput]            = useState('');
   const [loading,          setLoading]          = useState(false);
   const [avatarMood,       setAvatarMood]       = useState(70);
+  const [avatarMoodChange, setAvatarMoodChange] = useState(0);
   const [startTime]        = useState(Date.now());
   const [userId,           setUserId]           = useState('test-user-1');
-  const [jwtToken, setJwtToken] = useState<string | null>(null);
   const [correctStreak,    setCorrectStreak]    = useState(0);
   // Default expanded = true so card opens immediately after send
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
 
-  useEffect(() => { AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); }); }, []);
-
   useEffect(() => {
-  AsyncStorage.getItem('user_id').then(id => { if (id) setUserId(id); });
-  AsyncStorage.getItem('token').then(token => { if (token) setJwtToken(token); });
-}, []);
+    // Read both keys for backward compatibility ('userId' is the canonical key set on login).
+    (async () => {
+      const id = (await AsyncStorage.getItem('userId')) || (await AsyncStorage.getItem('user_id'));
+      if (id) setUserId(id);
+    })();
+  }, []);
 
   useEffect(() => { if (messages.length > 0) setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100); }, [messages]);
   useEffect(() => {
@@ -900,16 +953,37 @@ export default function ChatScreen() {
       const data = await sendMessageToAI(text, history, avatar, situation, userId, recommendedLevel, sessionIdRef.current, correctionContext);
       const aiMsg: Message = { id: (Date.now() + 1).toString(), text: data.message, sender: 'ai' };
       setAvatarMood(data.current_mood);
+      setAvatarMoodChange(data.mood_change || 0);
       setCorrectStreak(data.correct_streak);
       setMessages(prev => {
         const updated = prev.map(m => m.id === userMsg.id ? { ...m, feedback: data.speech_analysis ?? undefined } : m);
         return [...updated, aiMsg];
       });
       if (data.speech_analysis) setExpandedFeedback(prev => ({ ...prev, [userMsg.id]: true }));
+      const previousUserHadErrors = messages
+        .filter(m => m.sender === 'user')
+        .slice(-1)[0]?.feedback?.has_errors;
+      appendPracticePatternEvent({
+        sessionId: sessionIdRef.current,
+        avatarId: avatar?.id,
+        avatarName: avatar?.name_ko || avatar?.name,
+        relationshipType: avatar?.role || avatar?.custom_role,
+        situationId: situation?.id || situation?.situation_id,
+        situationName: situation?.name_ko || situation?.name,
+        situationCategory: situation?.category,
+        speechLevel: recommendedLevel,
+        correctionTypes: (data.speech_analysis?.corrections || [])
+          .map((c: Correction) => c.type || 'unknown')
+          .filter(Boolean),
+        hadErrors: Boolean(data.speech_analysis?.has_errors),
+        accuracyScore: data.speech_analysis?.accuracy_score,
+        hintShown: Boolean(data.speech_analysis?.has_errors || data.hint || data.suggestions?.length),
+        retrySuccess: Boolean(previousUserHadErrors && data.speech_analysis && !data.speech_analysis.has_errors),
+      }).catch(() => {});
       // Save mistakes to backend
       if (data.speech_analysis?.has_errors && data.speech_analysis.corrections.length > 0) {
       const turnNumber = messages.filter(m => m.sender === 'user').length + 1;
-      saveMistakes(sessionIdRef.current, turnNumber, data.speech_analysis.corrections, jwtToken);
+      saveMistakes(sessionIdRef.current, turnNumber, data.speech_analysis.corrections);
       }
 
     } catch (error) {
@@ -930,25 +1004,42 @@ export default function ChatScreen() {
     }));
     const avgScore = sessionCorrections.length > 0 ? Math.round(sessionCorrections.reduce((s, c) => s + (c.accuracy_score ?? 0), 0) / sessionCorrections.length) : 100;
     let sessionReport = null;
-    try { sessionReport = await analyzeSessionWithAI(avatar, history); } catch {}
-    navigation.navigate('ConversationSummary', { avatar, duration: durationStr, situation, conversationHistory: history, finalMood: avatarMood, sessionReport, sessionCorrections, avgScore });
+    try { sessionReport = await analyzeSessionWithAI(avatar, history, sessionIdRef.current); } catch {}
+
+    // Fire-and-forget: extract durable per-avatar memories so the next chat with
+    // this avatar starts already knowing the user.
+    if (avatar?.id && history.length > 0) {
+      fetch(`${AI_SERVER}/api/v1/chat/end-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          avatar_id: avatar.id,
+          avatar_name: avatar.name_ko,
+          session_id: sessionIdRef.current,
+          conversation_history: history,
+        }),
+      }).catch(err => console.log('end-session failed:', err));
+    }
+
+    navigation.navigate('ConversationSummary', { avatar, duration: durationStr, situation, conversationHistory: history, finalMood: avatarMood, sessionReport, sessionCorrections, avgScore, sessionId: sessionIdRef.current });
   };
 
   // ── Pip row ────────────────────────────────────────────────────────────────
   const renderPips = (mood: number) => {
-    const col = moodColor(mood);
-    const filled = Math.floor(mood / 20);
-    const partial = (mood % 20) / 20;
+    const state = getMoodState(mood);
+    const filled = Math.floor(mood / 25);
+    const partial = (mood % 25) / 25;
     return (
       <View style={styles.pipsRow}>
-        {[0,1,2,3,4].map(i => (
+        {[0,1,2,3].map(i => (
           <View
             key={i}
             style={[
               styles.pip,
-              i < filled ? { backgroundColor: col } :
-              i === filled && partial > 0.2 ? { backgroundColor: col, opacity: 0.4 } :
-              { backgroundColor: '#E5E5EA' },
+              i < filled ? { backgroundColor: state.color } :
+              i === filled && partial > 0.2 ? [styles.pipPartial, { backgroundColor: state.color }] :
+              styles.pipEmpty,
             ]}
           />
         ))}
@@ -1012,7 +1103,15 @@ export default function ChatScreen() {
                   <View style={[styles.scoreFill, { width: `${isScorable ? (fb.accuracy_score ?? 0) : 0}%`, backgroundColor: sc }]} />
                 </View>
                 <Text style={[styles.scoreHint, { color: sc }]}>
-                  {!isScorable ? '분석 제외' : (fb.accuracy_score ?? 0) >= 70 ? '완벽해요' : (fb.accuracy_score ?? 0) >= 40 ? '수정 추천' : '말투 오류 있음'}
+                  {!isScorable
+                    ? '분석 제외'
+                    : (fb.accuracy_score ?? 0) >= 90
+                      ? '완벽해요'
+                      : (fb.accuracy_score ?? 0) >= 70
+                        ? '잘했어요'
+                        : (fb.accuracy_score ?? 0) >= 40
+                          ? '조금 더 다듬어 봐요'
+                          : '말투 오류 있음'}
                 </Text>
               </View>
             </View>
@@ -1146,12 +1245,26 @@ export default function ChatScreen() {
         <View style={styles.moodFaceWrap}>
           <MoodFace mood={avatarMood} />
           <Text style={[styles.moodFaceLabel, { color: mc }]}>{moodState.label}</Text>
+          <Text style={styles.moodFaceSub}>{moodState.subLabel}</Text>
         </View>
         <View style={styles.moodRight}>
           <View style={styles.moodTopRow}>
             <Text style={styles.moodPct}>{avatarMood}%</Text>
             <View style={styles.moodMeta}>
-              <Text style={styles.moodHint}>기분</Text>
+              {avatarMoodChange !== 0 && (
+                <View style={[
+                  styles.moodDeltaBadge,
+                  avatarMoodChange > 0 ? styles.moodDeltaBadgePositive : styles.moodDeltaBadgeNegative,
+                ]}>
+                  <Text style={[
+                    styles.moodDeltaText,
+                    avatarMoodChange > 0 ? styles.moodDeltaTextPositive : styles.moodDeltaTextNegative,
+                  ]}>
+                    {avatarMoodChange > 0 ? `+${avatarMoodChange}` : avatarMoodChange}
+                  </Text>
+                </View>
+              )}
+              <Text style={styles.moodHint}>avatar mood</Text>
               {correctStreak >= 3 && (
                 <View style={styles.streakBadge}>
                   <StarIcon />
@@ -1170,7 +1283,7 @@ export default function ChatScreen() {
         <SpeechLevelBadge level={recommendedLevel} size="small" />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -1238,20 +1351,30 @@ const styles = StyleSheet.create({
   // Mood strip
   moodStrip:     { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: GREY },
   moodFaceWrap:  { alignItems: 'center', gap: 4 },
-  moodFaceLabel: { fontSize: 11, fontWeight: '500' },
+  moodFaceLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
+  moodFaceSub:   { fontSize: 10, color: '#777', marginTop: -2 },
   moodRight:     { flex: 1, gap: 6 },
   moodTopRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   moodPct:       { fontSize: 13, fontWeight: '500', color: '#111' },
   moodMeta:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
   moodHint:      { fontSize: 11, color: '#999' },
+  moodDeltaBadge:{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20 },
+  moodDeltaText: { fontSize: 11, fontWeight: '700' },
   streakBadge:   { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(108,59,255,0.12)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
   streakText:    { fontSize: 11, fontWeight: '500', color: BRAND },
   pipsRow:       { flexDirection: 'row', gap: 4 },
   pip:           { flex: 1, height: 4, borderRadius: 2 },
+  pipPartial:    { opacity: 0.4 },
+  pipEmpty:      { backgroundColor: '#E5E5EA' },
+  moodDeltaBadgePositive: { backgroundColor: 'rgba(34,197,94,0.12)' },
+  moodDeltaBadgeNegative: { backgroundColor: 'rgba(239,68,68,0.10)' },
+  moodDeltaTextPositive:  { color: '#16A34A' },
+  moodDeltaTextNegative:  { color: '#EF4444' },
 
   // Level bar
   levelBar:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: BORDER },
   levelHint: { fontSize: 11, color: '#999' },
+  keyboardView: { flex: 1 },
 
   // Messages
   messageList:    { padding: 14, gap: 4 },

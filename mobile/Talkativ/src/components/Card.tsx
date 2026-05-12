@@ -41,11 +41,8 @@ const styles = StyleSheet.create({
   },
   card_default: {},
   card_elevated: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E8E8F0',
   },
   card_outlined: {
     borderWidth: 1,

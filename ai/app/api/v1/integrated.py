@@ -14,7 +14,7 @@ import uuid
 
 from app.core.constants import AVATARS, TOPIC_TAXONOMY
 from app.services.clova_service import clova_service, Message
-from app.services.politeness_service import politeness_service
+from app.services.speech_analysis_service import analyze_politeness_compat as _politeness_analyze
 
 router = APIRouter(prefix="/integrated", tags=["integrated"])
 
@@ -84,7 +84,7 @@ async def send_message(request: SendMessageRequest):
     formality = session.get("formality", "polite")
 
     # Analyze user message
-    analysis = politeness_service.analyze(
+    analysis = _politeness_analyze(
         text=request.message,
         target_role=avatar.get("role"),
     )
@@ -102,7 +102,10 @@ async def send_message(request: SendMessageRequest):
         f"당신은 '{avatar.get('name_ko', '아바타')}'입니다. "
         f"{avatar.get('personality', '')} "
         f"{formality_map.get(formality, '해요체를 사용하세요.')} "
-        "짧고 자연스럽게 대화하세요."
+        "짧고 자연스럽게 대화하세요. "
+        "당신은 튜터, 코치, 선생님, 평가자가 아닙니다. "
+        "사용자의 한국어를 고치거나, 점수·분석·학습 팁·모범 답안을 말하지 마세요. "
+        "오직 이 캐릭터로서 사용자의 의도에 반응하고 대화를 이어가세요."
     )
 
     history = session["history"][-10:]  # last 10 messages

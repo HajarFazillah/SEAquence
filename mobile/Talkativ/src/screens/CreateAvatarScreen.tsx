@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet,
   ScrollView, TouchableOpacity, TextInput,
@@ -8,15 +8,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   ChevronLeft, Check, Plus, RefreshCw, Sparkles,
-  User, Users, GraduationCap, Building2, Briefcase,
-  Heart, Baby, Crown, Smile,
 } from 'lucide-react-native';
-import { Header, Card, Button, InputField, Tag, Icon, IconName } from '../components';
-import { AVATAR_COLORS, SPEECH_LEVELS } from '../constants';
+import { Card, InputField, Tag, Icon, IconName } from '../components';
+import { AI_SERVER_URL, AVATAR_COLORS, SPEECH_LEVELS } from '../constants';
 import { createAvatar, updateAvatar } from '../services/apiUser';
-import { Star } from 'lucide-react-native';
+import { deriveAvatarDifficulty } from '../utils/avatarDifficulty';
 
-const AI_SERVER = 'http://10.0.2.2:8000';
+const AI_SERVER = AI_SERVER_URL;
 
 const STEPS = [
   { id: 1, title: '기본 정보',    subtitle: 'Basic Info' },
@@ -24,21 +22,6 @@ const STEPS = [
   { id: 3, title: '상세 설명',    subtitle: 'Description' },
   { id: 4, title: '성격 & 관심사', subtitle: 'Personality' },
   { id: 5, title: '확인',         subtitle: 'Preview' },
-];
-
-const AVATAR_ICONS = [
-  { id: 'user',          icon: User },
-  { id: 'users',         icon: Users },
-  { id: 'smile',         icon: Smile },
-  { id: 'userCircle',    icon: User },
-  { id: 'crown',         icon: Crown },
-  { id: 'baby',          icon: Baby },
-  { id: 'graduationCap', icon: GraduationCap },
-  { id: 'briefcase',     icon: Briefcase },
-  { id: 'building',      icon: Building2 },
-  { id: 'heart',         icon: Heart },
-  { id: 'star',          icon: Star },
-  { id: 'sparkles',      icon: Sparkles },
 ];
 
 const RELATIONSHIP_CATEGORIES = [
@@ -138,7 +121,7 @@ const stripMarkdown = (text: string): string =>
     .replace(/\*\*(.*?)\*\*/g, '$1')   // **굵게** → 굵게
     .replace(/\*(.*?)\*/g, '$1')        // *이탤릭* → 이탤릭
     .replace(/^#{1,6}\s+/gm, '')        // ## 제목 → 제목
-    .replace(/^[\-\*]\s/gm, '• ')       // - 항목 → • 항목
+    .replace(/^[-*]\s/gm, '• ')         // - 항목 → • 항목
     .replace(/_{1,2}(.*?)_{1,2}/g, '$1') // _이탤릭_ → 이탤릭
     .replace(/~~(.*?)~~/g, '$1')         // ~~취소선~~ → 취소선
     .trim();
@@ -147,7 +130,7 @@ const stripMarkdown = (text: string): string =>
 export default function CreateAvatarScreen() {
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
-  const { avatar: existingAvatar, template, isEdit, mode } = route.params || {};
+  const { avatar: existingAvatar, template, isEdit } = route.params || {};
 
   const [currentStep,   setCurrentStep]   = useState(1);
   const [generatedBio,  setGeneratedBio]  = useState('');
@@ -180,6 +163,7 @@ export default function CreateAvatarScreen() {
   };
 
   const [formData, setFormData] = useState<AvatarFormData>(initialData);
+  const [customRoleDraft, setCustomRoleDraft] = useState(initialData.custom_role || '');
 
   const updateField = <K extends keyof AvatarFormData>(key: K, value: AvatarFormData[K]) => {
     setFormData(prev => ({ ...prev, [key]: value }));
@@ -202,7 +186,15 @@ export default function CreateAvatarScreen() {
     }
   };
 
-  const getRecommendedSpeech = () => {
+  const applyCustomRole = () => {
+    const trimmed = customRoleDraft.trim();
+    updateField('custom_role', trimmed);
+    if (trimmed) {
+      updateField('role', '');
+    }
+  };
+
+  const getRecommendedSpeech = useCallback(() => {
     const roleData = ALL_ROLES.find(r => r.id === formData.role);
     if (roleData) {
       return {
@@ -211,16 +203,16 @@ export default function CreateAvatarScreen() {
       };
     }
     return { toUser: 'polite' as const, fromUser: 'polite' as const };
-  };
+  }, [formData.role]);
 
-  useEffect(() => {
-    if (currentStep === 5 && !generatedBio) {
-      generateBio();
-    }
-  }, [currentStep]);
+  const derivedDifficulty = deriveAvatarDifficulty({
+    role: formData.role,
+    customRole: formData.custom_role,
+    formalityFromUser: getRecommendedSpeech().fromUser,
+  });
 
   // ── AI 서버로 대화 가이드 생성 ─────────────────────────────────────────────
-  const generateBio = async () => {
+  const generateBio = useCallback(async () => {
     setGeneratingBio(true);
     try {
       const res = await fetch(`${AI_SERVER}/api/v1/chat/generate-bio`, {
@@ -271,7 +263,13 @@ export default function CreateAvatarScreen() {
     } finally {
       setGeneratingBio(false);
     }
-  };
+  }, [formData, getRecommendedSpeech]);
+
+  useEffect(() => {
+    if (currentStep === 5 && !generatedBio) {
+      generateBio();
+    }
+  }, [currentStep, generatedBio, generateBio]);
 
   const handleNext = () => {
     if (currentStep < STEPS.length) {
@@ -295,6 +293,7 @@ export default function CreateAvatarScreen() {
       ...formData,
       name_ko:             formData.name_ko.trim(),
       role:                formData.role || formData.custom_role,
+      difficulty:          derivedDifficulty,
       formality_to_user:   speech.toUser,
       formality_from_user: speech.fromUser,
       bio:                 generatedBio,
@@ -308,7 +307,7 @@ export default function CreateAvatarScreen() {
         await createAvatar(avatarData);
       }
       navigation.navigate('Main', { screen: 'Avatar' });
-    } catch (e) {
+    } catch {
       Alert.alert('오류', '저장에 실패했어요. 다시 시도해주세요.');
     } finally {
       setSaving(false);
@@ -326,30 +325,10 @@ export default function CreateAvatarScreen() {
     }
   };
 
-  const colorPalette = Object.entries(AVATAR_COLORS);
-
   const renderStep1 = () => (
     <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>아바타의 기본 정보를 입력하세요</Text>
-      <Text style={styles.fieldLabel}>아바타 유형 *</Text>
-      <View style={styles.typeRow}>
-        <TouchableOpacity
-          style={[styles.typeCard, formData.avatar_type === 'fictional' && styles.typeCardActive]}
-          onPress={() => updateField('avatar_type', 'fictional')}
-        >
-          <Sparkles size={24} color={formData.avatar_type === 'fictional' ? '#9C27B0' : '#B0B0C5'} />
-          <Text style={[styles.typeLabel, formData.avatar_type === 'fictional' && { color: '#9C27B0' }]}>가상 인물</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.typeCard, formData.avatar_type === 'real' && styles.typeCardActive, formData.avatar_type === 'real' && { borderColor: '#2196F3' }]}
-          onPress={() => updateField('avatar_type', 'real')}
-        >
-          <User size={24} color={formData.avatar_type === 'real' ? '#2196F3' : '#B0B0C5'} />
-          <Text style={[styles.typeLabel, formData.avatar_type === 'real' && { color: '#2196F3' }]}>실제 인물</Text>
-        </TouchableOpacity>
-      </View>
       <InputField label="이름 (한국어) *" value={formData.name_ko} onChangeText={(v) => updateField('name_ko', v)} placeholder="예: 김지원" />
-      <InputField label="이름 (영어)" value={formData.name_en} onChangeText={(v) => updateField('name_en', v)} placeholder="예: Jiwon" />
       <InputField label="나이" value={formData.age} onChangeText={(v) => updateField('age', v)} placeholder="예: 25" keyboardType="numeric" />
       <Text style={styles.fieldLabel}>성별</Text>
       <View style={styles.optionRow}>
@@ -358,22 +337,6 @@ export default function CreateAvatarScreen() {
             <Text style={[styles.optionText, formData.gender === g && styles.optionTextActive]}>
               {g === 'male' ? '남성' : g === 'female' ? '여성' : '기타'}
             </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <Text style={styles.fieldLabel}>아바타 색상</Text>
-      <View style={styles.colorGrid}>
-        {colorPalette.map(([key, color]) => (
-          <TouchableOpacity key={key} style={[styles.colorButton, { backgroundColor: color }, formData.avatar_bg === color && styles.colorButtonActive]} onPress={() => updateField('avatar_bg', color)}>
-            {formData.avatar_bg === color && <Check size={16} color="#FFFFFF" />}
-          </TouchableOpacity>
-        ))}
-      </View>
-      <Text style={styles.fieldLabel}>아바타 아이콘</Text>
-      <View style={styles.iconGrid}>
-        {AVATAR_ICONS.map((item) => (
-          <TouchableOpacity key={item.id} style={[styles.iconButton, formData.icon === item.id && styles.iconButtonActive]} onPress={() => updateField('icon', item.id as IconName)}>
-            <item.icon size={22} color={formData.icon === item.id ? '#FFFFFF' : '#6C6C80'} />
           </TouchableOpacity>
         ))}
       </View>
@@ -389,7 +352,7 @@ export default function CreateAvatarScreen() {
           <Text style={styles.roleCategoryTitle}>{category.category}</Text>
           <View style={styles.roleGrid}>
             {category.roles.map((role) => (
-              <TouchableOpacity key={role.id} style={[styles.roleButton, formData.role === role.id && styles.roleButtonActive]} onPress={() => { updateField('role', role.id); updateField('custom_role', ''); }}>
+              <TouchableOpacity key={role.id} style={[styles.roleButton, formData.role === role.id && styles.roleButtonActive]} onPress={() => { updateField('role', role.id); updateField('custom_role', ''); setCustomRoleDraft(''); }}>
                 <Text style={[styles.roleButtonText, formData.role === role.id && styles.roleButtonTextActive]}>{role.label}</Text>
               </TouchableOpacity>
             ))}
@@ -399,7 +362,22 @@ export default function CreateAvatarScreen() {
       <View style={styles.customRoleSection}>
         <Text style={styles.fieldLabel}>직접 입력</Text>
         <View style={styles.customRoleRow}>
-          <TextInput style={styles.customRoleInput} value={formData.custom_role} onChangeText={(v) => { updateField('custom_role', v); if (v.trim()) updateField('role', ''); }} placeholder="위에 없는 관계를 직접 입력하세요" placeholderTextColor="#B0B0C5" />
+          <TextInput
+            style={styles.customRoleInput}
+            value={customRoleDraft}
+            onChangeText={setCustomRoleDraft}
+            onSubmitEditing={applyCustomRole}
+            placeholder="위에 없는 관계를 직접 입력하세요"
+            placeholderTextColor="#B0B0C5"
+            returnKeyType="done"
+          />
+          <TouchableOpacity
+            style={[styles.addButton, !customRoleDraft.trim() && styles.addButtonDisabled]}
+            onPress={applyCustomRole}
+            disabled={!customRoleDraft.trim()}
+          >
+            <Plus size={20} color="#FFFFFF" />
+          </TouchableOpacity>
         </View>
         {(formData.custom_role ?? '').trim().length > 0 && (
           <View style={styles.customRoleSelected}>
@@ -407,14 +385,6 @@ export default function CreateAvatarScreen() {
             <Text style={styles.customRoleSelectedText}>직접 입력: {formData.custom_role}</Text>
           </View>
         )}
-      </View>
-      <Text style={styles.fieldLabel}>난이도</Text>
-      <View style={styles.optionRow}>
-        {[{ id: 'easy', label: '쉬움', color: '#4CAF50' }, { id: 'medium', label: '보통', color: '#F4A261' }, { id: 'hard', label: '어려움', color: '#E53935' }].map((d) => (
-          <TouchableOpacity key={d.id} style={[styles.optionButton, formData.difficulty === d.id && styles.optionButtonActive, formData.difficulty === d.id && { backgroundColor: d.color, borderColor: d.color }]} onPress={() => updateField('difficulty', d.id as any)}>
-            <Text style={[styles.optionText, formData.difficulty === d.id && styles.optionTextActive]}>{d.label}</Text>
-          </TouchableOpacity>
-        ))}
       </View>
     </View>
   );
@@ -474,8 +444,6 @@ export default function CreateAvatarScreen() {
           <Plus size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
-      <Text style={styles.fieldLabel}>추가 메모 (AI 참고용)</Text>
-      <TextInput style={styles.memoInput} value={formData.memo} onChangeText={(v) => updateField('memo', v)} placeholder="AI에게 전달할 추가 정보..." placeholderTextColor="#B0B0C5" multiline numberOfLines={2} textAlignVertical="top" />
     </View>
   );
 
@@ -492,12 +460,6 @@ export default function CreateAvatarScreen() {
           </View>
           <Text style={styles.previewName}>{formData.name_ko || '아바타'}</Text>
           <Text style={styles.previewRole}>{roleLabel} · {formData.age ? `${formData.age}세` : ''}</Text>
-          <View style={styles.previewTypeBadge}>
-            {formData.avatar_type === 'fictional'
-              ? <><Sparkles size={12} color="#9C27B0" /><Text style={[styles.previewTypeText, { color: '#9C27B0' }]}>가상 인물</Text></>
-              : <><User size={12} color="#2196F3" /><Text style={[styles.previewTypeText, { color: '#2196F3' }]}>실제 인물</Text></>
-            }
-          </View>
         </View>
         <Card variant="elevated" style={styles.speechCard}>
           <View style={styles.speechHeader}>
@@ -579,13 +541,26 @@ export default function CreateAvatarScreen() {
         <Text style={styles.stepInfoTitle}>{STEPS[currentStep - 1].title}</Text>
         <Text style={styles.stepInfoSubtitle}>{STEPS[currentStep - 1].subtitle}</Text>
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={styles.keyboardContainer} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {renderCurrentStep()}
         </ScrollView>
         <View style={styles.footer}>
           {saving ? <ActivityIndicator size="large" color="#6C3BFF" /> : (
-            <Button title={currentStep === STEPS.length ? '완료' : '다음'} onPress={handleNext} showArrow={currentStep < STEPS.length} disabled={!isStepValid()} />
+            <TouchableOpacity
+              style={[
+                styles.footerPrimaryAction,
+                styles.footerFullButton,
+                !isStepValid() && styles.footerPrimaryActionDisabled,
+              ]}
+              onPress={handleNext}
+              disabled={!isStepValid()}
+            >
+              <Text style={styles.footerPrimaryActionText}>
+                {currentStep === STEPS.length ? '완료' : '다음'}
+                {currentStep < STEPS.length ? ' →' : ''}
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
       </KeyboardAvoidingView>
@@ -611,6 +586,7 @@ const styles = StyleSheet.create({
   stepInfoTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A2E' },
   stepInfoSubtitle: { fontSize: 11, color: '#6C6C80' },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 100 },
+  keyboardContainer: { flex: 1 },
   stepContent: {},
   stepTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A2E', marginBottom: 6 },
   stepSubtitle: { fontSize: 13, color: '#6C6C80', marginBottom: 18, lineHeight: 18 },
@@ -652,7 +628,6 @@ const styles = StyleSheet.create({
   addButton: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#6C3BFF', alignItems: 'center', justifyContent: 'center' },
   addButtonGray: { backgroundColor: '#6C6C80' },
   addButtonDisabled: { opacity: 0.5 },
-  memoInput: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 14, color: '#1A1A2E', borderWidth: 1, borderColor: '#E2E2EC', minHeight: 60, lineHeight: 20 },
   avatarPreview: { alignItems: 'center', paddingVertical: 20 },
   previewAvatar: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   previewName: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },
@@ -677,4 +652,8 @@ const styles = StyleSheet.create({
   regenerateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 16, paddingVertical: 10, backgroundColor: '#F0EDFF', borderRadius: 10 },
   regenerateBtnText: { fontSize: 13, fontWeight: '600', color: '#6C3BFF' },
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#F7F7FB' },
+  footerPrimaryAction: { minHeight: 56, borderRadius: 16, backgroundColor: '#6C3BFF', alignItems: 'center', justifyContent: 'center' },
+  footerPrimaryActionDisabled: { opacity: 0.5 },
+  footerPrimaryActionText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  footerFullButton: { width: '100%' },
 });

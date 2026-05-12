@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet,
-  ScrollView, TouchableOpacity,
+  ScrollView, TouchableOpacity, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
-import { Check, Plus } from 'lucide-react-native';
+import { Check, Plus, Pencil, Trash2, Sparkles } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Header, Card, Button, Icon } from '../components';
-import { SITUATIONS, SITUATION_CATEGORIES } from '../constants';
+import { SITUATION_CATEGORIES } from '../constants';
 
 const CUSTOM_SITUATIONS_KEY = 'custom_situations';
 
@@ -40,7 +40,8 @@ export default function SituationSelectionScreen() {
     }, [])
   );
 
-  const allSituations = [...SITUATIONS, ...customSituations];
+  const avatarId = avatar?.id || avatar?.name_ko || avatar?.name || 'default_avatar';
+  const allSituations = customSituations.filter((s) => s.avatarId === avatarId);
 
   const filteredSituations = selectedCategory === 'all'
     ? allSituations
@@ -52,8 +53,37 @@ export default function SituationSelectionScreen() {
     navigation.navigate('SpeechRecommendation', { avatar, situation });
   };
 
-  const handleCreateSituation = () => {
-    navigation.navigate('CreateSituation');
+  const handleCreateSituation = (mode: 'manual' | 'ai') => {
+    navigation.navigate('CreateSituation', { avatar, mode });
+  };
+
+  const handleEditSituation = (situation: any) => {
+    navigation.navigate('CreateSituation', { avatar, editing: situation, mode: 'manual' });
+  };
+
+  const handleDeleteSituation = (situation: any) => {
+    Alert.alert(
+      '상황 삭제',
+      `"${situation.name_ko}" 상황을 삭제할까요?`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const next = customSituations.filter((s) => s.id !== situation.id);
+              setCustomSituations(next);
+              if (selectedSituation === situation.id) setSelectedSituation(null);
+              await AsyncStorage.setItem(CUSTOM_SITUATIONS_KEY, JSON.stringify(next));
+            } catch (e) {
+              console.log('Failed to delete situation:', e);
+              Alert.alert('오류', '삭제에 실패했습니다.');
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -77,7 +107,9 @@ export default function SituationSelectionScreen() {
 
         {/* Section title */}
         <Text style={styles.sectionTitle}>어떤 상황에서 대화할까요?</Text>
-        <Text style={styles.sectionSubtitle}>상황에 맞는 말투를 연습해보세요</Text>
+        <Text style={styles.sectionSubtitle}>
+          이 아바타와 어울리는 상황을 직접 만들거나 추천받아 시작하세요.
+        </Text>
 
         {/* Category tabs */}
         <ScrollView 
@@ -110,16 +142,38 @@ export default function SituationSelectionScreen() {
           ))}
         </ScrollView>
 
-        {/* Create New Situation Button */}
-        <TouchableOpacity style={styles.createButton} onPress={handleCreateSituation}>
-          <View style={styles.createIconContainer}>
-            <Plus size={20} color="#6C3BFF" />
-          </View>
-          <Text style={styles.createText}>새 상황 만들기</Text>
-        </TouchableOpacity>
+        {/* Create New Situation Buttons */}
+        <View style={styles.createChoiceRow}>
+          <TouchableOpacity style={styles.createButton} onPress={() => handleCreateSituation('manual')}>
+            <View style={styles.createIconContainer}>
+              <Plus size={20} color="#6C3BFF" />
+            </View>
+            <View style={styles.createCopy}>
+              <Text style={styles.createText}>직접 만들기</Text>
+              <Text style={styles.createSubText}>내가 원하는 상황 입력</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.createButton} onPress={() => handleCreateSituation('ai')}>
+            <View style={styles.createIconContainer}>
+              <Sparkles size={20} color="#6C3BFF" />
+            </View>
+            <View style={styles.createCopy}>
+              <Text style={styles.createText}>AI 추천</Text>
+              <Text style={styles.createSubText}>아바타별 상황 제안</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
 
         {/* Situation list */}
         <View style={styles.situationList}>
+          {filteredSituations.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>아직 이 아바타의 상황이 없어요</Text>
+              <Text style={styles.emptyText}>
+                같은 상황을 모든 아바타에게 쓰지 않도록, 먼저 이 관계에 맞는 상황을 만들어 주세요.
+              </Text>
+            </View>
+          )}
           {filteredSituations.map((situation) => (
             <Card
               key={situation.id}
@@ -139,12 +193,42 @@ export default function SituationSelectionScreen() {
                     <Text style={styles.situationName}>{situation.name_ko}</Text>
                     {situation.isCustom && (
                       <View style={styles.customBadge}>
-                        <Text style={styles.customBadgeText}>내가 만듦</Text>
+                        <Text style={styles.customBadgeText}>
+                          {situation.source === 'ai' ? 'AI 추천' : '내가 만듦'}
+                        </Text>
                       </View>
                     )}
                   </View>
-                  <Text style={styles.situationDesc}>{situation.description_ko}</Text>
+                  {!!situation.description_ko?.trim() && (
+                    <Text style={styles.situationDesc}>{situation.description_ko}</Text>
+                  )}
+                  {!!situation.scene_place?.trim() && (
+                    <Text style={styles.situationMeta}>장소/장면: {situation.scene_place}</Text>
+                  )}
+                  {!!situation.conversation_goal?.trim() && (
+                    <Text style={styles.situationMeta}>연습 목표: {situation.conversation_goal}</Text>
+                  )}
                 </View>
+
+                {situation.isCustom ? (
+                  <View style={styles.cardActions}>
+                    <TouchableOpacity
+                      style={styles.cardActionBtn}
+                      onPress={(e) => { e.stopPropagation?.(); handleEditSituation(situation); }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Pencil size={16} color="#6C3BFF" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.cardActionBtn}
+                      onPress={(e) => { e.stopPropagation?.(); handleDeleteSituation(situation); }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Trash2 size={16} color="#E53935" />
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+
                 {selectedSituation === situation.id && (
                   <Check size={24} color="#6C3BFF" />
                 )}
@@ -214,13 +298,16 @@ const styles = StyleSheet.create({
   categoryLabel: { fontSize: 13, fontWeight: '500', color: '#6C6C80' },
   categoryLabelActive: { color: '#FFFFFF', fontWeight: '600' },
 
+  createChoiceRow: {
+    gap: 10,
+    marginBottom: 16,
+  },
   createButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F0EDFF',
     borderRadius: 12,
     padding: 14,
-    marginBottom: 16,
     gap: 10,
   },
   createIconContainer: {
@@ -235,6 +322,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#6C3BFF',
+  },
+  createCopy: { flex: 1 },
+  createSubText: { fontSize: 11, color: '#6C6C80', marginTop: 2 },
+
+  emptyState: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#E2E2EC',
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 6,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: '#6C6C80',
+    lineHeight: 19,
   },
 
   situationList: { gap: 12 },
@@ -258,7 +366,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   situationName: { fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
-  situationDesc: { fontSize: 12, color: '#6C6C80' },
+  situationDesc: { fontSize: 12, color: '#6C6C80', lineHeight: 17 },
+  situationMeta: { fontSize: 11, color: '#8A8A9E', lineHeight: 16, marginTop: 2 },
   customBadge: {
     backgroundColor: '#F0EDFF',
     paddingHorizontal: 8,
@@ -269,6 +378,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: '#6C3BFF',
+  },
+
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 8,
+  },
+  cardActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F7F7FB',
   },
 
   footer: {

@@ -12,6 +12,7 @@ import { AVATAR_COLORS } from '../constants';
 import { apiService, CompatibilityAvatarInput } from '../services/api';
 import { getMyAvatars, deleteAvatar, getMyProfile, UserAvatar } from '../services/apiUser';
 import { ConversationPreview, getConversationPreviewMapByAvatar } from '../services/conversationPreview';
+import { deriveAvatarDifficulty } from '../utils/avatarDifficulty';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,6 @@ const FAVORITES_KEY = 'favorite_avatars'; // must match AvatarDetailScreen
 
 type RandomGender = 'male' | 'female' | 'other';
 type RandomAvatarType = 'fictional' | 'real';
-type RandomDifficulty = 'easy' | 'medium' | 'hard';
 
 // ── Static Data ────────────────────────────────────────────────────────────────
 
@@ -113,7 +113,6 @@ const ROLE_AGE_RANGES: Record<string, [number, number]> = {
 
 const RANDOM_GENDERS: RandomGender[] = ['male', 'female', 'other'];
 const RANDOM_AVATAR_TYPES: RandomAvatarType[] = ['fictional', 'real'];
-const RANDOM_DIFFICULTIES: RandomDifficulty[] = ['easy', 'medium', 'hard'];
 const RANDOM_AVATAR_ICONS: IconName[] = [
   'user', 'users', 'smile', 'userCircle', 'crown', 'baby',
   'graduationCap', 'briefcase', 'building', 'heart', 'star',
@@ -194,6 +193,7 @@ const buildRandomAvatarTemplate = () => {
   const dislikes = randomItems(RANDOM_DISLIKES, 0, 2);
   const speaking_style = randomItem(RANDOM_SPEAKING_STYLES);
   const relationshipNote = randomItem(RANDOM_RELATIONSHIP_NOTES);
+  const difficulty = deriveAvatarDifficulty({ role: role.id });
 
   return {
     name_ko: name.ko,
@@ -213,7 +213,7 @@ const buildRandomAvatarTemplate = () => {
     dislikes,
     avatar_bg: randomItem(Object.values(AVATAR_COLORS)),
     icon: randomItem(RANDOM_AVATAR_ICONS),
-    difficulty: randomItem(RANDOM_DIFFICULTIES),
+    difficulty,
     memo: randomItem(RANDOM_MEMOS),
   };
 };

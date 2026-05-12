@@ -1,18 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet,
-  ScrollView, TouchableOpacity, TextInput,
+  ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { 
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import {
   Search, Bookmark, Volume2, Trash2, BookOpen, MessageCircle,
   ChevronDown, ChevronUp,
 } from 'lucide-react-native';
 import { Header, Card } from '../components';
+import { fetchMyVocabulary, deleteVocabulary, SavedVocab } from '../services/apiVocabulary';
 
 interface VocabItem {
-  id: string;
+  id: number;
   word: string;
   meaning: string;
   example: string;
@@ -20,38 +21,84 @@ interface VocabItem {
   fromAvatar?: string;
 }
 
-// Mock saved vocabulary
-const mockSavedWords: VocabItem[] = [
-  { id: '1', word: '감사합니다', meaning: 'Thank you (formal)', example: '도와주셔서 감사합니다.', savedAt: '2일 전', fromAvatar: '김수진' },
-  { id: '2', word: '괜찮아요', meaning: "It's okay / I'm fine", example: '걱정 마세요, 괜찮아요.', savedAt: '3일 전', fromAvatar: '이민수' },
-  { id: '3', word: '잠시만요', meaning: 'Just a moment', example: '잠시만요, 확인해볼게요.', savedAt: '5일 전', fromAvatar: '김수진' },
-  { id: '4', word: '실례합니다', meaning: 'Excuse me', example: '실례합니다, 질문이 있어요.', savedAt: '1주 전', fromAvatar: '김교수님' },
-  { id: '5', word: '알겠습니다', meaning: 'I understand', example: '네, 알겠습니다.', savedAt: '1주 전', fromAvatar: '김교수님' },
-];
+const formatRelative = (iso?: string | null): string => {
+  if (!iso) return '';
+  const ts = Date.parse(iso);
+  if (isNaN(ts)) return '';
+  const diffMs = Date.now() - ts;
+  const day = 24 * 60 * 60 * 1000;
+  const days = Math.floor(diffMs / day);
+  if (days < 1) return '오늘';
+  if (days < 7) return `${days}일 전`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}주 전`;
+  return new Date(ts).toLocaleDateString('ko-KR');
+};
 
-const mockSavedPhrases: VocabItem[] = [
-  { id: '1', word: '어떻게 지내세요?', meaning: 'How are you?', example: '오랜만이에요! 어떻게 지내세요?', savedAt: '2일 전', fromAvatar: '김수진' },
-  { id: '2', word: '다음에 또 봬요', meaning: 'See you next time', example: '오늘 즐거웠어요. 다음에 또 봬요!', savedAt: '3일 전', fromAvatar: '이민수' },
-  { id: '3', word: '잘 부탁드립니다', meaning: 'Please take care of it', example: '처음 뵙겠습니다. 잘 부탁드립니다.', savedAt: '5일 전', fromAvatar: '김교수님' },
-  { id: '4', word: '시간 되시면 연락 주세요', meaning: 'Contact me when you have time', example: '시간 되시면 연락 주세요.', savedAt: '1주 전', fromAvatar: '이민수' },
-];
+const toItem = (v: SavedVocab): VocabItem => ({
+  id: v.id,
+  word: v.word,
+  meaning: v.meaning ?? '',
+  example: v.example ?? '',
+  savedAt: formatRelative(v.createdAt),
+  fromAvatar: v.fromAvatar ?? undefined,
+});
 
 export default function SavedVocabularyScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const type = route.params?.type || 'words'; // 'words' or 'phrases'
+  const type: 'words' | 'phrases' = route.params?.type || 'words';
+  const apiKind: 'word' | 'phrase' = type === 'words' ? 'word' : 'phrase';
 
   const [search, setSearch] = useState('');
-  const [expandedItem, setExpandedItem] = useState<string | null>(null);
-  const [items, setItems] = useState(type === 'words' ? mockSavedWords : mockSavedPhrases);
+  const [expandedItem, setExpandedItem] = useState<number | null>(null);
+  const [items, setItems] = useState<VocabItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        setLoading(true);
+        try {
+          const rows = await fetchMyVocabulary(apiKind);
+          if (!cancelled) setItems(rows.map(toItem));
+        } catch (e) {
+          console.log('fetch vocab failed:', e);
+          if (!cancelled) setItems([]);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [apiKind]),
+  );
 
   const filteredItems = items.filter((item) =>
     item.word.includes(search) ||
     item.meaning.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleDelete = (id: string) => {
-    setItems((prev) => prev.filter((item) => item.id !== id));
+  const handleDelete = (id: number) => {
+    Alert.alert('삭제', '저장한 항목을 삭제할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          // Optimistic remove
+          const previous = items;
+          setItems(prev => prev.filter(it => it.id !== id));
+          try {
+            await deleteVocabulary(id);
+          } catch (e) {
+            console.log('delete vocab failed:', e);
+            setItems(previous);
+            Alert.alert('오류', '삭제에 실패했어요.');
+          }
+        },
+      },
+    ]);
   };
 
   const handlePlayAudio = (word: string) => {
@@ -98,7 +145,12 @@ export default function SavedVocabularyScreen() {
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
         >
-          {filteredItems.length === 0 ? (
+          {loading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator size="large" color="#6C3BFF" />
+              <Text style={styles.emptyTitle}>불러오는 중...</Text>
+            </View>
+          ) : filteredItems.length === 0 ? (
             <View style={styles.emptyState}>
               <Bookmark size={48} color="#E2E2EC" />
               <Text style={styles.emptyTitle}>

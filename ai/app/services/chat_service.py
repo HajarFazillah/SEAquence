@@ -13,8 +13,15 @@ from enum import Enum
 from app.schemas.avatar import AvatarBase, SpeechLevel, get_speech_levels_for_role, get_role_label
 from app.schemas.user import UserProfile, KoreanLevel
 from app.services.clova_service import clova_service, Message
-from app.services.simple_speech_analyzer import get_speech_analyzer
-from app.services.sophisticated_speech_analyzer import get_analyzer as get_sophisticated_speech_analyzer
+from app.services.simple_speech_analyzer import (
+    get_speech_analyzer,
+    detect_speech_level_by_morpheme,
+)
+from app.services.korean_coaching_prompt_builder import (
+    build_native_korean_coaching_prompt,
+    sanitize_json_like_model_output,
+)
+from app.services.speech_analysis_service import analyze_user_korean_message
 from app.services.prompt_builder import (
     build_avatar_system_prompt,
     build_speech_correction_prompt,
@@ -92,7 +99,7 @@ class ChatResponse(BaseModel):
 
     mood_change:  int = 0
     current_mood: int = 100
-    mood_emoji:   str = "😊"
+    mood_emoji:   str = ""
 
     suggestions:    List[str]    = []
     hint:           Optional[str] = None
@@ -108,6 +115,47 @@ class ConversationAnalysis(BaseModel):
     overall_feedback:    str
     score_details:       Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     used_fallback_scores: bool = False
+
+
+class StructuredErrorItem(BaseModel):
+    type:                str
+    subtype:             Optional[str] = None
+    original_fragment:   str
+    corrected_fragment:  str
+    explanation:         str
+    severity:            int
+    severity_label:      str
+
+
+class StructuredMessageAnalysis(BaseModel):
+    had_errors:                   bool
+    accuracy_score:               int
+    error_count:                  int
+    expected_speech_level:        str
+    expected_speech_level_code:   Optional[str] = None
+    detected_speech_level:        Optional[str] = None
+    detected_speech_level_code:   Optional[str] = None
+    speech_level_correct:         bool
+    intent:                       str = ""
+    context_signals:              Dict[str, Any] = Field(default_factory=dict)
+    corrected_message:            Optional[str] = None
+    summary:                      Optional[str] = None
+    encouragement:                Optional[str] = None
+    top_focus:                    Optional[str] = None
+    error_breakdown:              Dict[str, int] = Field(default_factory=dict)
+    errors:                       List[StructuredErrorItem] = Field(default_factory=list)
+
+
+class StructuredMessageReply(BaseModel):
+    avatar_message:        Optional[str] = None
+    used_corrected_meaning: bool = False
+    suggestions:           List[str] = Field(default_factory=list)
+    hint:                  Optional[str] = None
+
+
+class StructuredMessageResult(BaseModel):
+    analysis: StructuredMessageAnalysis
+    reply:    Optional[StructuredMessageReply] = None
 
 
 def _label_for_correction_type(correction: InlineCorrection) -> str:
@@ -374,6 +422,7 @@ def build_realtime_correction_prompt(
     }.get(edit_strategy_hint, "- 과교정보다 보수적으로 판단하세요.")
 
     return f"""사용자의 한국어 메시지를 분석하여 실시간 교정 피드백을 제공하세요.
+이 작업은 교정 분석 전용입니다. 아바타 답변이나 역할극 대사는 절대 만들지 마세요.
 
 ## 대화 상황
 - 대화 상대: {avatar_role}
@@ -403,32 +452,42 @@ def build_realtime_correction_prompt(
 4. 현재 문장이 이미 자연스러우면 수정하지 말고 그대로 인정하세요.
 5. 서비스/주문 상황에서는 메뉴 이름, 수량, 핵심 명사는 보존하고 말투와 요청 표현을 먼저 다듬으세요.
 
-## 응답 형식 (JSON)
+## 응답 형식 (JSON only)
 {{
     "edit_strategy": "none / minimal / rewrite",
-    "has_errors": true/false,
-    "corrected_message": "반드시 {speech_info['name_ko']}로 수정된 전체 메시지. 오류 없으면 null",
-    "detected_speech_level": "formal / polite / informal 중 하나",
-    "speech_level_correct": true/false,
-    "accuracy_score": 0-100,
+    "has_errors": true,
+    "corrected_message": "오류가 있으면 의미를 보존하여 {speech_info['name_ko']}로 수정한 전체 메시지. 오류 없으면 null",
+    "detected_speech_level": "formal / polite / informal / unknown 중 하나",
+    "speech_level_correct": false,
+    "accuracy_score": 85,
     "corrections": [
         {{
-            "original": "반드시 사용자 메시지에 실제로 존재하는 표현만",
+            "original": "반드시 사용자 메시지에 실제로 존재하는 정확한 부분 문자열. 부분 문자열로 잡기 어려우면 전체 사용자 메시지",
             "corrected": "올바른 {speech_info['name_ko']} 표현",
             "type": "speech_level/grammar/spelling/vocabulary/expression/honorific",
             "severity": "info/warning/error",
-            "explanation": "왜 틀렸는지 한국어로 설명",
-            "tip": "기억하기 쉬운 팁 (선택사항)"
+            "explanation": "왜 고치면 좋은지 한국어 한 문장",
+            "tip": "짧은 학습 팁 또는 null"
         }}
     ],
     "natural_alternatives": [
         {{
-            "expression": "이렇게도 말할 수 있어요 — 더 자연스러운 {speech_info['name_ko']} 표현",
-            "explanation": "왜 이 표현이 더 자연스러운지 한 줄로"
+            "expression": "사용자가 그대로 따라 말할 수 있는 완전한 한국어 문장",
+            "explanation": "왜 이 표현이 더 자연스러운지 한국어 한 문장"
         }}
     ],
     "encouragement": "잘한 점을 언급한 긍정적인 피드백 (1문장)"
 }}
+
+## JSON 계약
+- JSON 객체 하나만 출력하세요. 마크다운, 코드블록, 설명 문장, 추가 키는 금지합니다.
+- 모든 문자열 값은 한국어로 작성하세요. 단, type/severity/level 코드는 지정된 영어 코드만 사용하세요.
+- corrected_message는 사용자의 원래 의미를 보존해야 합니다. 새 정보, 새 감정, 새 의도를 추가하지 마세요.
+- has_errors가 false이면 corrected_message는 null, corrections는 [], natural_alternatives는 []로 두세요.
+- has_errors가 true이면 corrected_message는 null이 아니어야 합니다.
+- corrections[].original은 반드시 사용자 메시지에 실제로 있는 텍스트와 정확히 일치해야 합니다.
+- 부분 문자열이 애매하면 original에 전체 사용자 메시지를 넣으세요.
+- 같은 오류를 여러 번 반복하지 마세요.
 
 ## natural_alternatives 규칙
 - natural_alternatives는 선택사항입니다. 정말 더 자연스럽고 학습 가치가 있을 때만 0~1개 제안하세요.
@@ -441,7 +500,7 @@ def build_realtime_correction_prompt(
 - corrected_message와 완전히 같은 문장을 natural_alternatives에 다시 넣지 마세요.
 
 ## 절대 규칙
-- detected_speech_level 은 formal / polite / informal 중 하나 (null 불가)
+- detected_speech_level 은 formal / polite / informal / unknown 중 하나 (null 불가)
 - corrected_message 는 반드시 {speech_info['name_ko']} 말투로
 - corrections original 은 사용자 메시지에 실제 존재하는 표현만
 - 맥락상 자연스러운 표현은 오류 처리 금지
@@ -665,7 +724,8 @@ _POLITE_ENDINGS   = ["어요", "아요", "이에요", "예요", "해요", "세�
                      "데요", "을게요", "ㄹ게요", "겠어요"]
 _INFORMAL_ENDINGS = ["이야", "야", "이어", "어", "아", "지", "니",
                      "냐", "거야", "잖아", "이잖아", "구나", "군",
-                     "을게", "ㄹ게", "자", "해", "래", "네"]
+                     "을게", "ㄹ게", "자", "해", "래", "네",
+                     "돼", "줘", "봐", "봐라", "와"]
 _GENERIC_GREETING_CORRECTIONS = {"안녕", "안녕하세요", "안녕하십니까"}
 
 _SHORT_RESPONSES = {
@@ -933,6 +993,12 @@ def verify_with_rules(text: str, clova_detected: str) -> str:
         if text.endswith(e): return "polite"
     for e in _INFORMAL_ENDINGS:
         if text.endswith(e): return "informal"
+    # Surface regex didn't fire — try Komoran morpheme analysis. This catches
+    # contractions and irregular forms where the final 어미 isn't visible as a
+    # word suffix (e.g. "안 해도 돼" ends in the morpheme 어, not 돼).
+    morph_level = detect_speech_level_by_morpheme(text)
+    if morph_level:
+        return morph_level
     return clova_detected
 
 
@@ -1550,7 +1616,10 @@ def build_rule_based_correction(
     corrections = [*(base_corrections or []), *spelling_corrections]
     spelling_fixed = apply_spelling_fixes(user_message)
     detected_norm = verify_with_rules(spelling_fixed, "")
-    speech_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
+    # Empty detection means rules couldn't classify the level — flag uncertainty
+    # rather than auto-affirming. The LLM pass downstream gets the final say.
+    speech_level_uncertain = (detected_norm == "")
+    speech_level_correct   = (detected_norm == expected_norm) or speech_level_uncertain
 
     corrected_message = spelling_fixed if spelling_corrections else None
     if not speech_level_correct:
@@ -1571,6 +1640,9 @@ def build_rule_based_correction(
         score = min(score, 75)
     if not speech_level_correct:
         score = min(score, 60)
+    if speech_level_uncertain:
+        # Don't claim "완벽" when rules couldn't verify the speech level.
+        score = min(score, 85)
 
     verdict = infer_verdict(has_errors, typo_count, speech_level_correct)
     return RealTimeCorrection(
@@ -1626,11 +1698,6 @@ class ChatService:
         self.user_moods:   Dict[str, int] = {}
         self.session_turns: Dict[str, List[ChatMessage]] = {}
         self.native_speech_analyzer = get_speech_analyzer()
-        self.sophisticated_speech_analyzer = None
-        try:
-            self.sophisticated_speech_analyzer = get_sophisticated_speech_analyzer()
-        except Exception:
-            self.sophisticated_speech_analyzer = None
 
     def _extract_user_messages(self, conversation_history: List[ChatMessage]) -> List[str]:
         return [
@@ -1645,7 +1712,160 @@ class ChatService:
             tokens.extend(re.findall(r"[가-힣]{2,}", text))
         return tokens
 
+    async def coach_user_message(
+        self,
+        *,
+        user_message: str,
+        expected_speech_level: str = "polite",
+        avatar_role: Optional[str] = None,
+        avatar_name: Optional[str] = None,
+        situation: Optional[str] = None,
+        conversation_history: Optional[List[ChatMessage]] = None,
+        use_llm: bool = True,
+        clova_temperature: float = 0.2,
+        clova_max_tokens: int = 1024,
+    ) -> Dict[str, Any]:
+        """Coaching pipeline for a single user message — the blessed path.
+
+        Composes the three new modules:
+        1. `analyze_user_korean_message` for deterministic rule-based analysis.
+        2. `build_native_korean_coaching_prompt` to build a strict-JSON LLM prompt
+            seeded with that rule-based evidence.
+        3. `clova_service.analyze_json` (which delegates to
+            `sanitize_json_like_model_output`) to parse the model's response.
+
+        Returns a unified dict with keys:
+        - `rule_based`:  the deterministic analysis (same shape as
+          `analyze_user_korean_message` returns)
+        - `llm`:         the parsed LLM JSON (or {} if disabled / unavailable)
+        - `corrections`: the merged correction list (LLM-preferred, rule-based fallback)
+        - `corrected_message`: best-effort whole-message rewrite
+        - `has_errors`:  True if any path found at least one issue
+        """
+        history_dicts: Optional[List[Dict[str, str]]] = None
+        if conversation_history:
+            history_dicts = [
+                {"role": m.role, "content": m.content}
+                for m in conversation_history
+                if m.content
+            ]
+
+        rule_based = analyze_user_korean_message(
+            message=user_message,
+            expected_speech_level=expected_speech_level,
+            avatar_role=avatar_role,
+            situation=situation,
+            conversation_history=history_dicts,
+        )
+
+        llm_payload: Dict[str, Any] = {}
+        if use_llm and (rule_based.get("analysis") or {}).get("text"):
+            prompt = build_native_korean_coaching_prompt(
+                user_message=user_message,
+                expected_speech_level=expected_speech_level,
+                avatar_role=avatar_role,
+                avatar_name=avatar_name,
+                situation=situation,
+                conversation_history=history_dicts,
+                detected_speech_level=(rule_based.get("analysis") or {}).get("speech_level"),
+                rule_based_evidence={
+                    "spelling": rule_based.get("spelling") or [],
+                    "inferred_intent": rule_based.get("inferred_intent"),
+                    "is_appropriate": (rule_based.get("analysis") or {}).get("is_appropriate"),
+                    "word_errors": (rule_based.get("analysis") or {}).get("word_errors") or [],
+                    "missing_honorifics": (rule_based.get("analysis") or {}).get("missing_honorifics") or [],
+                },
+            )
+            try:
+                llm_payload = await clova_service.analyze_json(
+                    prompt,
+                    temperature=clova_temperature,
+                    max_tokens=clova_max_tokens,
+                )
+            except Exception as e:
+                print(f"[coach_user_message] LLM call failed: {e}")
+                llm_payload = {}
+
+        # Merge corrections: LLM output preferred, rule-based fills the gaps.
+        merged_corrections: List[Dict[str, Any]] = []
+        seen_pairs = set()
+
+        for c in (llm_payload.get("corrections") or []):
+            original = (c.get("original") or "").strip()
+            corrected = (c.get("corrected") or "").strip()
+            if not original or not corrected:
+                continue
+            key = (original, corrected)
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            merged_corrections.append({
+                "original": original,
+                "corrected": corrected,
+                "type": c.get("type") or "expression",
+                "severity": c.get("severity") or "warning",
+                "explanation": (c.get("explanation") or "").strip(),
+                "tip": (c.get("tip") or None),
+            })
+
+        analysis = rule_based.get("analysis") or {}
+        for source_key in ("word_errors", "missing_honorifics", "directness_errors"):
+            for item in (analysis.get(source_key) or []):
+                original = (item.get("original") or "").strip()
+                corrected = (item.get("corrected") or item.get("expected") or "").strip()
+                if not original or not corrected:
+                    continue
+                key = (original, corrected)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                merged_corrections.append({
+                    "original": original,
+                    "corrected": corrected,
+                    "type": item.get("type") or source_key.rstrip("s"),
+                    "severity": item.get("severity") or "warning",
+                    "explanation": (item.get("explanation") or "").strip(),
+                    "tip": item.get("tip"),
+                })
+
+        for hit in (rule_based.get("spelling") or []):
+            key = (hit["original"], hit["expected"])
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            merged_corrections.append({
+                "original": hit["original"],
+                "corrected": hit["expected"],
+                "type": "spelling",
+                "severity": hit.get("severity") or "warning",
+                "explanation": hit.get("explanation") or "",
+                "tip": None,
+            })
+
+        corrected_message = (
+            (llm_payload.get("corrected_message") or "").strip()
+            or (analysis.get("suggested_correction") or "").strip()
+            or user_message
+        )
+        has_errors = bool(
+            llm_payload.get("has_errors")
+            or merged_corrections
+            or analysis.get("is_appropriate") is False
+        )
+
+        return {
+            "rule_based": rule_based,
+            "llm": llm_payload,
+            "corrections": merged_corrections,
+            "corrected_message": corrected_message,
+            "has_errors": has_errors,
+        }
+
     def _analyze_with_konlpy(self, text: str) -> Dict[str, Any]:
+        # Note: the legacy `speech` field (formerly populated by the deprecated
+        # sophisticated_speech_analyzer) is intentionally always None now.
+        # Downstream scoring code already guards on `if speech_result:` so
+        # those branches simply no-op, falling back to pure rule-based scoring.
         result: Dict[str, Any] = {
             "available": False,
             "source": None,
@@ -1654,25 +1874,48 @@ class ChatService:
         }
 
         try:
-            if self.sophisticated_speech_analyzer and getattr(self.sophisticated_speech_analyzer, "use_morphological", False):
-                speech_result = self.sophisticated_speech_analyzer.analyze(text)
-                result["speech"] = speech_result
-                result["available"] = True
-                result["source"] = getattr(self.sophisticated_speech_analyzer.konlpy, "analyzer_name", "KoNLPy")
-        except Exception:
-            result["speech"] = None
-
-        try:
             morph_result = morpheme_analyzer.analyze(text)
             if getattr(morph_result, "morphemes", None):
                 result["morphemes"] = morph_result
                 result["available"] = True
-                if not result["source"]:
-                    result["source"] = getattr(morpheme_analyzer, "engine", "KoNLPy")
+                result["source"] = getattr(morpheme_analyzer, "engine", "KoNLPy")
         except Exception:
             result["morphemes"] = None
 
         return result
+
+    def _apply_confidence_weighting(
+        self,
+        raw_score: int,
+        message_count: int,
+        baseline: int = 70,
+    ) -> Dict[str, Any]:
+        """Blend raw score toward a baseline when sample size is small.
+
+        - <  3 messages: 50/50 blend with baseline (low confidence)
+        - 3-5 messages: graded blend (medium confidence)
+        - >= 6 messages: raw score (full confidence)
+        """
+        if message_count <= 0:
+            return {"adjusted": raw_score, "confidence": "none", "raw_score": raw_score}
+
+        if message_count < 3:
+            confidence = "low"
+            weight = 0.5
+        elif message_count < 6:
+            confidence = "medium"
+            weight = 0.5 + (message_count - 3) * 0.15  # 0.5 → 0.8
+        else:
+            confidence = "high"
+            weight = 1.0
+
+        adjusted = round(raw_score * weight + baseline * (1 - weight))
+        return {
+            "adjusted": max(0, min(100, adjusted)),
+            "confidence": confidence,
+            "raw_score": raw_score,
+            "weight": round(weight, 2),
+        }
 
     def _calculate_speech_accuracy_score(
         self,
@@ -1767,7 +2010,9 @@ class ChatService:
             total_penalty += min(55, message_penalty)
 
         average_penalty = total_penalty / max(1, len(user_messages))
-        score = max(0, min(100, round(100 - average_penalty)))
+        raw_score = max(0, min(100, round(100 - average_penalty)))
+        weighted = self._apply_confidence_weighting(raw_score, len(user_messages))
+        score = weighted["adjusted"]
 
         return {
             "score": score,
@@ -1782,6 +2027,8 @@ class ChatService:
                 "mixed_style_penalty": mixed_style_penalty,
                 "konlpy_samples_used": konlpy_samples_used,
                 "konlpy_sources": sorted(set(konlpy_sources)),
+                "raw_score": weighted["raw_score"],
+                "confidence": weighted["confidence"],
             },
             "note": (
                 "KoNLPy 형태소 분석을 보조로 사용해 말투 어미, 높임 표현, 오타, 혼용 여부를 계산했습니다."
@@ -1827,16 +2074,17 @@ class ChatService:
         diversity_ratio = unique_count / max(1, token_count)
         diversity_score = min(100, round(35 + diversity_ratio * 65))
 
-        advanced_terms = {
-            "괜찮으시면", "도와주십시오", "부탁드립니다", "말씀", "연구실", "상담",
-            "주문", "추가", "테이크아웃", "프로젝트", "발표", "회의", "피드백",
-            "죄송합니다", "감사합니다", "알겠습니다", "어색하다", "자연스럽다",
-        }
-        advanced_token_count = sum(1 for token in tokens if token in advanced_terms or len(token) >= 4)
-        difficulty_ratio = advanced_token_count / max(1, token_count)
-        difficulty_score = min(100, round(25 + difficulty_ratio * 75))
+        # Data-driven difficulty: longer Korean tokens are typically rarer/more advanced.
+        # 4+ syllables = clearly advanced; 3 syllables = mildly advanced.
+        long_tokens = sum(1 for t in tokens if len(t) >= 4)
+        mid_tokens = sum(1 for t in tokens if len(t) == 3)
+        advanced_token_count = long_tokens
+        difficulty_ratio = (long_tokens * 1.0 + mid_tokens * 0.5) / max(1, token_count)
+        difficulty_score = min(100, round(30 + difficulty_ratio * 90))
 
-        score = max(0, min(100, round(diversity_score * 0.7 + difficulty_score * 0.3)))
+        raw_score = max(0, min(100, round(diversity_score * 0.6 + difficulty_score * 0.4)))
+        weighted = self._apply_confidence_weighting(raw_score, len(user_messages))
+        score = weighted["adjusted"]
 
         return {
             "score": score,
@@ -1848,14 +2096,18 @@ class ChatService:
                 "diversity_score": diversity_score,
                 "difficulty_score": difficulty_score,
                 "advanced_token_count": advanced_token_count,
+                "long_tokens": long_tokens,
+                "mid_tokens": mid_tokens,
                 "top_tokens": [token for token, _ in Counter(tokens).most_common(5)],
                 "konlpy_samples_used": konlpy_samples_used,
                 "konlpy_sources": sorted(set(konlpy_sources)),
+                "raw_score": weighted["raw_score"],
+                "confidence": weighted["confidence"],
             },
             "note": (
-                "KoNLPy 형태소 분석으로 명사/동사를 뽑아 단어 다양성과 난도를 계산했습니다."
+                "KoNLPy 형태소 분석으로 명사/동사를 뽑아 단어 다양성과 단어 길이 기반 난도를 계산했습니다."
                 if konlpy_samples_used > 0
-                else "단어 다양성과 상대적으로 난도가 높은 어휘 사용 비율을 함께 반영했습니다."
+                else "단어 다양성과 단어 길이(3음절 이상) 비율을 함께 반영했습니다."
             ),
         }
 
@@ -1930,7 +2182,9 @@ class ChatService:
             total_penalty += min(60, message_penalty)
 
         average_penalty = total_penalty / max(1, len(user_messages))
-        score = max(0, min(100, round(100 - average_penalty)))
+        raw_score = max(0, min(100, round(100 - average_penalty)))
+        weighted = self._apply_confidence_weighting(raw_score, len(user_messages))
+        score = weighted["adjusted"]
 
         return {
             "score": score,
@@ -1944,6 +2198,8 @@ class ChatService:
                 "llm_score": None,
                 "konlpy_samples_used": konlpy_samples_used,
                 "konlpy_sources": sorted(set(konlpy_sources)),
+                "raw_score": weighted["raw_score"],
+                "confidence": weighted["confidence"],
             },
             "note": (
                 "KoNLPy 기반 일관성/형태소 신호와 오류 수를 함께 반영해 자연스러움을 계산했습니다."
@@ -2066,23 +2322,41 @@ class ChatService:
                 if cleaned
             ]
             hint = postprocess_model_output(hint_result.get("hint"))
-        #session_summary = self._update_session_summary(
-        #    session_key,
-        #    user_message,
-        #    final_message,
-        #    effective_history,
-        #    session_context,
-       # )
+        if correction.has_errors:
+            try:
+                self._save_mistakes(session_key, correction)
+            except Exception as e:
+                print(f"[mistakes] failed to save: {e}")
+
+        # Persist this turn server-side so the next call sees a coherent rolling
+        # history + summary even if the client trims its conversation_history.
+        try:
+            self._remember_session_turn(
+                session_key=session_key,
+                user_message=user_message,
+                assistant_message=final_message,
+                existing_history=effective_history,
+            )
+        except Exception as e:
+            print(f"[session] failed to persist turn: {e}")
+
+        # Surface the freshest summary on the response (clients can ignore it).
+        latest_summary = None
+        try:
+            _, latest_summary = self._load_session(session_key)
+        except Exception:
+            latest_summary = session_summary
+
         return ChatResponse(
             message=final_message,
             correction=correction,
             mood_change=mood_change,
             current_mood=new_mood,
-            mood_emoji="",
+            mood_emoji=mood_emoji,
             suggestions=suggestions,
             hint=hint,
             correct_streak=streak,
-            session_summary=session_summary,
+            session_summary=latest_summary or session_summary,
         )
 
     def _get_effective_history(
@@ -2120,6 +2394,9 @@ class ChatService:
             ChatMessage(role="user", content=user_message),
             ChatMessage(role="assistant", content=assistant_message),
         ]
+        final_summary = self._update_session_summary(
+            session_key, user_message, assistant_message, existing_history
+        )
         self._save_session(session_key, history[-20:], final_summary)
     def _update_session_summary(
         self,
@@ -2139,6 +2416,7 @@ class ChatService:
         ]
         if session_context and not previous_summary:
             previous_summary = session_context.get("session_summary") or ""
+        recent_topics: List[str] = []
         recent_messages = history[-6:]
         for msg in recent_messages:
             content = msg.content.strip()
@@ -2163,13 +2441,7 @@ class ChatService:
         session_summary: Optional[str] = None,
     ) -> str:
         corrected = correction.corrected_message or self._best_corrected_expression(correction) or user_message
-        recent_mistakes = (correction_context or {}).get("recent_mistakes") or []
         summary_line = f"\n[SESSION SUMMARY]\n{session_summary}\n" if session_summary else ""
-        recent_mistake_lines = "\n".join(
-            f"- {m.get('message', '')} -> {m.get('corrected', '')}"
-            for m in recent_mistakes[-4:]
-            if isinstance(m, dict)
-        )
         extra_guidance = "\n".join(
             f"- {line}" for line in response_instruction if str(line).strip()
         )
@@ -2189,13 +2461,14 @@ class ChatService:
 
 ## 채팅 말풍선 규칙
 - 채팅 답변에는 "polite detected", "감지", "점수", "정확도", "분석 결과" 같은 분석 라벨을 절대 쓰지 마세요.
-- 오류가 있으면 첫 문장에서 자연스러운 수정 문장을 짧게 알려주고, 바로 캐릭터답게 대화를 이어가세요.
-- 오류가 없으면 교정 설명을 길게 하지 말고, 사용자의 내용에 자연스럽게 반응하세요.
+- 교정 내용은 별도 UI가 보여줍니다. 당신은 corrected intent를 조용히 이해하고, 캐릭터답게 대화만 이어가세요.
+- 오류가 있어도 "X가 맞는 표현이야", "이렇게 말하세요"처럼 직접 교정하지 마세요.
+- 문법, 말투, 표현, 점수, 학습 팁, 모범 답안, 예시 문장을 말풍선에서 제공하지 마세요.
+- 당신은 튜터, 코치, 선생님, 평가자가 아닙니다. 오직 현재 아바타 캐릭터입니다.
+- 오류가 없으면 사용자의 내용에 자연스럽게 반응하세요.
 - 답변은 1~3문장으로 짧고 실제 사람이 말하듯 작성하세요.
 - 이모지와 장식 기호는 사용하지 마세요.
 
-## 최근 반복 실수
-{recent_mistake_lines or "- 없음"}
 {extra_guidance}
 """
 
@@ -2208,9 +2481,15 @@ class ChatService:
                 host='127.0.0.1',
                 port=3307,
                 user='root',
-                password='seaq_root2026',
-                database='talkativ'
+                password='1234',
+                database='talkativ',
+                charset='utf8mb4',
+                collation='utf8mb4_unicode_ci',
+                use_unicode=True,
             )
+            cursor = conn.cursor()
+            cursor.execute("SET NAMES utf8mb4")
+            cursor.close()
             yield conn
         finally:
             if conn and conn.is_connected():
@@ -2269,6 +2548,60 @@ class ChatService:
             conn.commit()
             cursor.close()
 
+    def _save_mistakes(self, session_key: str, correction: "RealTimeCorrection") -> None:
+        """Persist per-turn inline corrections to session_mistakes table."""
+        for c in correction.corrections:
+            print(f"[mistakes-debug] type={type(c.original).__name__} original={c.original!r} corrected={c.corrected!r}")
+        real = [
+            c for c in correction.corrections
+            if c.original != c.corrected
+        ]
+        if not real:
+            return
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COALESCE(MAX(turn_number), 0) FROM session_mistakes WHERE session_id = %s",
+                (session_key,),
+            )
+            row = cursor.fetchone()
+            next_turn = (row[0] if row else 0) + 1
+            for c in real:
+                cursor.execute(
+                    """
+                    INSERT INTO session_mistakes
+                        (session_id, turn_number, original, corrected, error_type, severity, explanation)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        session_key,
+                        next_turn,
+                        c.original,
+                        c.corrected,
+                        c.type.value if hasattr(c.type, "value") else str(c.type),
+                        c.severity.value if hasattr(c.severity, "value") else str(c.severity),
+                        c.explanation,
+                    ),
+                )
+            conn.commit()
+            cursor.close()
+
+    def _load_session_mistakes(self, session_key: str) -> List[Dict[str, str]]:
+        """Load all stored mistakes for a session."""
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT original, corrected, error_type, severity, explanation
+                FROM session_mistakes
+                WHERE session_id = %s
+                ORDER BY turn_number, id
+                """,
+                (session_key,),
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+        return rows or []
 
     def _make_reply_user_message(
         self,
@@ -2307,14 +2640,7 @@ class ChatService:
         )
 
         if correction.has_errors and is_bad_reply:
-            corrected = self._best_corrected_expression(correction) or user_message
-            if correction.verdict == "speech_and_spelling":
-                return f'"{corrected}"라고 하면 더 자연스러워. 좋아, 그 표현으로 다시 이어가 보자.'
-            if correction.verdict == "spelling":
-                return f'"{corrected}"가 맞는 표기야. 무슨 말인지 알겠어. 이어서 말해줘.'
-            if correction.verdict == "wrong_speech_level":
-                return f'"{corrected}"처럼 말하면 지금 관계에 더 잘 맞아. 그럼 계속 이야기해 보자.'
-            return f'"{corrected}"라고 하면 더 자연스러워. 계속 이어가 볼게.'
+            return "무슨 말인지 알겠어. 그 얘기 조금만 더 해 봐."
 
         if is_bad_reply:
             return "좋아, 계속 이야기해 보자."
@@ -2657,20 +2983,29 @@ class ChatService:
         clova_raw        = (result.get("detected_speech_level") or "").strip().lower()
         clova_norm       = LEVEL_MAP.get(clova_raw, clova_raw)
         detected_norm    = verify_with_rules(apply_spelling_fixes(user_message), clova_norm)
-        is_level_correct = (detected_norm == expected_norm) or (detected_norm == "")
+        # If neither the rules nor the LLM produced a level, treat it as
+        # uncertain rather than silently affirming "matches expected" — this
+        # prevents informal endings the rules don't recognize (e.g. ending in
+        # 돼/줘/봐) from quietly scoring 100.
+        is_level_uncertain = (detected_norm == "")
+        is_level_correct   = (detected_norm == expected_norm)
 
         # ── has_errors — info 제외 ────────────────────────────────────────────
         real_errors = [
             c for c in corrections
             if c.severity in (CorrectionSeverity.ERROR, CorrectionSeverity.WARNING)
         ]
-        has_errors     = (len(real_errors) > 0) or not is_level_correct or local_rule_correction.has_errors
+        has_errors     = (len(real_errors) > 0) or (not is_level_correct and not is_level_uncertain) or local_rule_correction.has_errors
         accuracy_score = int(result.get("accuracy_score", 100) or 100)
 
         if not has_errors and corrections:
             accuracy_score = max(accuracy_score, 90)
         if local_rule_correction.has_errors:
             accuracy_score = min(accuracy_score, local_rule_correction.accuracy_score)
+        # Cap "완벽" claims when we genuinely couldn't verify the speech level —
+        # better to land in "잘했어요" territory than to falsely affirm.
+        if is_level_uncertain:
+            accuracy_score = min(accuracy_score, 85)
 
         # ── 말투 오류 시 corrected 검증 ──────────────────────────────────────
         best_corrected = None
@@ -2901,13 +3236,33 @@ class ChatService:
 
     def _calculate_mood_change(self, correction: RealTimeCorrection) -> int:
         if not correction.has_errors:
-            return 8 if correction.streak_bonus else 3
+            if correction.streak_bonus:
+                return 6
+            if correction.accuracy_score >= 95:
+                return 4
+            return 2
+
         error_count   = sum(1 for c in correction.corrections if c.severity == CorrectionSeverity.ERROR)
         warning_count = sum(1 for c in correction.corrections if c.severity == CorrectionSeverity.WARNING)
-        if error_count >= 2:     return -10
-        elif error_count == 1:   return -5
-        elif warning_count >= 2: return -3
-        else:                    return -1
+        accuracy = correction.accuracy_score or 100
+
+        if accuracy < 40:
+            return -18
+        if error_count >= 3:
+            return -16
+        if error_count >= 2:
+            return -14
+        if error_count == 1 and warning_count >= 1:
+            return -10
+        if error_count == 1:
+            return -8
+        if not correction.speech_level_correct:
+            return -6
+        if warning_count >= 2:
+            return -5
+        if warning_count == 1:
+            return -3
+        return -1
 
     def _update_mood(self, avatar_key: str, change: int) -> int:
         current  = self.user_moods.get(avatar_key, 80)
@@ -2916,16 +3271,154 @@ class ChatService:
         return new_mood
 
     def _get_mood_emoji(self, mood: int) -> str:
-        if mood >= 90:   return "😄"
-        elif mood >= 70: return "😊"
-        elif mood >= 50: return "😐"
-        elif mood >= 30: return "😕"
-        else:            return "😢"
+        if mood >= 75:
+            return "happy"
+        if mood >= 50:
+            return "soso"
+        if mood >= 25:
+            return "sad"
+        return "angry"
+
+    async def analyze_message(
+        self,
+        avatar:               "AvatarBase",
+        user_message:         str,
+        conversation_history: List[ChatMessage],
+        user_profile:         Optional[Any] = None,
+        situation:            Optional[str] = None,
+        user_id:              str = "default",
+        session_id:           Optional[str] = None,
+        expected_speech_level: Optional[str] = None,
+        correction_context:   Optional[Dict[str, Any]] = None,
+        response_instruction: Optional[List[str]] = None,
+        include_reply:        bool = True,
+    ) -> StructuredMessageResult:
+        speech_levels  = get_speech_levels_for_role(avatar.role)
+        expected_level = coerce_speech_level(expected_speech_level, speech_levels["from_user"])
+        user_level     = (
+            user_profile.korean_level.value
+            if user_profile and hasattr(user_profile.korean_level, "value")
+            else "intermediate"
+        )
+        session_key = session_id or f"{user_id}_{getattr(avatar, 'name_ko', 'avatar')}"
+        effective_history = self._get_effective_history(session_key, conversation_history)
+
+        correction = await self._analyze_realtime(
+            user_message=user_message,
+            expected_speech_level=expected_level,
+            avatar_role=get_role_label(avatar.role, None),
+            user_level=user_level,
+            situation=situation,
+            conversation_history=effective_history,
+        )
+        correction = self._merge_frontend_correction_context(
+            correction=correction,
+            user_message=user_message,
+            expected_level=expected_level,
+            correction_context=correction_context,
+        )
+
+        severity_map = {
+            CorrectionSeverity.ERROR:   (2, "error"),
+            CorrectionSeverity.WARNING: (1, "warning"),
+            CorrectionSeverity.INFO:    (0, "info"),
+        }
+        error_breakdown: Dict[str, int] = {}
+        errors: List[StructuredErrorItem] = []
+        for c in correction.corrections:
+            if c.original == c.corrected:
+                continue
+            sev_int, sev_label = severity_map.get(c.severity, (1, "warning"))
+            errors.append(StructuredErrorItem(
+                type=c.type.value if hasattr(c.type, "value") else str(c.type),
+                subtype=None,
+                original_fragment=c.original,
+                corrected_fragment=c.corrected,
+                explanation=c.explanation,
+                severity=sev_int,
+                severity_label=sev_label,
+            ))
+            key = c.type.value if hasattr(c.type, "value") else str(c.type)
+            error_breakdown[key] = error_breakdown.get(key, 0) + 1
+
+        top_focus = max(error_breakdown, key=lambda k: error_breakdown[k]) if error_breakdown else None
+
+        analysis = StructuredMessageAnalysis(
+            had_errors=correction.has_errors,
+            accuracy_score=correction.accuracy_score,
+            error_count=len(errors),
+            expected_speech_level=correction.expected_speech_level,
+            expected_speech_level_code=correction.expected_speech_level_code,
+            detected_speech_level=correction.detected_speech_level,
+            detected_speech_level_code=correction.detected_speech_level_code,
+            speech_level_correct=correction.speech_level_correct,
+            corrected_message=correction.corrected_message,
+            summary=correction.summary,
+            encouragement=correction.encouragement,
+            top_focus=top_focus,
+            error_breakdown=error_breakdown,
+            errors=errors,
+        )
+
+        reply: Optional[StructuredMessageReply] = None
+        if include_reply:
+            try:
+                current_mood = self.user_moods.get(f"{user_id}_{avatar.name_ko}", 80)
+                system_prompt = build_avatar_system_prompt(
+                    avatar=avatar,
+                    user_profile=user_profile,
+                    situation=situation,
+                    current_mood=current_mood,
+                    is_level_correct=correction.speech_level_correct,
+                )
+                system_prompt += self._build_turn_context_section(
+                    user_message=user_message,
+                    correction=correction,
+                    correction_context=correction_context,
+                    response_instruction=response_instruction or [],
+                )
+                history = [Message(role=m.role, content=m.content) for m in effective_history[-10:]]
+                reply_user_msg = self._make_reply_user_message(user_message, correction)
+                response = await clova_service.generate_with_system_prompt(
+                    system_prompt=system_prompt,
+                    user_message=reply_user_msg,
+                    conversation_history=history,
+                    temperature=0.65,
+                )
+                avatar_message = self._finalize_ai_reply(response.content, user_message, correction)
+                hint_result = await self._get_contextual_hint(
+                    avatar=avatar,
+                    conversation_history=effective_history,
+                    user_level=user_level,
+                )
+                suggestions = [
+                    postprocess_model_output(t)
+                    for t in hint_result.get("example_responses", [])
+                    if postprocess_model_output(t)
+                ]
+                hint = postprocess_model_output(hint_result.get("hint"))
+                reply = StructuredMessageReply(
+                    avatar_message=avatar_message,
+                    used_corrected_meaning=correction.has_errors,
+                    suggestions=suggestions,
+                    hint=hint,
+                )
+            except Exception as e:
+                print(f"[analyze_message] reply generation failed: {e}")
+
+        if correction.has_errors and session_key:
+            try:
+                self._save_mistakes(session_key, correction)
+            except Exception as e:
+                print(f"[analyze_message] failed to save mistakes: {e}")
+
+        return StructuredMessageResult(analysis=analysis, reply=reply)
 
     async def analyze_conversation(
         self,
         avatar:               AvatarBase,
         conversation_history: List[ChatMessage],
+        session_id:           Optional[str] = None,
     ) -> ConversationAnalysis:
         speech_levels  = get_speech_levels_for_role(avatar.role)
         expected_level = speech_levels["from_user"]
@@ -2943,10 +3436,28 @@ class ChatService:
             avatar_role=avatar.role,
         )
 
+        stored_mistakes: List[Dict[str, str]] = []
+        if session_id:
+            try:
+                stored_mistakes = self._load_session_mistakes(session_id)
+            except Exception as e:
+                print(f"[mistakes] failed to load: {e}")
+
+        # Adjust speech_accuracy down based on actual saved mistakes per message.
+        # 0 mistakes/msg → no change; 1+ mistakes/msg → up to -20.
+        if user_messages:
+            mistake_rate = len(stored_mistakes) / len(user_messages)
+            mistake_penalty = round(min(20, mistake_rate * 20))
+            if mistake_penalty > 0:
+                speech_meta["score"] = max(0, speech_meta["score"] - mistake_penalty)
+                speech_meta["components"]["stored_mistake_count"] = len(stored_mistakes)
+                speech_meta["components"]["stored_mistake_penalty"] = mistake_penalty
+
         prompt = build_conversation_analysis_prompt(
             messages=[{"role": m.role, "content": m.content} for m in conversation_history],
             avatar_name=avatar.name_ko,
             expected_speech_level=expected_level,
+            stored_mistakes=stored_mistakes or None,
         )
 
         result = await clova_service.analyze_json(prompt, temperature=0.3, max_tokens=2048)
@@ -2974,9 +3485,9 @@ class ChatService:
         naturalness_meta["components"]["llm_score"] = llm_naturalness
         naturalness_meta["score"] = max(
             0,
-            min(100, round(naturalness_meta["score"] * 0.7 + llm_naturalness * 0.3)),
+            min(100, round(naturalness_meta["score"] * 0.5 + llm_naturalness * 0.5)),
         )
-        naturalness_meta["note"] = "규칙 기반 점수에 LLM 자연스러움 평가를 보조적으로 섞었습니다."
+        naturalness_meta["note"] = "규칙 기반 점수와 LLM 자연스러움 평가를 50:50으로 결합했습니다."
 
         final_scores = {
             "speech_accuracy": speech_meta["score"],

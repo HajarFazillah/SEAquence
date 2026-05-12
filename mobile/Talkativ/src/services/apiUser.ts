@@ -1,5 +1,6 @@
 import { getAuthHeader } from './apiAuth';
 import { IconName } from '../components/Icon';
+import { SPRING_API_BASE_URL } from '../constants';
 
 export interface UserProfile {
   userId: string;
@@ -21,6 +22,10 @@ export interface UserStats {
   learnedExpressions: number;
   practiceMinutes: number;
   progressPercent: number;
+  // Live counts from the vocabulary table — populated client-side after the
+  // base stats arrive. Both default to 0 if not loaded yet.
+  learnedWords?: number;
+  learnedPhrases?: number;
 }
 
 export interface UserAvatar {
@@ -47,7 +52,7 @@ export interface UserAvatar {
   bio: string;
 }
 
-export const SPRING_BASE_URL = 'http://10.0.2.2:8080';
+export const SPRING_BASE_URL = SPRING_API_BASE_URL;
 
 export const getMyProfile = async (): Promise<UserProfile> => {
   const headers = await getAuthHeader();

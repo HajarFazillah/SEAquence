@@ -124,7 +124,11 @@ export type RootStackParamList = {
 
   // Situation Flow
   SituationSelection: { avatar: any };
-  CreateSituation: undefined;
+  CreateSituation: {
+    avatar?: any;
+    editing?: any;
+    mode?: 'manual' | 'ai';
+  } | undefined;
   SpeechRecommendation: { avatar: any; situation: any };
 
   // Chat
@@ -303,12 +307,18 @@ export const AppNavigator: React.FC = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = await AsyncStorage.getItem('token');
-      setIsAuthenticated(!!token);
-      setIsLoading(false);
+      try {
+        const token = await AsyncStorage.getItem('token');
+        setIsAuthenticated(!!token);
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
-    checkAuth();
+    const timeout = setTimeout(() => setIsLoading(false), 3000);
+    checkAuth().then(() => clearTimeout(timeout));
   }, []);
 
   if (isLoading) {
@@ -423,6 +433,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
   },
   bottomMenu: {
     position: 'absolute',
@@ -430,7 +441,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 100,
-    elevation: 16,
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-around',
@@ -438,10 +448,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E8E8F0',
-    shadowColor: '#1A1A2E',
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
   },
   bottomMenuItem: {
     flex: 1,

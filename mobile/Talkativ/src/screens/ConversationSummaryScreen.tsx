@@ -10,8 +10,11 @@ import {
   TrendingUp, ChevronDown, ChevronLeft,
 } from 'lucide-react-native';
 import { Icon } from '../components';
+import { AI_SERVER_URL } from '../constants';
+import { fetchMistakesBySession, SavedMistake } from '../services/apiMistakes';
+import { saveVocabulary } from '../services/apiVocabulary';
 
-const AI_SERVER = 'http://10.0.2.2:8000';
+const AI_SERVER = AI_SERVER_URL;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,36 +75,80 @@ export default function ConversationSummaryScreen() {
   const [savedWords,      setSavedWords]      = useState<Record<string, VocabularyItem>>({});
   const [expandedMistake, setExpandedMistake] = useState<number | null>(null);
   const [saveSuccess,     setSaveSuccess]     = useState<string | null>(null);
+  const [expandedScore,   setExpandedScore]   = useState<number | null>(null);
 
-  const { avatar, duration, conversationHistory, sessionCorrections, avgScore } = route.params || {};
+  const { avatar, duration, conversationHistory, sessionCorrections, avgScore, sessionId } = route.params || {};
 
-  const handleToggleSave = (item: VocabularyItem) => {
+  const handleToggleSave = async (item: VocabularyItem) => {
+    const wasSaved = !!savedWords[item.word];
+    // Optimistic UI update first
     setSavedWords(prev => {
       const next = { ...prev };
-      if (next[item.word]) {
-        delete next[item.word];
-      } else {
+      if (wasSaved) delete next[item.word];
+      else {
         next[item.word] = item;
         setSaveSuccess(item.word);
         setTimeout(() => setSaveSuccess(null), 1500);
       }
       return next;
     });
+
+    if (wasSaved) return; // un-save is local-only for now (no DELETE-by-word endpoint)
+    try {
+      await saveVocabulary([{
+        kind: item.kind,
+        word: item.word,
+        meaning: item.meaning,
+        example: item.example,
+        fromAvatar: avatar?.name_ko,
+        sessionId,
+      }]);
+    } catch (e) {
+      console.log('vocab save failed:', e);
+      // Roll back on failure
+      setSavedWords(prev => {
+        const next = { ...prev };
+        delete next[item.word];
+        return next;
+      });
+      Alert.alert('저장 실패', '단어 저장에 실패했어요. 다시 시도해주세요.');
+    }
   };
 
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     if (!summary) return;
-    const entries: Record<string, VocabularyItem> = {};
-    summary.learnedVocab.forEach(v => { entries[v.word] = v; });
-    setSavedWords(prev => ({ ...prev, ...entries }));
-    Alert.alert('저장 완료', `${summary.learnedVocab.length}개가 저장됐어요!`);
+    const toSave = summary.learnedVocab.filter(v => !savedWords[v.word]);
+    if (toSave.length === 0) {
+      Alert.alert('이미 저장됨', '모든 항목이 이미 저장되어 있어요.');
+      return;
+    }
+    // Optimistic UI
+    setSavedWords(prev => {
+      const next = { ...prev };
+      toSave.forEach(v => { next[v.word] = v; });
+      return next;
+    });
+    try {
+      await saveVocabulary(toSave.map(v => ({
+        kind: v.kind,
+        word: v.word,
+        meaning: v.meaning,
+        example: v.example,
+        fromAvatar: avatar?.name_ko,
+        sessionId,
+      })));
+      Alert.alert('저장 완료', `${toSave.length}개가 저장됐어요!`);
+    } catch (e) {
+      console.log('vocab save-all failed:', e);
+      Alert.alert('저장 실패', '단어 저장에 실패했어요.');
+    }
   };
 
   const buildSummary = useCallback(async () => {
     setLoading(true);
     try {
       const speechScore = avgScore ?? 80;
-      const mistakes: MistakeItem[] = sessionCorrections
+      let mistakes: MistakeItem[] = sessionCorrections
         ? sessionCorrections
             .flatMap((s: any) => s.corrections || [])
             .filter((c: any) => c.severity === 'error' || c.severity === 'warning')
@@ -113,6 +160,21 @@ export default function ConversationSummaryScreen() {
               type:        toMistakeType(c.type || ''),
             }))
         : [];
+
+      // Fall back to mistakes persisted in the backend during this session.
+      if (mistakes.length === 0 && sessionId) {
+        try {
+          const saved: SavedMistake[] = await fetchMistakesBySession(sessionId);
+          mistakes = saved.slice(0, 6).map(s => ({
+            original:    s.originalText  || '',
+            correction:  s.correctedText || '',
+            explanation: s.explanation   || '',
+            type:        toMistakeType(s.correctionType || ''),
+          }));
+        } catch (e) {
+          console.log('fetchMistakesBySession failed:', e);
+        }
+      }
 
       const history = (conversationHistory || []).map((m: any) => ({
         role:    m.role || (m.sender === 'ai' ? 'assistant' : 'user'),
@@ -132,6 +194,7 @@ export default function ConversationSummaryScreen() {
             dislikes:           avatar?.dislikes           || [],
           },
           conversation_history: history,
+          session_id: sessionId,
         }),
       });
 
@@ -200,7 +263,7 @@ export default function ConversationSummaryScreen() {
     } finally {
       setLoading(false);
     }
-  }, [avatar, avgScore, conversationHistory, sessionCorrections]);
+  }, [avatar, avgScore, conversationHistory, sessionCorrections, sessionId]);
 
   useEffect(() => { buildSummary(); }, [buildSummary]);
 
@@ -249,6 +312,45 @@ export default function ConversationSummaryScreen() {
     return '혼합 계산';
   };
 
+  const getConfidenceBadge = (detail?: ScoreDetail): { label: string; color: string } | null => {
+    const c = detail?.components?.confidence;
+    if (c === 'low') return { label: '표본 적음', color: '#FFE0E0' };
+    if (c === 'medium') return { label: '참고용', color: '#FFF4D6' };
+    return null;
+  };
+
+  // Penalty/component breakdown for a given score, in human-readable Korean.
+  const getScoreBreakdown = (label: string, detail?: ScoreDetail): Array<{ name: string; value: string }> => {
+    const c = detail?.components;
+    if (!c) return [];
+    const rows: Array<{ name: string; value: string }> = [];
+    if (label === '말투 정확도') {
+      if (c.messages_evaluated != null) rows.push({ name: '평가한 메시지', value: `${c.messages_evaluated}개` });
+      if (c.matched_messages != null)   rows.push({ name: '말투 일치', value: `${c.matched_messages}개` });
+      if (c.speech_level_penalty)       rows.push({ name: '말투 어미 감점', value: `−${c.speech_level_penalty}` });
+      if (c.honorific_penalty)          rows.push({ name: '높임말 감점', value: `−${c.honorific_penalty}` });
+      if (c.spelling_penalty)           rows.push({ name: '오타 감점', value: `−${c.spelling_penalty}` });
+      if (c.mixed_style_penalty)        rows.push({ name: '말투 혼용 감점', value: `−${c.mixed_style_penalty}` });
+      if (c.stored_mistake_penalty)     rows.push({ name: '저장된 실수 반영', value: `−${c.stored_mistake_penalty}` });
+    } else if (label === '어휘력') {
+      if (c.token_count != null)        rows.push({ name: '단어 수', value: `${c.token_count}개` });
+      if (c.unique_count != null)       rows.push({ name: '고유 단어', value: `${c.unique_count}개` });
+      if (c.diversity_score != null)    rows.push({ name: '다양성 점수', value: `${c.diversity_score}` });
+      if (c.difficulty_score != null)   rows.push({ name: '난도 점수', value: `${c.difficulty_score}` });
+      if (c.long_tokens != null)        rows.push({ name: '4음절 이상', value: `${c.long_tokens}개` });
+    } else if (label === '자연스러움') {
+      if (c.messages_evaluated != null) rows.push({ name: '평가한 메시지', value: `${c.messages_evaluated}개` });
+      if (c.error_penalty)              rows.push({ name: '오류 감점', value: `−${c.error_penalty}` });
+      if (c.unnatural_expression_penalty) rows.push({ name: '부자연 표현 감점', value: `−${c.unnatural_expression_penalty}` });
+      if (c.mixed_style_penalty)        rows.push({ name: '말투 혼용 감점', value: `−${c.mixed_style_penalty}` });
+      if (c.llm_score != null)          rows.push({ name: 'LLM 평가', value: `${c.llm_score}` });
+    }
+    if (c.raw_score != null && c.raw_score !== detail?.components?.adjusted) {
+      rows.push({ name: '원점수', value: `${c.raw_score}` });
+    }
+    return rows;
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
@@ -280,33 +382,63 @@ export default function ConversationSummaryScreen() {
             </View>
           </View>
           <View style={styles.scoreNums}>
-            {scoreCards.map((s, i) => (
-              <View key={i} style={styles.scoreCol}>
-                <Text style={styles.scoreNum}>{Math.round(s.value * 100)}</Text>
-                <View style={styles.scoreBarTrack}>
-                  <View style={[styles.scoreBarFill, { width: `${Math.round(s.value * 100)}%` as any }]} />
-                </View>
-                <Text style={styles.scoreColLabel}>{s.label}</Text>
-                {s.detail?.source ? (
-                  <Text style={styles.scoreSourceLabel}>
-                    {getScoreSourceLabel(s.detail)}
-                  </Text>
-                ) : null}
-              </View>
-            ))}
+            {scoreCards.map((s, i) => {
+              const badge = getConfidenceBadge(s.detail);
+              const isExpanded = expandedScore === i;
+              return (
+                <TouchableOpacity
+                  key={i}
+                  style={styles.scoreCol}
+                  activeOpacity={0.75}
+                  onPress={() => setExpandedScore(isExpanded ? null : i)}
+                >
+                  <Text style={styles.scoreNum}>{Math.round(s.value * 100)}</Text>
+                  <View style={styles.scoreBarTrack}>
+                    <View style={[styles.scoreBarFill, { width: `${Math.round(s.value * 100)}%` as any }]} />
+                  </View>
+                  <Text style={styles.scoreColLabel}>{s.label}</Text>
+                  {badge ? (
+                    <View style={[styles.confidencePill, { backgroundColor: badge.color }]}>
+                      <Text style={styles.confidencePillText}>{badge.label}</Text>
+                    </View>
+                  ) : s.detail?.source ? (
+                    <Text style={styles.scoreSourceLabel}>
+                      {getScoreSourceLabel(s.detail)}
+                    </Text>
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
           </View>
-          <View style={styles.scoreMetaBox}>
-            <Text style={styles.scoreMetaTitle}>
-              {summary.usedFallbackScores ? '일부 점수는 임시값입니다' : '점수는 실제 계산 근거를 함께 표시합니다'}
-            </Text>
-            {scoreCards.map((item, index) => (
-              item.detail?.note ? (
-                <Text key={index} style={styles.scoreMetaText}>
-                  {item.label}: {item.detail.note}
+
+          {expandedScore !== null && scoreCards[expandedScore] ? (
+            <View style={styles.breakdownBox}>
+              <Text style={styles.breakdownTitle}>
+                {scoreCards[expandedScore].label} 세부 내역
+              </Text>
+              {getScoreBreakdown(scoreCards[expandedScore].label, scoreCards[expandedScore].detail).length > 0 ? (
+                getScoreBreakdown(scoreCards[expandedScore].label, scoreCards[expandedScore].detail).map((row, i) => (
+                  <View key={i} style={styles.breakdownRow}>
+                    <Text style={styles.breakdownName}>{row.name}</Text>
+                    <Text style={styles.breakdownValue}>{row.value}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.breakdownEmpty}>세부 내역이 없습니다.</Text>
+              )}
+              {scoreCards[expandedScore].detail?.note ? (
+                <Text style={styles.breakdownNote}>
+                  {scoreCards[expandedScore].detail!.note}
                 </Text>
-              ) : null
-            ))}
-          </View>
+              ) : null}
+            </View>
+          ) : (
+            <View style={styles.scoreMetaBox}>
+              <Text style={styles.scoreMetaTitle}>
+                {summary.usedFallbackScores ? '일부 점수는 임시값입니다' : '점수를 탭하면 세부 내역을 볼 수 있어요'}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* ── Mistakes ── */}
@@ -401,7 +533,7 @@ export default function ConversationSummaryScreen() {
                     <Text style={styles.vocabWord}>{item.word}</Text>
                     <View style={[styles.kindPill, item.kind === 'phrase' ? styles.kindPillPhrase : styles.kindPillWord]}>
                       <Text style={[styles.kindPillText, item.kind === 'phrase' ? styles.kindTextPhrase : styles.kindTextWord]}>
-                        {item.kind === 'phrase' ? '표현' : '단어'}
+                        {item.kind === 'phrase' ? 'Phrase' : 'Word'}
                       </Text>
                     </View>
                     <TouchableOpacity
@@ -415,7 +547,7 @@ export default function ConversationSummaryScreen() {
                   {item.meaning ? <Text style={styles.vocabMeaning}>{item.meaning}</Text> : null}
                   {item.example ? (
                     <View style={styles.vocabEx}>
-                      <Text style={styles.vocabExLabel}>예문</Text>
+                      <Text style={styles.vocabExLabel}>Example</Text>
                       <Text style={styles.vocabExText}>{item.example}</Text>
                     </View>
                   ) : null}
@@ -500,6 +632,17 @@ const styles = StyleSheet.create({
   scoreMetaBox:  { marginTop: 12, padding: 10, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)', gap: 4 },
   scoreMetaTitle: { fontSize: 11, fontWeight: '600', color: '#fff' },
   scoreMetaText: { fontSize: 10, lineHeight: 15, color: 'rgba(255,255,255,0.85)' },
+
+  confidencePill:    { marginTop: 4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  confidencePillText:{ fontSize: 9, fontWeight: '600', color: '#7A4B00' },
+
+  breakdownBox:    { marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.18)', gap: 6 },
+  breakdownTitle:  { fontSize: 12, fontWeight: '700', color: '#fff', marginBottom: 4 },
+  breakdownRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
+  breakdownName:   { fontSize: 11, color: 'rgba(255,255,255,0.85)' },
+  breakdownValue:  { fontSize: 11, fontWeight: '600', color: '#fff' },
+  breakdownEmpty:  { fontSize: 11, color: 'rgba(255,255,255,0.7)' },
+  breakdownNote:   { marginTop: 6, fontSize: 10, lineHeight: 14, color: 'rgba(255,255,255,0.75)' },
 
   // Section
   sectionHead:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, marginTop: 6 },
