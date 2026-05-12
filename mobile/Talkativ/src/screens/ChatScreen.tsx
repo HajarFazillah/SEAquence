@@ -683,6 +683,8 @@ const buildSituationPromptContext = (situation: any) => {
   const categoryLabel = SITUATION_CATEGORY_LABELS[categoryId] || categoryId;
   const isCustom = Boolean(situation?.isCustom);
   const parts = [
+    '상황은 대화가 벌어지는 장면/목표일 뿐이며, 아바타의 직업이나 관계를 바꾸지 않습니다.',
+    '예: 카페 상황이어도 아바타가 원래 친구/교수/상사라면 카페 직원이나 점원이 아닙니다.',
     name ? `상황 이름: ${name}` : '',
     description ? `상황 설명: ${description}` : '',
     categoryLabel ? `상황 카테고리: ${categoryLabel}` : '',
