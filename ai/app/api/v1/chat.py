@@ -417,6 +417,10 @@ class SituationSuggestionItem(BaseModel):
     name_ko: str
     name_en: str = ""
     description_ko: str
+    scene_place: str = ""
+    conversation_goal: str = ""
+    avatar_role_in_scene: str = ""
+    user_role_in_scene: str = ""
     icon: str = "users"
     category: str = "casual"
     contexts: List[str] = Field(default_factory=list)
@@ -447,6 +451,72 @@ def _list_field(payload: Dict[str, Any], *keys: str) -> List[str]:
         if isinstance(value, list):
             return [str(item).strip() for item in value if str(item).strip()]
     return []
+
+
+def _avatar_scene_role(avatar: Dict[str, Any]) -> str:
+    return _avatar_field(
+        avatar,
+        "relationship",
+        "custom_role",
+        "role",
+        "relationship_description",
+        "description_ko",
+        "description",
+    ) or "대화 상대"
+
+
+def _avatar_allows_service_role(avatar: Dict[str, Any]) -> bool:
+    text = " ".join([
+        _avatar_field(avatar, "role", "relationship", "custom_role", "relationship_description"),
+        _avatar_field(avatar, "description_ko", "description"),
+    ]).lower()
+    return any(term in text for term in [
+        "staff", "employee", "clerk", "server", "cashier", "barista", "waiter",
+        "customer", "client", "직원", "점원", "알바", "아르바이트", "종업원",
+        "바리스타", "손님", "고객", "사장",
+    ])
+
+
+def _avatar_allows_interviewer_role(avatar: Dict[str, Any]) -> bool:
+    text = " ".join([
+        _avatar_field(avatar, "role", "relationship", "custom_role", "relationship_description"),
+        _avatar_field(avatar, "description_ko", "description"),
+    ]).lower()
+    return any(term in text for term in ["interviewer", "recruiter", "hr", "면접관", "채용", "인사담당"])
+
+
+def _sanitize_role_shift_text(value: str, avatar: Dict[str, Any]) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    if not _avatar_allows_service_role(avatar):
+        replacements = {
+            "카페 직원으로서": "카페에 함께 있는 사람으로서",
+            "카페 점원으로서": "카페에 함께 있는 사람으로서",
+            "카페 알바로서": "카페에 함께 있는 사람으로서",
+            "직원으로서": "대화 상대방으로서",
+            "점원으로서": "대화 상대방으로서",
+            "손님": "상대방",
+            "저희 카페": "이곳",
+            "저희 매장": "이곳",
+            "저희 식당": "이곳",
+            "저희 가게": "이곳",
+        }
+        for source, target in replacements.items():
+            text = text.replace(source, target)
+
+    if not _avatar_allows_interviewer_role(avatar):
+        replacements = {
+            "면접관으로서": "대화 상대방으로서",
+            "면접을 시작": "대화를 시작",
+            "지원자": "상대방",
+            "채용 담당자": "대화 상대",
+        }
+        for source, target in replacements.items():
+            text = text.replace(source, target)
+
+    return text
 
 
 def _find_topic_overlap(left: List[str], right: List[str]) -> Optional[str]:
@@ -480,16 +550,26 @@ def _personalize_situation_suggestions(
         copied = item.model_copy(deep=True)
         if index == 0 and focus_topic:
             copied.id = f"{copied.id}_personalized"
+            base = _sanitize_role_shift_text(copied.description_ko, avatar)
             copied.description_ko = (
-                f'{copied.description_ko} 공통 관심사나 자연스러운 화제로 "{focus_topic}" 이야기를 활용합니다.'
+                f'{base} 공통 관심사나 자연스러운 화제로 "{focus_topic}" 이야기를 활용합니다.'
+                if base else f'공통 관심사나 자연스러운 화제로 "{focus_topic}" 이야기를 활용합니다.'
             )
             copied.contexts = list(dict.fromkeys([*copied.contexts, "질문하는 상황"]))
         elif avoid_topic:
             copied.id = f"{copied.id}_avoid"
+            base = _sanitize_role_shift_text(copied.description_ko, avatar)
             copied.description_ko = (
-                f'{copied.description_ko} 서로 불편할 수 있는 "{avoid_topic}" 이야기는 피하면서 대화를 이어갑니다.'
+                f'{base} 서로 불편할 수 있는 "{avoid_topic}" 이야기는 피하면서 대화를 이어갑니다.'
+                if base else f'서로 불편할 수 있는 "{avoid_topic}" 이야기는 피하면서 대화를 이어갑니다.'
             )
             copied.contexts = list(dict.fromkeys([*copied.contexts, "질문하는 상황"]))
+        else:
+            copied.description_ko = _sanitize_role_shift_text(copied.description_ko, avatar)
+        copied.scene_place = _sanitize_role_shift_text(copied.scene_place, avatar)
+        copied.conversation_goal = _sanitize_role_shift_text(copied.conversation_goal, avatar)
+        copied.avatar_role_in_scene = _sanitize_role_shift_text(copied.avatar_role_in_scene or _avatar_scene_role(avatar), avatar)
+        copied.user_role_in_scene = _sanitize_role_shift_text(copied.user_role_in_scene or "학습자", avatar)
         personalized.append(copied)
     return personalized
 
@@ -935,6 +1015,10 @@ Return strict JSON only:
       "name_ko": "Korean title",
       "name_en": "English title",
       "description_ko": "One sentence about what the learner practices",
+      "scene_place": "Where this happens, e.g. 카페, 연구실, 회의실",
+      "conversation_goal": "What the learner practices, e.g. 약속 시간 정하기",
+      "avatar_role_in_scene": "The avatar's role in this scene; must match the avatar relationship, not the place",
+      "user_role_in_scene": "The user's role in this scene",
       "icon": "coffee|utensils|shoppingBag|graduationCap|briefcase|building|users|handshake|party|mapPin",
       "category": "casual|service|formal|work",
       "contexts": ["처음 만나는 상황|도움을 요청하는 상황|주문하는 상황|질문하는 상황|인사하는 상황|약속을 잡는 상황|감사를 표현하는 상황|사과하는 상황"]
@@ -951,6 +1035,8 @@ Rules:
 - Do not reuse generic fixed situations for every avatar.
 - Do not write tutoring advice, corrections, or meta explanations.
 - Keep each description practical and roleplay-ready.
+- A place does not change the avatar's identity. If the avatar is a friend in a cafe, avatar_role_in_scene is friend, not cafe staff.
+- Do not make the avatar a cafe worker, shop clerk, interviewer, teacher, or other new role unless that already matches the avatar JSON.
 """
 
     try:
@@ -966,7 +1052,7 @@ Rules:
             if not isinstance(item, dict):
                 continue
             name_ko = str(item.get("name_ko") or "").strip()
-            description_ko = str(item.get("description_ko") or "").strip()
+            description_ko = _sanitize_role_shift_text(str(item.get("description_ko") or "").strip(), request.avatar)
             if not name_ko or not description_ko:
                 continue
             contexts = item.get("contexts") if isinstance(item.get("contexts"), list) else []
@@ -975,6 +1061,10 @@ Rules:
                 name_ko=name_ko,
                 name_en=str(item.get("name_en") or "").strip(),
                 description_ko=description_ko,
+                scene_place=_sanitize_role_shift_text(str(item.get("scene_place") or "").strip(), request.avatar),
+                conversation_goal=_sanitize_role_shift_text(str(item.get("conversation_goal") or "").strip(), request.avatar),
+                avatar_role_in_scene=_sanitize_role_shift_text(str(item.get("avatar_role_in_scene") or _avatar_scene_role(request.avatar)).strip(), request.avatar),
+                user_role_in_scene=_sanitize_role_shift_text(str(item.get("user_role_in_scene") or "학습자").strip(), request.avatar),
                 icon=item.get("icon") if item.get("icon") in allowed_icons else "users",
                 category=item.get("category") if item.get("category") in allowed_categories else "casual",
                 contexts=[str(context).strip() for context in contexts if str(context).strip()][:4],

@@ -202,6 +202,12 @@ export default function SituationSelectionScreen() {
                   {!!situation.description_ko?.trim() && (
                     <Text style={styles.situationDesc}>{situation.description_ko}</Text>
                   )}
+                  {!!situation.scene_place?.trim() && (
+                    <Text style={styles.situationMeta}>장소/장면: {situation.scene_place}</Text>
+                  )}
+                  {!!situation.conversation_goal?.trim() && (
+                    <Text style={styles.situationMeta}>연습 목표: {situation.conversation_goal}</Text>
+                  )}
                 </View>
 
                 {situation.isCustom ? (
@@ -360,7 +366,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   situationName: { fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
-  situationDesc: { fontSize: 12, color: '#6C6C80' },
+  situationDesc: { fontSize: 12, color: '#6C6C80', lineHeight: 17 },
+  situationMeta: { fontSize: 11, color: '#8A8A9E', lineHeight: 16, marginTop: 2 },
   customBadge: {
     backgroundColor: '#F0EDFF',
     paddingHorizontal: 8,

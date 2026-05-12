@@ -62,9 +62,44 @@ type RecommendedSituation = {
   name_ko: string;
   name_en: string;
   description_ko: string;
+  scene_place?: string;
+  conversation_goal?: string;
+  avatar_role_in_scene?: string;
+  user_role_in_scene?: string;
   icon: string;
   category: string;
   contexts: string[];
+};
+
+const getAvatarSceneRole = (avatar: any) => {
+  const role = avatar?.relationship || avatar?.custom_role || avatar?.role || avatar?.description_ko || avatar?.description;
+  return String(role || '대화 상대').trim();
+};
+
+const sanitizeRoleShiftText = (value: string, avatar: any) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const avatarRole = getAvatarText(avatar);
+  const allowsService = /customer|고객|손님|staff|직원|점원|알바|아르바이트|사장|종업원/.test(avatarRole);
+  const allowsInterviewer = /interviewer|면접관|면접/.test(avatarRole);
+
+  if (!allowsService && /(카페|매장|식당|가게|저희\s*(카페|매장|식당|가게)|직원|점원|알바|아르바이트|종업원|손님|메뉴|주문)/.test(text)) {
+    return text
+      .replace(/카페\s*(직원|점원|알바|아르바이트)(으로서|처럼)?/g, '카페에 함께 있는 사람으로')
+      .replace(/(직원|점원|알바|아르바이트|종업원)(으로서|처럼)?/g, '대화 상대처럼')
+      .replace(/저희\s*(카페|매장|식당|가게)/g, '이곳')
+      .replace(/손님/g, '상대방');
+  }
+
+  if (!allowsInterviewer && /(면접관으로서|면접을 시작|지원자|채용 담당자)/.test(text)) {
+    return text
+      .replace(/면접관으로서/g, '대화 상대방으로서')
+      .replace(/면접을 시작/g, '대화를 시작')
+      .replace(/지원자/g, '상대방')
+      .replace(/채용 담당자/g, '대화 상대');
+  }
+
+  return text;
 };
 
 const getAvatarText = (avatar: any) => {
@@ -497,6 +532,10 @@ export default function CreateSituationScreen() {
   const [name, setName] = useState(editing?.name_ko || '');
   const [nameEn, setNameEn] = useState(editing?.name_en || '');
   const [description, setDescription] = useState(editing?.description_ko || '');
+  const [scenePlace, setScenePlace] = useState(editing?.scene_place || '');
+  const [conversationGoal, setConversationGoal] = useState(editing?.conversation_goal || '');
+  const [avatarRoleInScene, setAvatarRoleInScene] = useState(editing?.avatar_role_in_scene || getAvatarSceneRole(avatar));
+  const [userRoleInScene, setUserRoleInScene] = useState(editing?.user_role_in_scene || '학습자');
   const [selectedIcon, setSelectedIcon] = useState(editing?.icon || 'coffee');
   const [selectedCategory, setSelectedCategory] = useState(editing?.category || 'casual');
   const [contexts, setContexts] = useState<string[]>(editing?.contexts || []);
@@ -581,7 +620,11 @@ export default function CreateSituationScreen() {
     setSelectedRecommendation(recommendation.id);
     setName(recommendation.name_ko);
     setNameEn(recommendation.name_en);
-    setDescription(recommendation.description_ko);
+    setDescription(sanitizeRoleShiftText(recommendation.description_ko, avatar));
+    setScenePlace(sanitizeRoleShiftText(recommendation.scene_place || '', avatar));
+    setConversationGoal(sanitizeRoleShiftText(recommendation.conversation_goal || '', avatar));
+    setAvatarRoleInScene(sanitizeRoleShiftText(recommendation.avatar_role_in_scene || getAvatarSceneRole(avatar), avatar));
+    setUserRoleInScene(sanitizeRoleShiftText(recommendation.user_role_in_scene || '학습자', avatar));
     setSelectedIcon(recommendation.icon);
     setSelectedCategory(recommendation.category);
     setContexts(recommendation.contexts);
@@ -598,6 +641,11 @@ export default function CreateSituationScreen() {
         name_ko: name.trim(),
         name_en: nameEn.trim(),
         description_ko: description.trim(),
+        scene_place: scenePlace.trim(),
+        conversation_goal: conversationGoal.trim(),
+        avatar_role_in_scene: (avatarRoleInScene.trim() || getAvatarSceneRole(avatar)),
+        user_role_in_scene: (userRoleInScene.trim() || '학습자'),
+        forbidden_role_shift: true,
         icon: selectedIcon as IconName,
         category: selectedCategory,
         contexts,
@@ -705,6 +753,34 @@ export default function CreateSituationScreen() {
           placeholder="선택 사항: 이 상황에서 어떤 대화가 이루어지나요?"
           multiline
           numberOfLines={3}
+        />
+
+        <InputField
+          label="장소/장면"
+          value={scenePlace}
+          onChangeText={setScenePlace}
+          placeholder="선택 사항: 카페, 연구실, 회의실처럼 배경만 적어 주세요"
+        />
+
+        <InputField
+          label="연습 목표"
+          value={conversationGoal}
+          onChangeText={setConversationGoal}
+          placeholder="선택 사항: 약속 시간 정하기, 정중하게 질문하기"
+        />
+
+        <InputField
+          label="아바타의 장면 속 역할"
+          value={avatarRoleInScene}
+          onChangeText={setAvatarRoleInScene}
+          placeholder="예: 친구, 교수님, 상사. 장소의 직원으로 바꾸지 마세요"
+        />
+
+        <InputField
+          label="나의 장면 속 역할"
+          value={userRoleInScene}
+          onChangeText={setUserRoleInScene}
+          placeholder="예: 친구, 학생, 팀원, 손님"
         />
 
         {/* Icon Selection */}
@@ -819,6 +895,15 @@ export default function CreateSituationScreen() {
             <View style={styles.previewInfo}>
               <Text style={styles.previewName}>{name || '상황 이름'}</Text>
               <Text style={styles.previewDesc}>{description || '설명 없이 저장할 수 있어요'}</Text>
+              {!!scenePlace.trim() && (
+                <Text style={styles.previewMeta}>장소/장면: {scenePlace.trim()}</Text>
+              )}
+              {!!conversationGoal.trim() && (
+                <Text style={styles.previewMeta}>연습 목표: {conversationGoal.trim()}</Text>
+              )}
+              <Text style={styles.previewMeta}>
+                아바타 역할: {(avatarRoleInScene || getAvatarSceneRole(avatar)).trim()}
+              </Text>
             </View>
           </View>
         </Card>
@@ -1056,6 +1141,13 @@ const styles = StyleSheet.create({
   previewDesc: {
     fontSize: 13,
     color: '#6C6C80',
+    lineHeight: 18,
+  },
+  previewMeta: {
+    fontSize: 11,
+    color: '#8A8A9E',
+    lineHeight: 16,
+    marginTop: 3,
   },
 
   footer: {

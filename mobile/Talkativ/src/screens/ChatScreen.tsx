@@ -678,6 +678,10 @@ const buildSituationPromptContext = (situation: any) => {
   if (typeof situation === 'string') return situation.trim() || null;
   const name = situation?.name_ko || situation?.title || situation?.name || '';
   const description = situation?.description_ko || situation?.description || '';
+  const scenePlace = situation?.scene_place || situation?.scenePlace || '';
+  const conversationGoal = situation?.conversation_goal || situation?.conversationGoal || '';
+  const avatarRoleInScene = situation?.avatar_role_in_scene || situation?.avatarRoleInScene || '';
+  const userRoleInScene = situation?.user_role_in_scene || situation?.userRoleInScene || '';
   const contexts = Array.isArray(situation?.contexts) ? situation.contexts.filter((item: any) => String(item).trim()) : [];
   const categoryId = String(situation?.category || '').trim();
   const categoryLabel = SITUATION_CATEGORY_LABELS[categoryId] || categoryId;
@@ -686,9 +690,14 @@ const buildSituationPromptContext = (situation: any) => {
     '상황은 대화가 벌어지는 장면/목표일 뿐이며, 아바타의 직업이나 관계를 바꾸지 않습니다.',
     '예: 카페 상황이어도 아바타가 원래 친구/교수/상사라면 카페 직원이나 점원이 아닙니다.',
     name ? `상황 이름: ${name}` : '',
+    scenePlace ? `장소/장면: ${scenePlace}` : '',
+    conversationGoal ? `연습 목표: ${conversationGoal}` : '',
+    avatarRoleInScene ? `아바타의 장면 속 역할: ${avatarRoleInScene}` : '',
+    userRoleInScene ? `사용자의 장면 속 역할: ${userRoleInScene}` : '',
     description ? `상황 설명: ${description}` : '',
     categoryLabel ? `상황 카테고리: ${categoryLabel}` : '',
     contexts.length > 0 ? `상황 맥락: ${contexts.join(', ')}` : '',
+    '금지: 상황의 장소나 활동 때문에 아바타를 직원/점원/면접관/선생님 등 새 역할로 바꾸지 마세요.',
     isCustom ? '이 상황은 사용자가 직접 만든 맞춤 상황입니다.' : '',
   ].filter(Boolean);
   return parts.join('\n') || null;
@@ -716,11 +725,53 @@ const buildCorrectionAwareFallbackReply = (originalText: string, feedback?: Spee
   return `"${corrected}"라고 하면 더 자연스러워. 계속 이어가 볼게.`;
 };
 
+const avatarAllowsServiceRole = (avatar: any) => {
+  const roleText = `${avatar?.role || ''} ${avatar?.custom_role || ''} ${avatar?.relationship || ''} ${avatar?.description_ko || ''} ${avatar?.description || ''}`.toLowerCase();
+  return /(staff|employee|clerk|server|cashier|barista|waiter|customer|client|직원|점원|알바|아르바이트|종업원|바리스타|손님|고객|사장)/.test(roleText);
+};
+
+const avatarAllowsInterviewRole = (avatar: any) => {
+  const roleText = `${avatar?.role || ''} ${avatar?.custom_role || ''} ${avatar?.relationship || ''} ${avatar?.description_ko || ''} ${avatar?.description || ''}`.toLowerCase();
+  return /(interviewer|recruiter|hr|면접관|채용|인사담당)/.test(roleText);
+};
+
+const isRoleConsistencyBrokenReply = (message: string, avatar: any) => {
+  const text = String(message || '');
+  if (!avatarAllowsServiceRole(avatar)) {
+    if (/(손님|고객님|주문\s*도와|주문하시|메뉴|저희\s*(카페|매장|식당|가게)|계산해\s*드릴|포장해\s*드릴)/.test(text)) {
+      return true;
+    }
+  }
+  if (!avatarAllowsInterviewRole(avatar)) {
+    if (/(면접을\s*시작|지원자|채용\s*절차|면접관|자기소개\s*해\s*보세요)/.test(text)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const buildRoleSafeFallbackReply = (avatar: any, situation: any) => {
+  const situationName = situation?.name_ko || situation?.name || situation?.title;
+  const roleLabel = avatar?.relationship || avatar?.custom_role || avatar?.role;
+  if (situationName) {
+    return `응, ${situationName} 상황으로 계속 이야기해 보자. 나는 ${roleLabel || '네 대화 상대'}로서 여기에 있는 거야.`;
+  }
+  return `응, 계속 이야기해 보자. 나는 ${roleLabel || '네 대화 상대'}로서 여기에 있는 거야.`;
+};
+
 const makeContextAwareAiReply = (rawMessage: string, originalText: string, feedback?: SpeechAnalysis | null) => {
   const cleaned = sanitizeAiReply(rawMessage || '');
   if (!feedback?.has_errors) return cleaned || '좋아, 계속 이야기해 보자.';
   if (!isDiagnosticOrGenericReply(cleaned)) return cleaned;
   return buildCorrectionAwareFallbackReply(originalText, feedback) || cleaned;
+};
+
+const makeRoleSafeAiReply = (rawMessage: string, originalText: string, avatar: any, situation: any, feedback?: SpeechAnalysis | null) => {
+  const reply = makeContextAwareAiReply(rawMessage, originalText, feedback);
+  if (isRoleConsistencyBrokenReply(reply, avatar)) {
+    return buildRoleSafeFallbackReply(avatar, situation);
+  }
+  return reply;
 };
 
 const feedbackTitle = (fb: SpeechAnalysis) => {
@@ -829,7 +880,7 @@ const sendMessageToAI = async (
     );
   }
   return {
-    message: makeContextAwareAiReply(data.message || data.response || data.reply || '', text, finalSpeechAnalysis),
+    message: makeRoleSafeAiReply(data.message || data.response || data.reply || '', text, avatar, situation, finalSpeechAnalysis),
     speech_analysis: finalSpeechAnalysis,
     mood_change: data.mood_change || 0, current_mood: data.current_mood || 70,
     mood_emoji: data.mood_emoji || '😊', correct_streak: data.correct_streak || 0,
