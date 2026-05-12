@@ -107,19 +107,25 @@ const personalizeRecommendations = (
 
   return situations.map((situation, index) => {
     if (index === 0 && focusTopic) {
+      const baseDescription = situation.description_ko?.trim();
       return {
         ...situation,
         id: `${situation.id}_personalized`,
-        description_ko: `${situation.description_ko} 공통 관심사나 자연스러운 화제로 "${focusTopic}" 이야기를 활용합니다.`,
+        description_ko: baseDescription
+          ? `${baseDescription} 공통 관심사나 자연스러운 화제로 "${focusTopic}" 이야기를 활용합니다.`
+          : `공통 관심사나 자연스러운 화제로 "${focusTopic}" 이야기를 활용합니다.`,
         contexts: Array.from(new Set([...situation.contexts, '질문하는 상황'])),
       };
     }
 
     if (avoidTopic) {
+      const baseDescription = situation.description_ko?.trim();
       return {
         ...situation,
         id: `${situation.id}_avoid`,
-        description_ko: `${situation.description_ko} 서로 불편할 수 있는 "${avoidTopic}" 이야기는 피하면서 대화를 이어갑니다.`,
+        description_ko: baseDescription
+          ? `${baseDescription} 서로 불편할 수 있는 "${avoidTopic}" 이야기는 피하면서 대화를 이어갑니다.`
+          : `서로 불편할 수 있는 "${avoidTopic}" 이야기는 피하면서 대화를 이어갑니다.`,
         contexts: Array.from(new Set([...situation.contexts, '질문하는 상황'])),
       };
     }
@@ -582,7 +588,7 @@ export default function CreateSituationScreen() {
   };
 
   const handleCreate = async () => {
-    if (!name.trim() || !description.trim()) return;
+    if (!name.trim()) return;
 
     setIsSaving(true);
 
@@ -624,7 +630,7 @@ export default function CreateSituationScreen() {
     }
   };
 
-  const isValid = name.trim().length > 0 && description.trim().length > 0;
+  const isValid = name.trim().length > 0;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -693,10 +699,10 @@ export default function CreateSituationScreen() {
 
         {/* Description */}
         <InputField
-          label="상황 설명 *"
+          label="상황 설명"
           value={description}
           onChangeText={setDescription}
-          placeholder="이 상황에서 어떤 대화가 이루어지나요?"
+          placeholder="선택 사항: 이 상황에서 어떤 대화가 이루어지나요?"
           multiline
           numberOfLines={3}
         />
@@ -812,7 +818,7 @@ export default function CreateSituationScreen() {
             </View>
             <View style={styles.previewInfo}>
               <Text style={styles.previewName}>{name || '상황 이름'}</Text>
-              <Text style={styles.previewDesc}>{description || '상황 설명'}</Text>
+              <Text style={styles.previewDesc}>{description || '설명 없이 저장할 수 있어요'}</Text>
             </View>
           </View>
         </Card>

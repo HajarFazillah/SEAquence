@@ -199,7 +199,9 @@ export default function SituationSelectionScreen() {
                       </View>
                     )}
                   </View>
-                  <Text style={styles.situationDesc}>{situation.description_ko}</Text>
+                  {!!situation.description_ko?.trim() && (
+                    <Text style={styles.situationDesc}>{situation.description_ko}</Text>
+                  )}
                 </View>
 
                 {situation.isCustom ? (
