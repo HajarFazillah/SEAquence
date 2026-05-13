@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     NAVER_VOICE_CLIENT_SECRET: Optional[str] = None
     NAVER_VOICE_URL: str = "https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts"
 
+    # MySQL Database
+    DB_HOST: str = "127.0.0.1"
+    DB_PORT: int = 3307
+    DB_USER: str = "root"
+    DB_PASSWORD: str = ""
+    DB_NAME: str = "talkativ"
+
     # Server
     DEBUG: bool = False
 
