@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import {
-  Mic, MicOff, X, Volume2, VolumeX,
+  Mic, MicOff,
   CircleDashed, ArrowRight,
 } from 'lucide-react-native';
 import { Icon, type IconName } from '../components';
@@ -72,7 +72,7 @@ const C = {
 } as const;
 
 const WAVE_H = [0.25, 0.5, 0.8, 1.0, 0.7, 0.4, 0.9, 0.55, 0.35, 0.75, 0.45];
-const STREAM_CHUNK_MS = 5000;
+const STREAM_CHUNK_MS = 3000;
 
 const pad2 = (n: number) => n.toString().padStart(2, '0');
 const fmt = (s: number) => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
@@ -244,7 +244,7 @@ export default function RealtimeSessionScreen() {
   })();
 
   const [recording, setRecording]   = useState(false);
-  const [muted, setMuted]           = useState(false);
+  const [hasRecorded, setHasRecorded] = useState(false);
   const [duration, setDuration]     = useState(0);
   const [ending, setEnding]         = useState(false);
   const [analyzing, setAnalyzing]   = useState(false);
@@ -261,7 +261,8 @@ export default function RealtimeSessionScreen() {
   const recordingRef  = useRef(false);
   const rotatingRef   = useRef(false);
   const recorderActiveRef = useRef(false);
-  const chunkTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chunkTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunkIndexRef = useRef(0);
 
   const setRecordingState = (value: boolean) => {
@@ -274,9 +275,8 @@ export default function RealtimeSessionScreen() {
   }, [processingChunks]);
 
   useEffect(() => {
-    const t = setInterval(() => setDuration(d => d + 1), 1000);
     return () => {
-      clearInterval(t);
+      if (durationTimerRef.current) clearInterval(durationTimerRef.current);
       if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
       Sound.removeRecordBackListener();
       Sound.stopRecorder().catch(() => {});
@@ -413,7 +413,10 @@ export default function RealtimeSessionScreen() {
       }
 
       setTurns(p => [...p.filter(t => t.type !== 'partial'), ...nextTurns]);
-      setInsights(p => [...p, ...nextInsights]);
+      setInsights(p => {
+        const seen = new Set(p.map(i => i.message));
+        return [...p, ...nextInsights.filter(i => !seen.has(i.message))];
+      });
     } finally {
       setProcessingChunks(count => Math.max(0, count - 1));
     }
@@ -452,6 +455,9 @@ export default function RealtimeSessionScreen() {
 
   const startStreamingCapture = useCallback(async () => {
     if (!(await askMicPerm())) return;
+    if (!durationTimerRef.current) {
+      durationTimerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
+    }
     chunkIndexRef.current = 0;
     setTurns([]);
     setInsights([]);
@@ -471,6 +477,7 @@ export default function RealtimeSessionScreen() {
   }, [rotateRecordingChunk]);
 
   const stopStreamingCapture = useCallback(async () => {
+    setHasRecorded(true);
     setRecordingState(false);
     if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
     chunkTimerRef.current = null;
@@ -508,27 +515,21 @@ export default function RealtimeSessionScreen() {
   const risk  = insights.filter(i => i.kind === 'risk').length;
   const solo  = insights.filter(i => !i.turnId);
   const final = turns.filter(t => t.type === 'final').length;
-  const busy  = ending || recording || analyzing;
+  const busy  = ending || recording || analyzing || !hasRecorded;
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
 
       {/* ── Top bar ── */}
       <View style={s.topBar}>
-        <TouchableOpacity style={s.closeBtn} onPress={() => finish(false)} disabled={ending} activeOpacity={0.6}>
-          <X size={17} color={C.ink70} strokeWidth={2.5} />
-        </TouchableOpacity>
+        <View style={{ width: 36, height: 36 }} />
 
         <View style={s.timerRow}>
           <View style={[s.timerDot, recording && s.timerDotRec]} />
           <Text style={s.timerText}>{fmt(duration)}</Text>
         </View>
 
-        <TouchableOpacity style={s.muteBtn} onPress={() => setMuted(m => !m)} activeOpacity={0.6}>
-          {muted
-            ? <VolumeX size={17} color={C.ink40} strokeWidth={2} />
-            : <Volume2 size={17} color={C.ink70} strokeWidth={2} />}
-        </TouchableOpacity>
+        <View style={{ width: 36, height: 36 }} />
       </View>
 
       {/* ── Session info strip ── */}
@@ -552,11 +553,6 @@ export default function RealtimeSessionScreen() {
 
       {/* ── Transcript ── */}
       <View style={s.feed}>
-        <View style={s.feedHeader}>
-          <Text style={s.feedLabel}>대화</Text>
-          {final > 0 && <Text style={s.feedCount}>{final}</Text>}
-        </View>
-
         <ScrollView
           ref={scrollRef}
           style={s.scroll}
@@ -585,10 +581,7 @@ export default function RealtimeSessionScreen() {
         {recording && <Waveform active />}
 
         <View style={s.dockInner}>
-          {/* Avatar chip */}
-          <View style={[s.avatarChip, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
-            <Icon name={(avatar?.icon ?? 'user') as IconName} size={15} color="#FFF" />
-          </View>
+          <View style={s.avatarChip} />
 
           {/* Mic */}
           <View style={s.micWrap}>
@@ -610,20 +603,15 @@ export default function RealtimeSessionScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Mute chip */}
-          <TouchableOpacity style={s.muteChip} onPress={() => setMuted(m => !m)} activeOpacity={0.6}>
-            {muted
-              ? <VolumeX size={15} color={C.ink40} strokeWidth={2} />
-              : <Volume2 size={15} color={C.ink70} strokeWidth={2} />}
-          </TouchableOpacity>
+          <View style={s.avatarChip} />
         </View>
 
         <Text style={s.micHint}>
           {recording
-            ? `음성을 ${STREAM_CHUNK_MS / 1000}초 단위로 분석 중 · 탭하여 중지`
+            ? '녹음 중 · 탭하여 중지'
             : processingChunks > 0
-              ? '남은 음성 조각을 분석 중입니다...'
-              : '탭하여 스트리밍 녹음 시작'}
+              ? '분석 중...'
+              : '탭하여 녹음 시작'}
         </Text>
 
         <TouchableOpacity
