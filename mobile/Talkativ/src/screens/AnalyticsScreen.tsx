@@ -782,8 +782,6 @@ export default function AnalyticsScreen() {
   };
 
   const effectiveStats: SessionStats | null = useMemo(() => {
-    if (stats) return stats;
-
     const finalTurns = (turns || []).filter(
       (turn: TranscriptTurn) => turn.type !== 'partial'
     );
@@ -800,7 +798,7 @@ export default function AnalyticsScreen() {
       finalTurns.map((turn: TranscriptTurn) => turn.speaker).filter(Boolean)
     ).size;
 
-    const qualityScore = Math.round(
+    const aiQualityScore = Math.round(
       ((sessionScores.speechAccuracy +
         sessionScores.vocabulary +
         sessionScores.naturalness) /
@@ -809,11 +807,11 @@ export default function AnalyticsScreen() {
     );
 
     return {
-      messageCount: finalTurns.length,
-      successCount,
-      riskCount,
-      speakerCount,
-      qualityScore,
+      messageCount: stats?.messageCount ?? finalTurns.length,
+      successCount: stats?.successCount ?? successCount,
+      riskCount: stats?.riskCount ?? riskCount,
+      speakerCount: stats?.speakerCount ?? speakerCount,
+      qualityScore: aiQualityScore || stats?.qualityScore || 0,
     };
   }, [stats, turns, insights, sessionScores]);
 
