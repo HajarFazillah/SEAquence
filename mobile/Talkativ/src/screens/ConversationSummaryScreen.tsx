@@ -106,7 +106,7 @@ const ringStyles = StyleSheet.create({
   wrap:   { alignItems: 'center', gap: 6, flex: 1 },
   center: { position: 'absolute', top: 0, left: 0, right: 0, height: SIZE, alignItems: 'center', justifyContent: 'center' },
   num:    { fontSize: 20, fontWeight: '700', lineHeight: 24 },
-  label:  { fontSize: 11, color: '#999', textAlign: 'center' },
+  label:  { fontSize: 12, color: '#555', textAlign: 'center' },
 });
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -314,14 +314,7 @@ export default function ConversationSummaryScreen() {
   useEffect(() => { buildSummary(); }, [buildSummary]);
 
   const handleContinue = () => {
-    navigation.navigate('Analytics', {
-      avatar,
-      duration,
-      scores: summary?.scores,
-      scoreDetails: summary?.scoreDetails,
-      usedFallbackScores: summary?.usedFallbackScores,
-      savedWords: Object.values(savedWords),
-    });
+    navigation.navigate('Avatar');
   };
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -601,7 +594,7 @@ export default function ConversationSummaryScreen() {
       {/* Footer */}
       <View style={styles.footer}>
         <TouchableOpacity style={styles.continueBtn} onPress={handleContinue}>
-          <Text style={styles.continueBtnText}>계속하기</Text>
+          <Text style={styles.continueBtnText}>완료</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -632,8 +625,8 @@ const styles = StyleSheet.create({
   scoreCard:     { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 20, marginTop: 4 },
   scoreTop:      { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
   avatarCircle:  { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  scoreName:     { fontSize: 13, fontWeight: '500', color: '#111' },
-  scoreSub:      { fontSize: 11, color: '#999', marginTop: 1 },
+  scoreName:     { fontSize: 14, fontWeight: '600', color: '#111' },
+  scoreSub:      { fontSize: 12, color: '#666', marginTop: 1 },
   scoreDivider:  { height: 1, backgroundColor: BORDER, marginBottom: 14 },
   scoreNums:     { flexDirection: 'row', gap: 0, paddingBottom: 4 },
   scoreCol:      {},
@@ -645,24 +638,24 @@ const styles = StyleSheet.create({
   scoreMetaTitle: {},
   scoreMetaText: {},
 
-  confidencePillText:{ fontSize: 9, color: '#bbb' },
+  confidencePillText:{ fontSize: 10, color: '#888' },
 
   breakdownBox:    { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: BORDER, gap: 6 },
   breakdownTitle:  {},
-  breakdownRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
-  breakdownName:   { fontSize: 11, color: '#999' },
-  breakdownValue:  { fontSize: 11, fontWeight: '500', color: '#111' },
-  breakdownEmpty:  { fontSize: 11, color: '#bbb' },
-  breakdownNote:   { marginTop: 4, fontSize: 10, lineHeight: 14, color: '#bbb' },
+  breakdownRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  breakdownName:   { fontSize: 13, color: '#555' },
+  breakdownValue:  { fontSize: 13, fontWeight: '500', color: '#111' },
+  breakdownEmpty:  { fontSize: 13, color: '#888' },
+  breakdownNote:   { marginTop: 4, fontSize: 12, lineHeight: 16, color: '#888' },
 
   // Section
   sectionHead:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, marginTop: 6 },
   sectionTitle:   { flex: 1, fontSize: 14, fontWeight: '500', color: '#111' },
-  sectionSub:     { fontSize: 12, color: '#999', marginTop: -6, marginBottom: 10 },
+  sectionSub:     { fontSize: 12, color: '#666', marginTop: -6, marginBottom: 10 },
   countBadge:     { paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(255,77,77,0.10)', borderRadius: 20 },
-  countBadgeText: { fontSize: 11, fontWeight: '500', color: '#FF4D4D' },
+  countBadgeText: { fontSize: 12, fontWeight: '500', color: '#FF4D4D' },
   saveAllBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: GREY, borderRadius: 20 },
-  saveAllText:    { fontSize: 11, fontWeight: '500', color: BRAND },
+  saveAllText:    { fontSize: 12, fontWeight: '500', color: BRAND },
 
   // Card
   card:     { backgroundColor: '#fff', borderRadius: 14, borderWidth: 0.5, borderColor: BORDER, overflow: 'hidden', marginBottom: 8 },
@@ -671,45 +664,45 @@ const styles = StyleSheet.create({
 
   // Empty
   emptyCard: { alignItems: 'center', gap: 10, paddingVertical: 24, paddingHorizontal: 20, marginBottom: 8 },
-  emptyText: { fontSize: 13, color: '#999' },
+  emptyText: { fontSize: 13, color: '#666' },
 
   // Mistake
   mistakeHdr:  { flexDirection: 'row', alignItems: 'center', padding: 12, paddingBottom: 10 },
   typePill:    { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
-  typePillText:{ fontSize: 10, fontWeight: '500' },
+  typePillText:{ fontSize: 11, fontWeight: '500' },
 
   // Compare boxes
   cmpRow:       { flexDirection: 'row', alignItems: 'stretch', gap: 6, paddingHorizontal: 12, paddingBottom: 12 },
   cmpInput:     { flex: 1, padding: 9, borderRadius: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: 'rgba(108,59,255,0.35)' },
   cmpFixed:     { flex: 1, padding: 9, borderRadius: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: 'rgba(34,197,94,0.35)' },
-  cmpLblPurple: { fontSize: 9, fontWeight: '500', letterSpacing: 0.06, marginBottom: 3, color: BRAND },
-  cmpLblGreen:  { fontSize: 9, fontWeight: '500', letterSpacing: 0.06, marginBottom: 3, color: '#22C55E' },
-  cmpOrigText:  { fontSize: 13, fontWeight: '500', color: '#888', textDecorationLine: 'line-through' },
+  cmpLblPurple: { fontSize: 10, fontWeight: '500', letterSpacing: 0.06, marginBottom: 3, color: BRAND },
+  cmpLblGreen:  { fontSize: 10, fontWeight: '500', letterSpacing: 0.06, marginBottom: 3, color: '#22C55E' },
+  cmpOrigText:  { fontSize: 13, fontWeight: '500', color: '#777', textDecorationLine: 'line-through' },
   cmpFixedText: { fontSize: 13, fontWeight: '500', color: '#22C55E' },
-  cmpArrow:     { alignSelf: 'center', fontSize: 12, color: '#bbb' },
+  cmpArrow:     { alignSelf: 'center', fontSize: 12, color: '#999' },
 
   // Explanation
   explanationBox: { backgroundColor: GREY, padding: 12, borderTopWidth: 0.5, borderTopColor: BORDER },
-  explanationText:{ fontSize: 12, color: '#555', lineHeight: 18 },
+  explanationText:{ fontSize: 13, color: '#444', lineHeight: 19 },
 
   // Vocab
   vocabCard:       { padding: 13 },
   vocabTop:        { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  vocabWord:       { fontSize: 15, fontWeight: '500', color: '#111', flex: 1 },
+  vocabWord:       { fontSize: 15, fontWeight: '600', color: '#111', flex: 1 },
   kindPill:        { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
   kindPillWord:    { backgroundColor: 'rgba(2,132,199,0.10)' },
   kindPillPhrase:  { backgroundColor: 'rgba(108,59,255,0.10)' },
-  kindPillText:    { fontSize: 10, fontWeight: '500' },
+  kindPillText:    { fontSize: 11, fontWeight: '500' },
   kindTextWord:    { color: '#0284C7' },
   kindTextPhrase:  { color: BRAND },
   bookmarkBtn:     { width: 30, height: 30, borderRadius: 15, backgroundColor: GREY, borderWidth: 0.5, borderColor: BORDER, alignItems: 'center', justifyContent: 'center' },
   bookmarkBtnOn:   { backgroundColor: BRAND, borderColor: BRAND },
-  vocabMeaning:    { fontSize: 12, color: '#666', marginBottom: 8 },
+  vocabMeaning:    { fontSize: 13, color: '#444', marginBottom: 8 },
   vocabEx:         { backgroundColor: GREY, borderRadius: 10, padding: 9 },
-  vocabExLabel:    { fontSize: 9, fontWeight: '500', color: BRAND, letterSpacing: 0.06, marginBottom: 3 },
-  vocabExText:     { fontSize: 12, color: '#333', lineHeight: 18 },
+  vocabExLabel:    { fontSize: 10, fontWeight: '600', color: BRAND, letterSpacing: 0.06, marginBottom: 3 },
+  vocabExText:     { fontSize: 13, color: '#333', lineHeight: 19 },
   savedToast:      { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
-  savedToastText:  { fontSize: 11, color: '#22C55E', fontWeight: '500' },
+  savedToastText:  { fontSize: 12, color: '#22C55E', fontWeight: '500' },
 
   // Feedback
   feedbackCard: { flexDirection: 'row', gap: 10, padding: 14, marginBottom: 8 },
