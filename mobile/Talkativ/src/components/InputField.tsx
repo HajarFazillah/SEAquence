@@ -64,8 +64,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#F5F5FA',
-    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0EA',
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 15,

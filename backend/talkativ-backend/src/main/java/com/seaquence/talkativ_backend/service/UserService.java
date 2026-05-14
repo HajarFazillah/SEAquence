@@ -5,14 +5,21 @@ import com.seaquence.talkativ_backend.dto.LoginResponse;
 import com.seaquence.talkativ_backend.dto.RegisterRequest;
 import com.seaquence.talkativ_backend.dto.UserResponse;
 import com.seaquence.talkativ_backend.dto.UserStats;
+import com.seaquence.talkativ_backend.entity.Mistake;
+import com.seaquence.talkativ_backend.entity.Session;
 import com.seaquence.talkativ_backend.entity.User;
+import com.seaquence.talkativ_backend.repository.MistakeRepository;
+import com.seaquence.talkativ_backend.repository.SessionRepository;
 import com.seaquence.talkativ_backend.repository.UserRepository;
 import com.seaquence.talkativ_backend.security.JwtUtil;
 
-import org.springframework.security.crypto.password.PasswordEncoder; // ← ADDED
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -21,13 +28,19 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
-    private final PasswordEncoder passwordEncoder; // ← ADDED
+    private final PasswordEncoder passwordEncoder;
+    private final SessionRepository sessionRepository;
+    private final MistakeRepository mistakeRepository;
 
     public UserService(UserRepository userRepository, JwtUtil jwtUtil,
-            PasswordEncoder passwordEncoder) { // ← ADDED
+            PasswordEncoder passwordEncoder,
+            SessionRepository sessionRepository,
+            MistakeRepository mistakeRepository) {
         this.userRepository = userRepository;
         this.jwtUtil = jwtUtil;
-        this.passwordEncoder = passwordEncoder; // ← ADDED
+        this.passwordEncoder = passwordEncoder;
+        this.sessionRepository = sessionRepository;
+        this.mistakeRepository = mistakeRepository;
     }
 
     // Register new user
@@ -118,8 +131,27 @@ public class UserService {
 
     // Get current user's stats
     public UserStats getMyStats(String userId) {
-        // Placeholder until SessionRepository is ready
-        return new UserStats(0, 0, 0, 0);
+        // completedSessions: sessions with status "completed"
+        List<Session> completed = sessionRepository.findByUserIdAndStatus(userId, "completed");
+        int completedSessions = completed.size();
+
+        // practiceMinutes: sum of (endedAt - startedAt) for sessions that have both timestamps
+        int practiceMinutes = completed.stream()
+            .filter(s -> s.getStartedAt() != null && s.getEndedAt() != null)
+            .mapToInt(s -> (int) Duration.between(s.getStartedAt(), s.getEndedAt()).toMinutes())
+            .sum();
+
+        // topMistakeType: most frequent correction_type across all user mistakes
+        List<Mistake> mistakes = mistakeRepository.findByUserId(userId);
+        String topMistakeType = mistakes.stream()
+            .filter(m -> m.getCorrectionType() != null && !m.getCorrectionType().isBlank())
+            .collect(Collectors.groupingBy(Mistake::getCorrectionType, Collectors.counting()))
+            .entrySet().stream()
+            .max(Map.Entry.comparingByValue())
+            .map(Map.Entry::getKey)
+            .orElse(null);
+
+        return new UserStats(completedSessions, mistakes.size(), practiceMinutes, 0, topMistakeType);
     }
 
     // Convert entity to response DTO

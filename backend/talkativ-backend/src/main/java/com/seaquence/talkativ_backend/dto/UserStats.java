@@ -5,18 +5,20 @@ public class UserStats {
     private int learnedExpressions;
     private int practiceMinutes;
     private int progressPercent;
+    private String topMistakeType;
 
     public UserStats(int completedSessions, int learnedExpressions,
-                     int practiceMinutes, int progressPercent) {
+                     int practiceMinutes, int progressPercent, String topMistakeType) {
         this.completedSessions = completedSessions;
         this.learnedExpressions = learnedExpressions;
         this.practiceMinutes = practiceMinutes;
         this.progressPercent = progressPercent;
+        this.topMistakeType = topMistakeType;
     }
 
-    // Getters
     public int getCompletedSessions() { return completedSessions; }
     public int getLearnedExpressions() { return learnedExpressions; }
     public int getPracticeMinutes() { return practiceMinutes; }
     public int getProgressPercent() { return progressPercent; }
+    public String getTopMistakeType() { return topMistakeType; }
 }
