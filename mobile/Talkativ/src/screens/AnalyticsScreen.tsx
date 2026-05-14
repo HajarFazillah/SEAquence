@@ -95,11 +95,15 @@ const getHeroColor = (score: number): string => {
   return '#FF4D4D';
 };
 
-const getWeakAreaColor = (severity: string, index: number): string => {
-  if (severity === 'high' || severity === 'error') return '#FF4D4D';
-  if (severity === 'medium' || severity === 'warning') return '#EAB308';
-  return ['#6C3BFF', '#3F51B5', '#009688'][index % 3];
-};
+const WEAK_AREA_PALETTE = [
+  '#F97066', // coral rose
+  '#FB923C', // soft orange
+  '#FBBF24', // warm amber
+  '#818CF8', // periwinkle
+  '#34D399', // mint green
+];
+const getWeakAreaColor = (_severity: string, index: number): string =>
+  WEAK_AREA_PALETTE[index % WEAK_AREA_PALETTE.length];
 
 const getHeroLabel = (score: number): string => {
   if (score >= 85) return '아주 잘 하고 있어요';
@@ -1298,6 +1302,7 @@ export default function AnalyticsScreen() {
 
             <View style={styles.card}>
               <View style={styles.weakChartWrap}>
+                <View style={styles.weakDonutWrapCentered}>
                 <View style={styles.weakDonutWrap}>
                   <Svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
                     <G rotation="-90" origin={`${DONUT_SIZE / 2}, ${DONUT_SIZE / 2}`}>
@@ -1343,45 +1348,46 @@ export default function AnalyticsScreen() {
                     <Text style={styles.weakDonutLabel}>최다 실수</Text>
                   </View>
                 </View>
-
-                <View style={styles.weakLegend}>
-                  {weakChartData.map(item => {
-                    const active = recentTypeFilter === item.key;
-                    const delta = item.trend.thisWeek - item.trend.lastWeek;
-                    const trendText =
-                      item.trend.thisWeek + item.trend.lastWeek === 0
-                        ? '최근 기록 기준'
-                        : delta < 0
-                          ? `지난 7일 ${Math.abs(delta)}회 감소`
-                          : delta > 0
-                            ? `지난 7일 ${delta}회 증가`
-                            : '지난 7일 변화 없음';
-
-                    return (
-                    <TouchableOpacity
-                      key={item.key}
-                      style={[
-                        styles.weakLegendRow,
-                        active && styles.weakLegendRowActive,
-                      ]}
-                      onPress={() => setRecentTypeFilter(active ? 'all' : item.key)}
-                    >
-                      <View style={[styles.weakLegendDot, { backgroundColor: item.color }]} />
-                      <View style={styles.weakLegendTextWrap}>
-                        <Text style={styles.weakLegendLabel} numberOfLines={1}>
-                          {item.label}
-                        </Text>
-                        <Text style={styles.weakLegendMeta}>
-                          {item.count}회 · 영향도 {Math.round(item.ratio * 100)}% · {trendText}
-                        </Text>
-                        <Text style={styles.weakLegendReason} numberOfLines={2}>
-                          {item.reason}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                    );
-                  })}
                 </View>
+              </View>
+
+              <View style={styles.weakLegend}>
+                {weakChartData.map(item => {
+                  const active = recentTypeFilter === item.key;
+                  const delta = item.trend.thisWeek - item.trend.lastWeek;
+                  const trendText =
+                    item.trend.thisWeek + item.trend.lastWeek === 0
+                      ? '최근 기록 기준'
+                      : delta < 0
+                        ? `지난 7일 ${Math.abs(delta)}회 감소`
+                        : delta > 0
+                          ? `지난 7일 ${delta}회 증가`
+                          : '지난 7일 변화 없음';
+
+                  return (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[
+                      styles.weakLegendRow,
+                      active && styles.weakLegendRowActive,
+                    ]}
+                    onPress={() => setRecentTypeFilter(active ? 'all' : item.key)}
+                  >
+                    <View style={[styles.weakLegendDot, { backgroundColor: item.color }]} />
+                    <View style={styles.weakLegendTextWrap}>
+                      <Text style={styles.weakLegendLabel}>
+                        {item.label}
+                      </Text>
+                      <Text style={styles.weakLegendMeta}>
+                        {item.count}회 · 영향도 {Math.round(item.ratio * 100)}% · {trendText}
+                      </Text>
+                      <Text style={styles.weakLegendReason}>
+                        {item.reason}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           </View>
@@ -1688,7 +1694,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 13,
-    color: '#999',
+    color: '#666',
   },
 
   heroCard: {
@@ -1733,7 +1739,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.20)',
   },
   heroPillText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: '#fff',
     letterSpacing: 0.3,
@@ -1775,7 +1781,7 @@ const styles = StyleSheet.create({
     letterSpacing: -1,
   },
   heroScoreUnit: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
     marginTop: -3,
   },
@@ -1786,9 +1792,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.18)',
   },
   heroInsightEye: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.70)',
+    color: 'rgba(255,255,255,0.85)',
     marginBottom: 4,
     letterSpacing: 0.3,
   },
@@ -1806,9 +1812,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sectionEye: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
-    color: '#999',
+    color: '#666',
     letterSpacing: 1,
     marginBottom: 2,
   },
@@ -1843,8 +1849,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   sessionLabel: {
-    fontSize: 11,
-    color: '#999',
+    fontSize: 12,
+    color: '#666',
   },
   feedbackBlock: {
     paddingHorizontal: 16,
@@ -1852,9 +1858,9 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   feedbackBlockTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#666',
+    color: '#444',
     marginBottom: 10,
   },
   metaWrap: {
@@ -1863,8 +1869,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaText: {
-    fontSize: 11,
-    color: '#888',
+    fontSize: 12,
+    color: '#555',
   },
 
   scoreItem: {
@@ -1910,9 +1916,9 @@ const styles = StyleSheet.create({
   },
   scoreFootnote: {
     marginTop: 8,
-    fontSize: 11,
-    color: '#777',
-    lineHeight: 16,
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 17,
   },
   scoreWarning: {
     margin: 14,
@@ -1922,9 +1928,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF4E5',
   },
   scoreWarningText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#A05A00',
-    lineHeight: 16,
+    lineHeight: 17,
   },
 
   insightHeaderRow: {
@@ -1980,7 +1986,7 @@ const styles = StyleSheet.create({
   },
   insightSuggestion: {
     fontSize: 12,
-    color: '#666',
+    color: '#444',
     lineHeight: 17,
   },
   emptyMini: {
@@ -1988,8 +1994,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyMiniText: {
-    fontSize: 12,
-    color: '#888',
+    fontSize: 13,
+    color: '#666',
   },
 
   personalIntro: {
@@ -2005,9 +2011,9 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   personalIntroText: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: '#666',
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#444',
   },
   signalGroup: {
     padding: 14,
@@ -2015,9 +2021,9 @@ const styles = StyleSheet.create({
     borderBottomColor: BORDER,
   },
   signalGroupTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#555',
+    color: '#333',
     marginBottom: 10,
   },
   signalRow: {
@@ -2033,13 +2039,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C3BFF',
   },
   signalDotHigh: {
-    backgroundColor: '#FF4D4D',
+    backgroundColor: '#F97066',
   },
   signalDotMedium: {
-    backgroundColor: '#EAB308',
+    backgroundColor: '#FBBF24',
   },
   signalDotLow: {
-    backgroundColor: '#22C55E',
+    backgroundColor: '#34D399',
   },
   signalBody: {
     flex: 1,
@@ -2051,9 +2057,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   signalNote: {
-    fontSize: 11,
-    color: '#777',
-    lineHeight: 16,
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 17,
   },
   signalValue: {
     fontSize: 12,
@@ -2076,15 +2082,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   scenarioChartTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#555',
+    color: '#333',
     marginBottom: 4,
   },
   scenarioChartCaption: {
-    fontSize: 11,
-    color: '#777',
-    lineHeight: 16,
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 17,
   },
   scenarioChartRow: {
     paddingVertical: 8,
@@ -2103,9 +2109,9 @@ const styles = StyleSheet.create({
     color: '#111',
   },
   scenarioChartValue: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#6C6C80',
+    color: '#444',
   },
   scenarioBarTrack: {
     height: 10,
@@ -2127,9 +2133,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#22C55E',
   },
   scenarioChartNote: {
-    fontSize: 11,
-    color: '#777',
-    lineHeight: 16,
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 17,
     marginTop: 6,
   },
 
@@ -2153,10 +2159,13 @@ const styles = StyleSheet.create({
   },
 
   weakChartWrap: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    padding: 16,
+    paddingTop: 20,
+    paddingBottom: 4,
+  },
+  weakDonutWrapCentered: {
+    alignItems: 'center',
+    marginBottom: 4,
   },
   weakDonutWrap: {
     width: DONUT_SIZE,
@@ -2176,21 +2185,22 @@ const styles = StyleSheet.create({
     lineHeight: 26,
   },
   weakDonutLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#999',
+    color: '#666',
     marginTop: 2,
   },
   weakLegend: {
-    flex: 1,
-    gap: 10,
+    gap: 2,
+    paddingHorizontal: 4,
+    paddingBottom: 8,
   },
   weakLegendRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 9,
-    padding: 8,
-    borderRadius: 8,
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: 'transparent',
   },
@@ -2214,14 +2224,14 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   weakLegendMeta: {
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 17,
+  },
+  weakLegendReason: {
     fontSize: 11,
     color: '#777',
     lineHeight: 16,
-  },
-  weakLegendReason: {
-    fontSize: 10,
-    color: '#999',
-    lineHeight: 15,
     marginTop: 3,
   },
 
@@ -2234,9 +2244,9 @@ const styles = StyleSheet.create({
     borderTopColor: BORDER,
   },
   habitBlockLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
-    color: '#999',
+    color: '#666',
     letterSpacing: 0.5,
     marginBottom: 8,
   },
@@ -2261,7 +2271,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   recurringPillText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: BRAND,
   },
@@ -2281,12 +2291,12 @@ const styles = StyleSheet.create({
   },
   recurringOriginal: {
     fontSize: 13,
-    color: '#666',
+    color: '#555',
     textDecorationLine: 'line-through',
   },
   recurringArrow: {
     fontSize: 13,
-    color: '#bbb',
+    color: '#999',
   },
   recurringCorrected: {
     fontSize: 13,
@@ -2311,7 +2321,7 @@ const styles = StyleSheet.create({
   },
   trendCount: {
     fontSize: 12,
-    color: '#999',
+    color: '#666',
   },
   trendDelta: {
     fontSize: 12,
@@ -2326,13 +2336,13 @@ const styles = StyleSheet.create({
     color: '#22c55e',
   },
   trendDeltaFlat: {
-    color: '#999',
+    color: '#888',
   },
   trendNote: {
-    fontSize: 11,
-    color: '#999',
+    fontSize: 12,
+    color: '#666',
     marginTop: 8,
-    lineHeight: 16,
+    lineHeight: 17,
   },
 
   emptyCard: {
@@ -2356,9 +2366,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   emptyText: {
-    fontSize: 12,
-    color: '#999',
-    lineHeight: 18,
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 19,
     textAlign: 'center',
   },
 
@@ -2426,9 +2436,9 @@ const styles = StyleSheet.create({
     borderColor: BRAND,
   },
   recentFilterText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#777',
+    color: '#555',
   },
   recentFilterTextActive: {
     color: '#fff',
@@ -2450,23 +2460,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(108,59,255,0.10)',
   },
   recentTypeText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
     color: '#6C3BFF',
   },
   recentDate: {
-    fontSize: 11,
-    color: '#999',
+    fontSize: 12,
+    color: '#777',
   },
   recentOriginal: {
     fontSize: 13,
-    color: '#888',
+    color: '#666',
     textDecorationLine: 'line-through',
     lineHeight: 18,
   },
   recentArrow: {
     fontSize: 12,
-    color: '#bbb',
+    color: '#999',
     marginVertical: 2,
   },
   recentCorrected: {
@@ -2477,16 +2487,16 @@ const styles = StyleSheet.create({
   },
   recentExplanation: {
     marginTop: 6,
-    fontSize: 12,
-    color: '#555',
-    lineHeight: 18,
+    fontSize: 13,
+    color: '#444',
+    lineHeight: 19,
   },
   recentEmpty: {
     padding: 18,
     alignItems: 'center',
   },
   recentEmptyText: {
-    fontSize: 12,
-    color: '#999',
+    fontSize: 13,
+    color: '#666',
   },
 });

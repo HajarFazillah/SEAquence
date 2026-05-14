@@ -75,6 +75,7 @@ class ChatAnalyzeRequest(BaseModel):
     avatar: AvatarCreate
     conversation_history: List[ChatMessage]
     session_id: Optional[str] = None
+    session_corrections: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class AnalyzeMessageRequest(BaseModel):
@@ -322,6 +323,7 @@ async def analyze_conversation(request: ChatAnalyzeRequest):
             avatar=request.avatar,
             conversation_history=request.conversation_history,
             session_id=request.session_id,
+            session_corrections=request.session_corrections,
         )
         return analysis
     except Exception as e:

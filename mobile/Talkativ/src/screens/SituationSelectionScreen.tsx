@@ -98,9 +98,9 @@ export default function SituationSelectionScreen() {
             <View style={[styles.avatarIcon, { backgroundColor: avatar.avatarBg || avatar.avatar_bg || '#6C3BFF' }]}>
               <Icon name={avatar.icon || 'user'} size={24} color="#FFFFFF" />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.avatarName}>{avatar.name_ko}</Text>
-              <Text style={styles.avatarRole}>{avatar.description_ko || avatar.description}</Text>
+              <Text style={styles.avatarRole} numberOfLines={2}>{avatar.description_ko || avatar.description}</Text>
             </View>
           </View>
         )}
@@ -253,7 +253,7 @@ export default function SituationSelectionScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F7F7FB' },
+  safe: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { paddingHorizontal: 20, paddingBottom: 100 },
 
   avatarInfo: {
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F7F7FB',
+    backgroundColor: '#FFFFFF',
   },
 
   footer: {
@@ -401,6 +401,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 20,
-    backgroundColor: '#F7F7FB',
+    backgroundColor: '#FFFFFF',
   },
 });

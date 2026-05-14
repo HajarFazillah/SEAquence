@@ -21,6 +21,7 @@ export interface UserStats {
   completedSessions: number;
   learnedExpressions: number;
   practiceMinutes: number;
+  topMistakeType?: string;
   progressPercent: number;
   // Live counts from the vocabulary table — populated client-side after the
   // base stats arrive. Both default to 0 if not loaded yet.

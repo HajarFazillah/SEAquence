@@ -696,7 +696,7 @@ export default function CreateSituationScreen() {
     }
   };
 
-  const isValid = name.trim().length > 0;
+  const isValid = mode === 'ai' ? true : name.trim().length > 0;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -760,138 +760,15 @@ export default function CreateSituationScreen() {
 
         {/* Name */}
         <InputField
-          label="상황 이름 (한국어) *"
+          label={mode === 'ai' ? '상황 이름 (한국어)' : '상황 이름 (한국어) *'}
           value={name}
           onChangeText={setName}
           placeholder="예: 도서관에서 공부"
         />
 
-        <TouchableOpacity
-          style={styles.optionalFieldToggle}
-          onPress={() => setShowDescriptionField((prev) => !prev)}
-          activeOpacity={0.85}
-        >
-          <View style={styles.optionalFieldToggleText}>
-            <Text style={styles.optionalFieldLabel}>상황 설명</Text>
-            <Text style={styles.optionalFieldHint}>
-              없어도 돼요. 더 구체적인 장면 설명이 필요할 때만 적어 주세요.
-            </Text>
-          </View>
-          {showDescriptionField ? (
-            <ChevronUp size={18} color="#6C6C80" />
-          ) : (
-            <ChevronDown size={18} color="#6C6C80" />
-          )}
-        </TouchableOpacity>
 
-        {showDescriptionField && (
-          <InputField
-            value={description}
-            onChangeText={setDescription}
-            placeholder="선택 사항: 이 상황에서 어떤 대화가 이루어지나요?"
-            multiline
-            numberOfLines={2}
-          />
-        )}
 
-        <InputField
-          label="장소/장면"
-          value={scenePlace}
-          onChangeText={setScenePlace}
-          placeholder="선택 사항: 카페, 연구실, 회의실처럼 배경만 적어 주세요"
-        />
 
-        <InputField
-          label="연습 목표"
-          value={conversationGoal}
-          onChangeText={setConversationGoal}
-          placeholder="선택 사항: 약속 시간 정하기, 정중하게 질문하기"
-        />
-
-        <InputField
-          label="아바타의 장면 속 역할"
-          value={avatarRoleInScene}
-          onChangeText={setAvatarRoleInScene}
-          placeholder="예: 친구, 교수님, 상사. 장소의 직원으로 바꾸지 마세요"
-        />
-
-        <InputField
-          label="나의 장면 속 역할"
-          value={userRoleInScene}
-          onChangeText={setUserRoleInScene}
-          placeholder="예: 친구, 학생, 팀원, 손님"
-        />
-
-        {/* Category */}
-        <Text style={styles.fieldLabel}>카테고리</Text>
-        <View style={styles.categoryRow}>
-          {CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat.id}
-              style={[
-                styles.categoryButton,
-                selectedCategory === cat.id && styles.categoryButtonActive,
-              ]}
-              onPress={() => setSelectedCategory(cat.id)}
-            >
-              <Text style={[
-                styles.categoryText,
-                selectedCategory === cat.id && styles.categoryTextActive,
-              ]}>
-                {cat.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Context Suggestions */}
-        <Text style={styles.fieldLabel}>상황 맥락 (선택)</Text>
-        <Text style={styles.fieldHint}>AI가 더 자연스러운 대화를 생성하는 데 도움이 됩니다</Text>
-        
-        <View style={styles.contextGrid}>
-          {CONTEXT_SUGGESTIONS.map((context) => (
-            <Tag
-              key={context}
-              label={context}
-              selected={contexts.includes(context)}
-              onPress={() => toggleContext(context)}
-            />
-          ))}
-        </View>
-
-        {/* Custom Context Input */}
-        <View style={styles.customContextRow}>
-          <View style={styles.customContextInput}>
-            <InputField
-              value={customContext}
-              onChangeText={setCustomContext}
-              placeholder="직접 입력..."
-            />
-          </View>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={addCustomContext}
-          >
-            <Text style={styles.addButtonText}>추가</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Selected Contexts */}
-        {contexts.length > 0 && (
-          <View style={styles.selectedContexts}>
-            <Text style={styles.selectedLabel}>선택된 맥락:</Text>
-            <View style={styles.contextGrid}>
-              {contexts.map((context) => (
-                <Tag
-                  key={context}
-                  label={context}
-                  selected
-                  onPress={() => toggleContext(context)}
-                />
-              ))}
-            </View>
-          </View>
-        )}
 
         {/* Preview */}
         <Text style={styles.fieldLabel}>미리보기</Text>

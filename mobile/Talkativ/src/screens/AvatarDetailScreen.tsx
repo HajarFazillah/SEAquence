@@ -74,6 +74,19 @@ const buildMockBio = (avatar: any): string => {
   );
 };
 
+const ROLE_LABELS: Record<string, string> = {
+  friend: '친구', close_friend: '절친', classmate: '반 친구', roommate: '룸메이트',
+  club_member: '동아리 멤버', junior: '후배', senior: '선배', professor: '교수님',
+  teacher: '선생님', tutor: '과외 선생님', younger_sibling: '동생',
+  older_brother: '형/오빠', older_sister: '누나/언니', cousin: '사촌',
+  parent: '부모님', grandparent: '조부모님', uncle_aunt: '삼촌/이모',
+  in_law: '시댁/처가 어른', intern: '인턴', colleague: '동료', teammate: '팀원',
+  team_leader: '팀장', manager: '매니저', boss: '사장님', ceo: '대표님',
+  client: '고객', mentor: '멘토', staff: '직원', customer: '손님',
+  stranger: '모르는 사람', neighbor: '이웃', doctor: '의사 선생님',
+  delivery: '배달원', taxi_driver: '택시 기사님',
+};
+
 const getAgeDesc = (age?: number): string => {
   if (!age) return '';
   if (age < 20) return '많이 어려요';
@@ -258,7 +271,7 @@ export default function AvatarDetailScreen() {
   const genderLabel       = avatar?.gender === 'male'   ? '남성'
                           : avatar?.gender === 'female' ? '여성'
                           : avatar?.gender === 'other'  ? '기타' : null;
-  const roleLabel         = avatar?.custom_role || avatar?.role || '';
+  const roleLabel         = avatar?.custom_role || (avatar?.role ? (ROLE_LABELS[avatar.role] ?? avatar.role) : '');
   const compatibilityScore = Number.isFinite(Number(avatar?.compatibility?.score))
     ? Number(avatar.compatibility.score)
     : null;
@@ -579,8 +592,8 @@ const styles = StyleSheet.create({
   avatarName: { fontSize: 22, fontWeight: '500', color: '#111' },
   favBtn:     { width: 30, height: 30, borderRadius: 15, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   favBtnOn:   { backgroundColor: '#FFE4E4' },
-  avatarSub:  { fontSize: 14, color: '#8A8A9E', marginTop: -3 },
-  avatarRole: { fontSize: 14, color: '#6C6C80' },
+  avatarSub:  { fontSize: 14, color: '#374151', marginTop: -3 },
+  avatarRole: { fontSize: 14, color: '#374151' },
   heroPills:  { flexDirection: 'row', gap: 7, marginTop: 2 },
   pillType:     { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: '#EDE9FE' },
   pillTypeText: { fontSize: 11, fontWeight: '500', color: BRAND },
@@ -592,20 +605,20 @@ const styles = StyleSheet.create({
   compatibilityCopy:    { flex: 1 },
   compatibilityEyebrow: { fontSize: 12, fontWeight: '600', color: BRAND, marginBottom: 6 },
   compatibilityHeadline:{ fontSize: 15, fontWeight: '600', color: '#111', lineHeight: 22, marginBottom: 6 },
-  compatibilityCaption: { fontSize: 13, color: '#666', lineHeight: 19 },
+  compatibilityCaption: { fontSize: 13, color: '#374151', lineHeight: 19 },
   factorGrid:           { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
   factorCard:           { width: '47.5%', backgroundColor: '#FAFAFD', borderRadius: 16, padding: 12, minHeight: 102 },
   factorIconWrap:       { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  factorTitle:          { fontSize: 12, fontWeight: '600', color: '#7A7A92', marginBottom: 6 },
-  factorValue:          { fontSize: 13, lineHeight: 19, color: '#333' },
+  factorTitle:          { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 6 },
+  factorValue:          { fontSize: 13, lineHeight: 19, color: '#111827' },
 
   stats:     { flexDirection: 'row', gap: 10, marginBottom: 24 },
   statCard:  { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center', gap: 5 },
   statIcon:  { width: 32, height: 32, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   statValue: { fontSize: 16, fontWeight: '500', color: '#111' },
-  statLabel: { fontSize: 12, color: '#8A8A9E' },
+  statLabel: { fontSize: 12, color: '#374151' },
 
-  sectionLabel: { fontSize: 12, fontWeight: '600', color: '#8A8A9E', letterSpacing: 0.4, marginBottom: 10 },
+  sectionLabel: { fontSize: 12, fontWeight: '600', color: '#374151', letterSpacing: 0.4, marginBottom: 10 },
 
   infoGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
   miniCard:     { width: '47.5%', backgroundColor: '#fff', borderRadius: 20, padding: 15, gap: 3 },
@@ -615,17 +628,17 @@ const styles = StyleSheet.create({
   miniIconPink: { backgroundColor: '#FCE7F3' },
   miniIconYellow:{ backgroundColor: '#FEF9C3' },
   miniIconGreen:{ backgroundColor: '#DCFCE7' },
-  miniLbl:      { fontSize: 12, color: '#9A9AAF', fontWeight: '600', letterSpacing: 0.2 },
+  miniLbl:      { fontSize: 12, color: '#374151', fontWeight: '600', letterSpacing: 0.2 },
   miniBig:      { fontSize: 24, fontWeight: '500', color: '#111', lineHeight: 28, marginTop: 1 },
   miniBigCompact:{ fontSize: 18, fontWeight: '600', color: '#111', lineHeight: 24, marginTop: 1 },
   miniBigSmall: { fontSize: 15, fontWeight: '600', color: '#111', lineHeight: 21, marginTop: 1 },
-  miniDesc:     { fontSize: 12, color: '#6C6C80', lineHeight: 17, marginTop: 3 },
+  miniDesc:     { fontSize: 12, color: '#374151', lineHeight: 17, marginTop: 3 },
   miniCardWideContent:{ flex: 1 },
-  miniDescWide: { fontSize: 13, color: '#4F4F63', lineHeight: 20, marginTop: 4 },
+  miniDescWide: { fontSize: 13, color: '#111827', lineHeight: 20, marginTop: 4 },
 
   speechRow:       { flexDirection: 'row', gap: 8, marginBottom: 24 },
   speechCard:      { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center', gap: 8 },
-  speechDir:       { fontSize: 12, color: '#8A8A9E' },
+  speechDir:       { fontSize: 12, color: '#374151' },
   speechBadge:     { backgroundColor: BRAND, paddingHorizontal: 18, paddingVertical: 7, borderRadius: 20 },
   speechBadgeText: { fontSize: 13, fontWeight: '500', color: '#fff' },
 
@@ -633,7 +646,7 @@ const styles = StyleSheet.create({
   tagSel:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#EDE9FE' },
   tagSelText: { fontSize: 12, fontWeight: '500', color: BRAND },
   tagOut:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#fff', borderWidth: 0.5, borderColor: '#E5E5EA' },
-  tagOutText: { fontSize: 12, fontWeight: '500', color: '#555' },
+  tagOutText: { fontSize: 12, fontWeight: '500', color: '#111827' },
 
   // FIX 3: statsRow / statItem / statDivider were referenced in original JSX
   // but never defined — caused style lookup to return undefined (no crash but
@@ -645,12 +658,12 @@ const styles = StyleSheet.create({
 
   conversationList: { gap: 10, marginBottom: 24 },
   emptyCard:        { padding: 20, alignItems: 'center' },
-  emptyText:        { fontSize: 13, color: '#8A8A9E', textAlign: 'center' },
+  emptyText:        { fontSize: 13, color: '#374151', textAlign: 'center' },
   convCard:         { marginBottom: 0 },
   convRow:          { flexDirection: 'row', alignItems: 'center', gap: 12 },
   convInfo:         { flex: 1 },
   convSituation:    { fontSize: 14, fontWeight: '600', color: '#111', marginBottom: 3 },
-  convDate:         { fontSize: 13, color: '#8A8A9E' },
+  convDate:         { fontSize: 13, color: '#374151' },
   convScore:        { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#EDE9FE', borderRadius: 10 },
   convScoreText:    { fontSize: 11, fontWeight: '600', color: BRAND },
 
@@ -658,8 +671,8 @@ const styles = StyleSheet.create({
   guideHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   guideDot:  { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND },
   guideLbl:  { fontSize: 12, fontWeight: '600', color: BRAND },
-  guideText: { fontSize: 13, color: '#555', lineHeight: 21 },
-  memoText:  { fontSize: 13, color: '#555', lineHeight: 21 },
+  guideText: { fontSize: 13, color: '#111827', lineHeight: 21 },
+  memoText:  { fontSize: 13, color: '#111827', lineHeight: 21 },
 
   deleteBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, marginBottom: 8 },
   deleteBtnText: { fontSize: 13, fontWeight: '500', color: '#FF4D4D' },

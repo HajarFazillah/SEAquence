@@ -1,10 +1,11 @@
 """
 Compatibility API
 
-POST /api/v1/compatibility/analyze - Calculate compatibility between user and avatar
-POST /api/v1/compatibility/analyze-semantic - AI-powered semantic similarity analysis
+POST /api/v1/compatibility/analyze        - Semantic (ko-sroberta) + CLOVA recommendation
+POST /api/v1/compatibility/analyze-simple - Rule-based fallback (no ML, no AI)
 
-Uses CLOVA X for semantic understanding of interests and topics.
+Keyword/interest similarity is calculated using ko-sroberta sentence embeddings.
+CLOVA X is used only for the final natural-language recommendation text.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +16,7 @@ import math
 from app.schemas.avatar import AvatarCreate
 from app.schemas.user import UserProfileCreate
 from app.services.clova_service import clova_service, Message
+from app.ml.compatibility_service import get_compatibility_analyzer
 
 
 router = APIRouter(prefix="/compatibility", tags=["compatibility"])
@@ -74,108 +76,72 @@ class BatchCompatibilityResult(BaseModel):
 
 
 # ============================================================================
-# AI-Powered Semantic Analysis
+# STH-Based Semantic Analysis (ko-sroberta)
 # ============================================================================
 
-async def analyze_semantic_similarity(
+def analyze_semantic_similarity_sth(
     user_interests: List[str],
     avatar_interests: List[str],
+    threshold: float = 0.55,
 ) -> Dict[str, Any]:
     """
-    Use CLOVA X to find semantically similar interests.
-    
-    Examples:
-    - "음악" ↔ "K-POP" → related (85%)
-    - "여행" ↔ "해외 문화" → related (70%)
-    - "운동" ↔ "헬스" → related (90%)
+    Use ko-sroberta embeddings to find semantically similar interests.
+    Falls back to exact string matching if model is unavailable.
     """
     if not user_interests or not avatar_interests:
         return {"score": 50, "matches": [], "suggested_topics": []}
-    
-    prompt = f"""두 사람의 관심사를 비교하여 의미적으로 관련된 주제를 찾아주세요.
 
-사용자 관심사: {', '.join(user_interests)}
-아바타 관심사: {', '.join(avatar_interests)}
+    analyzer = get_compatibility_analyzer()
+    raw_matches = analyzer.find_semantic_matches(user_interests, avatar_interests, threshold=threshold)
 
-다음 JSON 형식으로 응답하세요:
-{{
-    "overall_similarity": 0-100 사이의 점수,
-    "matches": [
-        {{
-            "user_interest": "사용자의 관심사",
-            "avatar_interest": "아바타의 관련된 관심사",
-            "similarity": 0-100 사이의 유사도,
-            "reason": "관련된 이유 (한 문장)"
-        }}
-    ],
-    "suggested_topics": ["두 사람이 함께 이야기하기 좋은 주제 3개"]
-}}
+    matches = [
+        {
+            "user_interest":   m["item_a"],
+            "avatar_interest": m["item_b"],
+            "similarity":      int(m["similarity"] * 100),
+            "reason": (
+                f"'{m['item_a']}'와 '{m['item_b']}'은 의미적으로 연관돼 있어요."
+                if not m["is_exact"]
+                else f"'{m['item_a']}'에 대한 관심사가 같아요."
+            ),
+        }
+        for m in raw_matches
+    ]
 
-예시:
-- "음악"과 "K-POP"은 관련됨 (similarity: 85, reason: "K-POP은 음악의 한 장르입니다")
-- "여행"과 "맛집"은 관련됨 (similarity: 70, reason: "여행 중 맛집 탐방을 함께 즐길 수 있습니다")
-- "운동"과 "헬스"는 매우 관련됨 (similarity: 95, reason: "헬스는 운동의 한 종류입니다")
+    overall = min(100, len(matches) * 20) if matches else 0
+    suggested_topics = list({m["user_interest"] for m in matches})[:3]
 
-정확한 일치가 아니어도 의미적으로 관련된 것을 모두 찾아주세요.
-최소 유사도 50 이상인 것만 포함하세요."""
-
-    result = await clova_service.analyze_json(prompt, temperature=0.3, max_tokens=1024)
-    
-    if not result:
-        # Fallback to empty result
-        return {"score": 50, "matches": [], "suggested_topics": []}
-    
-    return {
-        "score": result.get("overall_similarity", 50),
-        "matches": result.get("matches", []),
-        "suggested_topics": result.get("suggested_topics", []),
-    }
+    return {"score": overall, "matches": matches, "suggested_topics": suggested_topics}
 
 
-async def analyze_topic_conflicts(
+def analyze_topic_conflicts_sth(
     user_dislikes: List[str],
     avatar_interests: List[str],
+    threshold: float = 0.65,
 ) -> Dict[str, Any]:
     """
-    Use CLOVA X to find potential topic conflicts semantically.
-    
-    Examples:
-    - User dislikes "취업 스트레스" but avatar likes "커리어" → potential conflict
-    - User dislikes "정치" but avatar likes "시사" → related conflict
+    Use ko-sroberta embeddings to detect semantic conflicts between
+    user dislikes and avatar interests.
     """
     if not user_dislikes or not avatar_interests:
         return {"safety_score": 100, "conflicts": []}
-    
-    prompt = f"""사용자가 피하고 싶은 주제와 아바타의 관심사 사이에 충돌이 있는지 분석해주세요.
 
-사용자가 피하는 주제: {', '.join(user_dislikes)}
-아바타 관심사: {', '.join(avatar_interests)}
+    analyzer = get_compatibility_analyzer()
+    raw_conflicts = analyzer.find_semantic_matches(user_dislikes, avatar_interests, threshold=threshold)
 
-다음 JSON 형식으로 응답하세요:
-{{
-    "safety_score": 0-100 (100은 완전히 안전, 0은 많은 충돌),
-    "conflicts": [
-        {{
-            "user_dislike": "사용자가 피하는 주제",
-            "avatar_interest": "관련된 아바타 관심사",
-            "severity": "high/medium/low",
-            "reason": "충돌 이유"
-        }}
-    ],
-    "advice": "대화 시 주의할 점"
-}}
+    conflicts = [
+        {
+            "user_dislike":    m["item_a"],
+            "avatar_interest": m["item_b"],
+            "severity": "high" if m["similarity"] >= 0.85 else "medium" if m["similarity"] >= 0.70 else "low",
+        }
+        for m in raw_conflicts
+    ]
 
-예시:
-- "취업 스트레스"를 피하는데 아바타가 "커리어"를 좋아함 → medium severity
-- "정치"를 피하는데 아바타가 "시사"를 좋아함 → high severity
-- "종교"를 피하는데 아바타가 "철학"을 좋아함 → low severity"""
+    penalty = sum({"high": 30, "medium": 15, "low": 8}[c["severity"]] for c in conflicts)
+    safety_score = max(0, 100 - penalty)
 
-    result = await clova_service.analyze_json(prompt, temperature=0.3, max_tokens=512)
-    
-    if not result:
-        return {"safety_score": 100, "conflicts": [], "advice": ""}
-    
-    return result
+    return {"safety_score": safety_score, "conflicts": conflicts}
 
 
 async def generate_compatibility_recommendation(
@@ -284,84 +250,77 @@ def calculate_difficulty_match(user_level: str, avatar_difficulty: str) -> float
 @router.post("/analyze", response_model=CompatibilityResult)
 async def analyze_compatibility(request: CompatibilityRequest):
     """
-    Calculate compatibility with AI-powered semantic similarity.
-    
-    Uses CLOVA X to:
-    1. Find semantically related interests (e.g., "음악" ↔ "K-POP")
-    2. Detect potential topic conflicts
-    3. Suggest conversation topics
-    4. Generate personalized recommendations
+    Compatibility analysis using ko-sroberta for semantic similarity
+    and CLOVA X only for the final recommendation text.
     """
     user = request.user_profile
     avatar = request.avatar
-    
-    # 1. Semantic interest analysis (AI)
-    semantic_result = await analyze_semantic_similarity(
+
+    # 1. Semantic interest similarity — ko-sroberta (sync, fast)
+    semantic_result = analyze_semantic_similarity_sth(
         user.interests or [],
         avatar.interests or [],
     )
-    
-    semantic_score = semantic_result.get("score", 50)
+    semantic_score = semantic_result["score"]
     semantic_matches = [
         SemanticMatch(
-            user_interest=m.get("user_interest", ""),
-            avatar_interest=m.get("avatar_interest", ""),
-            similarity=m.get("similarity", 0),
-            reason=m.get("reason", ""),
+            user_interest=m["user_interest"],
+            avatar_interest=m["avatar_interest"],
+            similarity=m["similarity"],
+            reason=m["reason"],
         )
-        for m in semantic_result.get("matches", [])
+        for m in semantic_result["matches"]
     ]
-    suggested_topics = semantic_result.get("suggested_topics", [])
-    
-    # 2. Also get exact matches
+    suggested_topics = semantic_result["suggested_topics"]
+
+    # 2. Exact-match overlap (rule-based, for shared_interests list)
     exact_score, exact_shared = calculate_interest_overlap_simple(
         user.interests or [],
         avatar.interests or [],
     )
-    
-    # Combine exact + semantic (weighted: 30% exact, 70% semantic)
+
+    # Combine: 30% exact, 70% semantic embedding
     combined_interest_score = (exact_score * 0.3) + (semantic_score * 0.7)
-    
-    # 3. Topic safety analysis (AI)
-    conflict_result = await analyze_topic_conflicts(
+
+    # 3. Topic conflict detection — ko-sroberta (sync, fast)
+    conflict_result = analyze_topic_conflicts_sth(
         user.dislikes or [],
         avatar.interests or [],
     )
-    
-    ai_safety_score = conflict_result.get("safety_score", 100)
-    ai_conflicts = conflict_result.get("conflicts", [])
-    
-    # Also get exact conflicts
+    sth_safety_score = conflict_result["safety_score"]
+    sth_conflicts = conflict_result["conflicts"]
+
     exact_safety, exact_conflicts = calculate_topic_safety_simple(
         user.dislikes or [],
         avatar.interests or [],
     )
-    
-    # Combine (30% exact, 70% AI)
-    combined_safety_score = (exact_safety * 0.3) + (ai_safety_score * 0.7)
-    
-    # Get conflict list (merge exact + AI)
-    all_conflicts = list(set(exact_conflicts + [c.get("user_dislike", "") for c in ai_conflicts]))
-    
+    combined_safety_score = (exact_safety * 0.3) + (sth_safety_score * 0.7)
+    all_conflicts = list(set(
+        exact_conflicts + [c["user_dislike"] for c in sth_conflicts]
+    ))
+
     # 4. Difficulty match (rule-based)
     difficulty_score = calculate_difficulty_match(
-        user.korean_level.value if hasattr(user.korean_level, 'value') else str(user.korean_level),
-        avatar.difficulty.value if hasattr(avatar.difficulty, 'value') else str(avatar.difficulty),
+        user.korean_level.value if hasattr(user.korean_level, "value") else str(user.korean_level),
+        avatar.difficulty.value if hasattr(avatar.difficulty, "value") else str(avatar.difficulty),
     )
-    
-    # 5. Calculate overall score
-    # Weights: Interest 40%, Safety 30%, Difficulty 30%
-    overall = (combined_interest_score * 0.4) + (combined_safety_score * 0.3) + (difficulty_score * 0.3)
-    
-    # 6. Generate AI recommendation
+
+    # 5. Final score  — Interest 40%, Safety 30%, Difficulty 30%
+    overall = (
+        combined_interest_score * 0.4
+        + combined_safety_score  * 0.3
+        + difficulty_score       * 0.3
+    )
+
+    # 6. CLOVA X — recommendation text only (1 call)
     recommendation = await generate_compatibility_recommendation(
         avatar_name=avatar.name_ko,
         overall_score=overall,
         semantic_matches=[m.dict() for m in semantic_matches],
-        conflicts=ai_conflicts,
+        conflicts=sth_conflicts,
         suggested_topics=suggested_topics,
     )
-    
+
     return CompatibilityResult(
         overall_score=round(overall, 1),
         interest_overlap=round(combined_interest_score, 1),
