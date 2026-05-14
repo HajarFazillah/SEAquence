@@ -48,6 +48,9 @@ class RecordMessageRequest(BaseModel):
 class RecordConversationRequest(BaseModel):
     """Record a completed conversation"""
     duration_minutes: int = 5
+    rating: Optional[int] = None
+    feedback_tags: Optional[List[str]] = None
+    situation: Optional[str] = None
 
 
 class RecordVocabularyRequest(BaseModel):
@@ -363,6 +366,9 @@ async def record_conversation(user_id: str, request: RecordConversationRequest):
     analytics_service.record_conversation(
         user_id=user_id,
         duration_minutes=request.duration_minutes,
+        rating=request.rating,
+        feedback_tags=request.feedback_tags,
+        situation=request.situation,
     )
     
     return {"status": "recorded"}

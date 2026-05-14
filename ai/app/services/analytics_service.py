@@ -92,6 +92,9 @@ class DailyStats(BaseModel):
     practice_minutes: int = 0
     conversations: int = 0
     accuracy: float = 0.0
+    ratings: List[int] = []
+    feedback_tags: List[str] = []
+    situations: List[str] = []
 
 
 class MistakeExample(BaseModel):
@@ -382,18 +385,31 @@ class AnalyticsService:
         if stats.messages_sent > 0:
             stats.accuracy = round(stats.correct_messages / stats.messages_sent * 100, 1)
     
-    def record_conversation(self, user_id: str, duration_minutes: int = 5):
+    def record_conversation(
+        self,
+        user_id: str,
+        duration_minutes: int = 5,
+        rating: Optional[int] = None,
+        feedback_tags: Optional[List[str]] = None,
+        situation: Optional[str] = None,
+    ):
         """Record a completed conversation"""
-        
+
         data = self._get_user_data(user_id)
         today = self._get_today()
-        
+
         if today not in data.daily_stats:
             data.daily_stats[today] = DailyStats(date=today)
-        
+
         stats = data.daily_stats[today]
         stats.conversations += 1
         stats.practice_minutes += duration_minutes
+        if rating is not None:
+            stats.ratings.append(rating)
+        if feedback_tags:
+            stats.feedback_tags.extend(feedback_tags)
+        if situation:
+            stats.situations.append(situation)
     
     def record_vocabulary(
         self,
