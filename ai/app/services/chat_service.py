@@ -220,25 +220,8 @@ def build_human_encouragement(
     has_errors: bool,
     corrections: List[InlineCorrection],
     message_intent: str,
-) -> str:
-    if not has_errors:
-        if message_intent == "greeting":
-            return "좋아요. 이렇게 시작하면 대화가 부드럽게 이어져요."
-        return "좋아요. 이 흐름으로 계속 말해 보면 돼요."
-
-    labels = []
-    for correction in corrections:
-        label = _label_for_correction_type(correction)
-        if label not in labels:
-            labels.append(label)
-
-    if "요청 표현" in labels:
-        return "요청 표현만 조금 다듬어도 훨씬 공손하게 들려요."
-    if "말투" in labels:
-        return "문장 끝맺음만 맞춰도 전체 인상이 훨씬 자연스러워져요."
-    if "띄어쓰기" in labels or "오타" in labels:
-        return "작은 표기만 정리해도 훨씬 매끄럽게 들려요."
-    return "핵심 의미는 잘 전달됐어요. 표현만 조금 다듬어 보면 더 좋아져요."
+) -> Optional[str]:
+    return None
 
 
 def apply_error_based_score_cap(
@@ -438,20 +421,40 @@ def build_realtime_correction_prompt(
 "{user_message}"
 
 ## 교정 원칙
+- **말투(speech level)는 여러 오류 유형 중 하나입니다.** 조사·동사 활용·어휘가 틀렸다면 그것을 먼저 지적하세요.
+- 조사 오류(이/가, 을/를, 은/는, 에/에서/에게 혼동)는 항상 별도 correction으로 명시하세요.
+- 동사 불규칙 활용 오류(ㄷ불규칙, ㅂ불규칙, 르불규칙 등)도 명시하세요.
+- 말투가 맞더라도 조사나 어미가 틀렸으면 has_errors를 true로 처리하세요.
 - 사용자의 의도, 관계의 거리감, 문장의 온도를 최대한 유지한 채 최소한으로 고치세요.
 - 단순한 문법 정답보다 실제 대화에서 더 자연스럽게 들리는 표현을 우선하세요.
-- 하지만 원래 문장도 충분히 자연스러우면 억지로 더 세련되게 바꾸지 마세요.
-- 한국어 화자의 미묘한 완곡함, 여운, 친근한 말투는 함부로 제거하지 마세요.
+- 원래 문장도 충분히 자연스러우면 억지로 바꾸지 마세요.
 - 번역투, 어색한 조사, 부자연스러운 어순, 관계에 안 맞는 말투만 선별적으로 고치세요.
 {strategy_line}
 {situation_section}
 {konlpy_section}
-## 작업 순서
-1. 먼저 오류 유형을 분류하세요: spelling / speech_level / grammar / vocabulary / expression / honorific
-2. 오타나 말투 문제만 있으면 전체 문장을 새로 쓰지 말고 최소 수정으로 해결하세요.
-3. 조사, 어순, 어휘 선택, 존칭까지 함께 어색할 때만 전체 문장을 재작성하세요.
-4. 현재 문장이 이미 자연스러우면 수정하지 말고 그대로 인정하세요.
-5. 서비스/주문 상황에서는 메뉴 이름, 수량, 핵심 명사는 보존하고 말투와 요청 표현을 먼저 다듬으세요.
+## corrected_message 생성 규칙 (반드시 준수)
+corrected_message는 **발견된 모든 오류를 함께 수정한** 가장 자연스러운 한국어 문장입니다.
+말투(speech level)는 여러 오류 유형 중 하나일 뿐이며, 조사·동사 활용·어휘 오류가 있다면 그것도 함께 고쳐야 합니다.
+
+✅ 올바른 예:
+- "저는 밥을 먹었어" (조사 맞지만 반말) → "저는 밥을 먹었습니다." (말투만 수정)
+- "나는 밥을 먹었어" (조사+반말) → "저는 밥을 먹었습니다." (조사+말투 함께 수정)
+- "도서관에서 책을 보다" (어색한 어미) → "도서관에서 책을 봤습니다." (어미 수정)
+- "안녕 모해" → "안녕하십니까, 뭐 하십니까?" (어휘 보존, 말투 변환)
+
+❌ 잘못된 예 (절대 금지):
+- "안녕 모해" → "안녕하십니까, 어떻게 지내십니까?" (뜻이 달라짐)
+- "밥 먹었어?" → "오늘 점심은 드셨나요?" (새 정보 추가)
+
+**단계별 작업:**
+1. **오타·맞춤법**을 가장 먼저 수정하세요 (예: 면당→면담, 됬→됐). corrected_message에 오타가 하나라도 남으면 안 됩니다.
+2. 조사 오류(을/를, 이/가, 은/는, 에/에서 등)를 확인하세요.
+3. 동사 활용 오류(불규칙 활용, 어미 오류)를 확인하세요.
+4. 어휘 선택이 관계/상황에 맞는지 확인하세요.
+5. 마지막으로 말투({speech_info['name_ko']}) 끝맺음을 맞추세요.
+6. 위 1~5를 모두 반영한 corrected_message를 작성하세요.
+7. 결과 문장이 원문과 핵심 의미가 다르면 다시 작성하세요.
+8. 서비스/주문 상황에서는 메뉴 이름·수량·핵심 명사를 보존하세요.
 
 ## 응답 형식 (JSON only)
 {{
@@ -463,12 +466,12 @@ def build_realtime_correction_prompt(
     "accuracy_score": 85,
     "corrections": [
         {{
-            "original": "반드시 사용자 메시지에 실제로 존재하는 정확한 부분 문자열. 부분 문자열로 잡기 어려우면 전체 사용자 메시지",
-            "corrected": "올바른 {speech_info['name_ko']} 표현",
+            "original": "반드시 사용자 메시지에 실제로 존재하는 정확한 부분 문자열",
+            "corrected": "올바른 표현 (말투 변환이 아닌 경우 같은 speech level로 수정)",
             "type": "speech_level/grammar/spelling/vocabulary/expression/honorific",
             "severity": "info/warning/error",
-            "explanation": "왜 고치면 좋은지 한국어 한 문장",
-            "tip": "짧은 학습 팁 또는 null"
+            "explanation": "왜 고치면 좋은지 한국어 한 문장 — 학습 포인트를 명확히 설명하세요",
+            "tip": "관련 문법 규칙이나 패턴을 한 줄로 (예: '받침 있으면 을, 없으면 를') 또는 null"
         }}
     ],
     "natural_alternatives": [
@@ -483,7 +486,7 @@ def build_realtime_correction_prompt(
 ## JSON 계약
 - JSON 객체 하나만 출력하세요. 마크다운, 코드블록, 설명 문장, 추가 키는 금지합니다.
 - 모든 문자열 값은 한국어로 작성하세요. 단, type/severity/level 코드는 지정된 영어 코드만 사용하세요.
-- corrected_message는 사용자의 원래 의미를 보존해야 합니다. 새 정보, 새 감정, 새 의도를 추가하지 마세요.
+- corrected_message는 사용자의 원래 의미를 보존해야 합니다. 새 정보, 새 감정, 새 의도를 추가하지 마세요. 어휘를 다른 뜻의 단어로 교체하지 마세요 — 말투 변환(어미·존칭)만 허용됩니다.
 - has_errors가 false이면 corrected_message는 null, corrections는 [], natural_alternatives는 []로 두세요.
 - has_errors가 true이면 corrected_message는 null이 아니어야 합니다.
 - corrections[].original은 반드시 사용자 메시지에 실제로 있는 텍스트와 정확히 일치해야 합니다.
@@ -502,7 +505,7 @@ def build_realtime_correction_prompt(
 
 ## 절대 규칙
 - detected_speech_level 은 formal / polite / informal / unknown 중 하나 (null 불가)
-- corrected_message 는 반드시 {speech_info['name_ko']} 말투로
+- corrected_message 는 모든 오류(조사·어미·어휘·말투)를 함께 수정한 문장. 말투 오류가 없으면 {speech_info['name_ko']}로 강제 변환하지 마세요.
 - corrections original 은 사용자 메시지에 실제 존재하는 표현만
 - 맥락상 자연스러운 표현은 오류 처리 금지
 - 한국어의 자연스러운 여운, 완곡함, 구어적 뉘앙스를 기계적으로 교정하지 마세요.
@@ -1284,7 +1287,18 @@ def infer_surface_correction_type(original: str, corrected: str) -> CorrectionTy
         ]
     ):
         return CorrectionType.SPEECH_LEVEL
+    # Informal short-form endings (음/ㅁ/함) converting to formal/polite
+    _informal_endings = ("음", "ㅁ", "함", "싶음", "겠음", "임", "됨", "없음", "있음")
+    _formal_endings = ("습니다", "습니까", "어요", "아요", "세요", "십시오", "겠습니다")
+    if (
+        any(original_norm.endswith(e) for e in _informal_endings)
+        and any(corrected_norm.endswith(e) for e in _formal_endings)
+    ):
+        return CorrectionType.SPEECH_LEVEL
     if any(token in corrected for token in ["주세요", "주실", "드려", "해 주세요", "해주시"]):
+        return CorrectionType.HONORIFIC
+    # Adding honorific title suffix (선배 → 선배님, 선생님 already ends in 님)
+    if corrected_norm.endswith("님") and not original_norm.endswith("님"):
         return CorrectionType.HONORIFIC
     if any(token in corrected for token in ["저", "저는", "제가", "저를", "저한테"]):
         return CorrectionType.VOCABULARY
@@ -1343,9 +1357,9 @@ def _build_pattern_level_corrections(original_text: str, corrected_text: str) ->
         ))
 
     if "안녕" in original_text and "안녕하세요" in corrected_text and "안녕하세요" not in original_text:
-        add("안녕", "안녕하세요", CorrectionType.HONORIFIC, "상황에 맞게 인사말을 더 공손하게 바꾸는 것이 자연스럽습니다.")
+        add("안녕", "안녕하세요", CorrectionType.SPEECH_LEVEL, "상황에 맞게 인사말을 더 공손하게 바꾸는 것이 자연스럽습니다.")
     if "안녕" in original_text and "안녕하십니까" in corrected_text and "안녕하십니까" not in original_text:
-        add("안녕", "안녕하십니까", CorrectionType.HONORIFIC, "격식 있는 상황이라면 인사말도 더 높여서 쓰는 편이 자연스럽습니다.")
+        add("안녕", "안녕하십니까", CorrectionType.SPEECH_LEVEL, "격식 있는 상황이라면 인사말도 더 높여서 쓰는 편이 자연스럽습니다.")
 
     for token in (original_text or "").strip().split():
         if token.endswith("줘") and "주세요" in corrected_text:
@@ -1625,11 +1639,19 @@ def build_rule_based_correction(
     corrected_message = spelling_fixed if spelling_corrections else None
     if not speech_level_correct:
         corrected_message = make_level_suggestion(user_message, expected_norm)
+        # Using informal when polite/formal is expected is a serious breach → ERROR.
+        # Switching between polite and formal is a style mismatch, not rudeness → WARNING.
+        _LEVEL_ORDER = {"informal": 0, "polite": 1, "formal": 2}
+        is_rudeness = (
+            _LEVEL_ORDER.get(detected_norm, 1) < _LEVEL_ORDER.get(expected_norm, 1) - 1
+            or (detected_norm == "informal" and expected_norm != "informal")
+        )
+        speech_level_severity = CorrectionSeverity.ERROR if is_rudeness else CorrectionSeverity.WARNING
         corrections.insert(0, InlineCorrection(
             original=user_message,
             corrected=corrected_message,
             type=CorrectionType.SPEECH_LEVEL,
-            severity=CorrectionSeverity.ERROR,
+            severity=speech_level_severity,
             explanation=f"{expected_label}를 사용해야 합니다. 지금 문장은 {LEVEL_KO_LABELS.get(detected_norm, detected_norm)}에 가까워요.",
             tip=f"예시: {_LEVEL_EXAMPLES[expected_norm]}",
         ))
@@ -3166,6 +3188,19 @@ class ChatService:
         typo_count = sum(1 for c in corrections if c.type == CorrectionType.SPELLING)
         if has_errors and not corrected_message:
             corrected_message = compose_corrected_message_from_corrections(user_message, corrections) or corrected_message
+
+        # Patch any spelling corrections into corrected_message even if LLM already set one.
+        # LLMs often detect typos as corrections but forget to fix them in corrected_message.
+        if corrected_message:
+            spelling_corrections = [
+                c for c in corrections
+                if c.type == CorrectionType.SPELLING
+                and c.original and c.corrected
+                and c.original != c.corrected
+                and c.original in corrected_message
+            ]
+            for sc in spelling_corrections:
+                corrected_message = corrected_message.replace(sc.original, sc.corrected, 1)
         verdict = result.get("verdict") or infer_verdict(has_errors, typo_count, is_level_correct)
         accuracy_score = max(0, min(100, int(accuracy_score)))
         accuracy_score = apply_error_based_score_cap(accuracy_score, corrections, is_level_correct)

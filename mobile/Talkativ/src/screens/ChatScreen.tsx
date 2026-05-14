@@ -819,7 +819,10 @@ const correctionCategoryMeta = (correction: Correction) => {
   if (compactOriginal === compactCorrected && original !== corrected) {
     return { label: '띄어쓰기', tint: '#DCFCE7', text: '#15803D' };
   }
-  return { label: '오타', tint: '#FEE2E2', text: '#DC2626' };
+  if (correction.type === 'spelling') {
+    return { label: '맞춤법', tint: '#FEE2E2', text: '#DC2626' };
+  }
+  return { label: '오타', tint: '#FFE4E4', text: '#DC2626' };
 };
 
 const feedbackSubtitle = (fb: SpeechAnalysis) => {
@@ -1081,10 +1084,6 @@ export default function ChatScreen() {
             <Text style={styles.feedbackTitle}>{feedbackTitle(fb)}</Text>
             <Text style={styles.feedbackSub}>{feedbackSubtitle(fb)}</Text>
           </View>
-          {/* Score chip always visible */}
-          <Text style={[styles.scoreChip, { color: sc, backgroundColor: `${sc}14` }]}>
-            {scoreLabel}
-          </Text>
           <ChevronDown
             size={14}
             color="#bbb"
@@ -1096,26 +1095,6 @@ export default function ChatScreen() {
         {expanded && (
           <View style={styles.feedbackBody}>
             {/* Score bar */}
-            <View style={styles.scoreRow}>
-              <Text style={[styles.scoreNum, { color: sc }]}>{isScorable ? fb.accuracy_score : '–'}</Text>
-              <View style={styles.scoreBarWrap}>
-                <View style={styles.scoreTrack}>
-                  <View style={[styles.scoreFill, { width: `${isScorable ? (fb.accuracy_score ?? 0) : 0}%`, backgroundColor: sc }]} />
-                </View>
-                <Text style={[styles.scoreHint, { color: sc }]}>
-                  {!isScorable
-                    ? '분석 제외'
-                    : (fb.accuracy_score ?? 0) >= 90
-                      ? '완벽해요'
-                      : (fb.accuracy_score ?? 0) >= 70
-                        ? '잘했어요'
-                        : (fb.accuracy_score ?? 0) >= 40
-                          ? '조금 더 다듬어 봐요'
-                          : '말투 오류 있음'}
-                </Text>
-              </View>
-            </View>
-
             {/* Correction compare boxes */}
             {fullSentenceCorrection ? (
               <View style={styles.fullSentenceBox}>
@@ -1125,22 +1104,14 @@ export default function ChatScreen() {
             ) : null}
 
             {/* Note */}
-            {fb.summary ? <Text style={styles.fcNote}>{fb.summary}</Text> : null}
-
-            {hasError && categoryMetas.length > 1 && (
-              <View style={styles.categoryChipsRow}>
-                {categoryMetas.map(meta => (
-                  <View key={meta.label} style={[styles.categoryChip, { backgroundColor: meta.tint }]}>
-                    <Text style={[styles.categoryChipText, { color: meta.text }]}>{meta.label}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
 
             {/* All corrections detail */}
             {hasError && fb.corrections.length > 0 && (
               <View style={styles.correctionList}>
-                {fb.corrections.map((c, i) => {
+                {fb.corrections.filter(c =>
+                  !fullSentenceCorrection ||
+                  c.corrected.trim() !== fullSentenceCorrection.trim()
+                ).map((c, i) => {
                   const meta = correctionCategoryMeta(c);
                   return (
                   <View key={i} style={styles.correctionItem}>
@@ -1242,45 +1213,38 @@ export default function ChatScreen() {
 
       {/* Mood strip */}
       <View style={styles.moodStrip}>
+        {/* Left: face + score */}
         <View style={styles.moodFaceWrap}>
           <MoodFace mood={avatarMood} />
-          <Text style={[styles.moodFaceLabel, { color: mc }]}>{moodState.label}</Text>
-          <Text style={styles.moodFaceSub}>{moodState.subLabel}</Text>
-        </View>
-        <View style={styles.moodRight}>
-          <View style={styles.moodTopRow}>
+          <View style={styles.moodScoreRow}>
             <Text style={styles.moodPct}>{avatarMood}%</Text>
-            <View style={styles.moodMeta}>
-              {avatarMoodChange !== 0 && (
-                <View style={[
-                  styles.moodDeltaBadge,
-                  avatarMoodChange > 0 ? styles.moodDeltaBadgePositive : styles.moodDeltaBadgeNegative,
+            {avatarMoodChange !== 0 && (
+              <View style={[
+                styles.moodDeltaBadge,
+                avatarMoodChange > 0 ? styles.moodDeltaBadgePositive : styles.moodDeltaBadgeNegative,
+              ]}>
+                <Text style={[
+                  styles.moodDeltaText,
+                  avatarMoodChange > 0 ? styles.moodDeltaTextPositive : styles.moodDeltaTextNegative,
                 ]}>
-                  <Text style={[
-                    styles.moodDeltaText,
-                    avatarMoodChange > 0 ? styles.moodDeltaTextPositive : styles.moodDeltaTextNegative,
-                  ]}>
-                    {avatarMoodChange > 0 ? `+${avatarMoodChange}` : avatarMoodChange}
-                  </Text>
-                </View>
-              )}
-              <Text style={styles.moodHint}>avatar mood</Text>
-              {correctStreak >= 3 && (
-                <View style={styles.streakBadge}>
-                  <StarIcon />
-                  <Text style={styles.streakText}>{correctStreak}연속</Text>
-                </View>
-              )}
-            </View>
+                  {avatarMoodChange > 0 ? `+${avatarMoodChange}` : avatarMoodChange}
+                </Text>
+              </View>
+            )}
+            {correctStreak >= 3 && (
+              <View style={styles.streakBadge}>
+                <StarIcon />
+                <Text style={styles.streakText}>{correctStreak}연속</Text>
+              </View>
+            )}
           </View>
-          {renderPips(avatarMood)}
         </View>
-      </View>
 
-      {/* Level bar */}
-      <View style={styles.levelBar}>
-        <Text style={styles.levelHint}>추천 말투</Text>
-        <SpeechLevelBadge level={recommendedLevel} size="small" />
+        {/* Right: speech level */}
+        <View style={styles.moodRight}>
+          <Text style={styles.levelHint}>추천 말투</Text>
+          <SpeechLevelBadge level={recommendedLevel} size="small" />
+        </View>
       </View>
 
       <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -1344,24 +1308,22 @@ const styles = StyleSheet.create({
   headerCenter:  { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, justifyContent: 'center' },
   headerAvatar:  { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   headerName:    { fontSize: 15, fontWeight: '500', color: '#111' },
-  headerSub:     { fontSize: 11, color: '#999', marginTop: 1 },
+  headerSub:     { fontSize: 12, color: '#999', marginTop: 1 },
   headerEndBtn:  { paddingHorizontal: 12, paddingVertical: 5, backgroundColor: 'rgba(255,77,77,0.09)', borderRadius: 20 },
   headerEndText: { fontSize: 12, fontWeight: '500', color: '#FF4D4D' },
 
   // Mood strip
-  moodStrip:     { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: GREY },
-  moodFaceWrap:  { alignItems: 'center', gap: 4 },
-  moodFaceLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
-  moodFaceSub:   { fontSize: 10, color: '#777', marginTop: -2 },
-  moodRight:     { flex: 1, gap: 6 },
-  moodTopRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  moodPct:       { fontSize: 13, fontWeight: '500', color: '#111' },
+  moodStrip:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: BORDER },
+  moodFaceWrap:  { alignItems: 'center', gap: 5 },
+  moodScoreRow:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  moodRight:     { alignItems: 'flex-end', gap: 4 },
+  moodPct:       { fontSize: 14, fontWeight: '700', color: '#111' },
   moodMeta:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  moodHint:      { fontSize: 11, color: '#999' },
+  moodHint:      { fontSize: 12, color: '#aaa', letterSpacing: 0.3 },
   moodDeltaBadge:{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20 },
-  moodDeltaText: { fontSize: 11, fontWeight: '700' },
+  moodDeltaText: { fontSize: 12, fontWeight: '700' },
   streakBadge:   { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(108,59,255,0.12)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
-  streakText:    { fontSize: 11, fontWeight: '500', color: BRAND },
+  streakText:    { fontSize: 12, fontWeight: '500', color: BRAND },
   pipsRow:       { flexDirection: 'row', gap: 4 },
   pip:           { flex: 1, height: 4, borderRadius: 2 },
   pipPartial:    { opacity: 0.4 },
@@ -1372,8 +1334,7 @@ const styles = StyleSheet.create({
   moodDeltaTextNegative:  { color: '#EF4444' },
 
   // Level bar
-  levelBar:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: BORDER },
-  levelHint: { fontSize: 11, color: '#999' },
+  levelHint: { fontSize: 12, color: '#999' },
   keyboardView: { flex: 1 },
 
   // Messages
@@ -1398,8 +1359,8 @@ const styles = StyleSheet.create({
   feedbackHeader: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11 },
   feedbackDot:    { width: 22, height: 22, borderRadius: 11, backgroundColor: GREY, borderWidth: 1, borderColor: BORDER, alignItems: 'center', justifyContent: 'center' },
   feedbackTitleBlock: { flex: 1 },
-  feedbackTitle:  { fontSize: 12.5, fontWeight: '500', color: '#111' },
-  feedbackSub:    { fontSize: 10, color: '#999', marginTop: 1 },
+  feedbackTitle:  { fontSize: 13, fontWeight: '500', color: '#111' },
+  feedbackSub:    { fontSize: 12, color: '#999', marginTop: 1 },
   scoreChip:      { fontSize: 11, fontWeight: '500', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 20, overflow: 'hidden' },
 
   feedbackBody:   { borderTopWidth: 1, borderTopColor: BORDER },
@@ -1410,14 +1371,14 @@ const styles = StyleSheet.create({
   scoreFill:      { height: '100%', borderRadius: 3 },
   scoreHint:      { fontSize: 10 },
 
-  fullSentenceBox:{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 12, backgroundColor: '#F7F4FF', borderWidth: 1, borderColor: 'rgba(108,59,255,0.18)' },
-  fullSentenceLabel:{ fontSize: 10, fontWeight: '600', color: BRAND, marginBottom: 6 },
+  fullSentenceBox:{ marginHorizontal: 12, marginTop: 12, marginBottom: 10, padding: 12, borderRadius: 12, backgroundColor: '#F7F4FF', borderWidth: 1, borderColor: 'rgba(108,59,255,0.18)' },
+  fullSentenceLabel:{ fontSize: 12, fontWeight: '600', color: BRAND, marginBottom: 6 },
   fullSentenceText:{ fontSize: 14, lineHeight: 21, fontWeight: '600', color: '#2D1B69' },
 
   cmpRow:         { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 10 },
   cmpSide:        { flex: 1, padding: 9, borderRadius: 10, backgroundColor: GREY, borderWidth: 1, borderColor: BORDER },
   cmpSideFixed:   { backgroundColor: '#FFFFFF', borderColor: 'rgba(108,59,255,0.30)' },
-  cmpLabel:       { fontSize: 9, fontWeight: '500', letterSpacing: 0.06, marginBottom: 3, color: '#999' },
+  cmpLabel:       { fontSize: 11, fontWeight: '500', letterSpacing: 0.06, marginBottom: 3, color: '#999' },
   cmpLabelFixed:  { color: BRAND },
   cmpText:        { fontSize: 13, fontWeight: '500', color: '#555' },
   cmpTextFixed:   { color: BRAND },
@@ -1432,21 +1393,21 @@ const styles = StyleSheet.create({
   correctionItem:       { gap: 4 },
   correctionItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   correctionTypeLabel:  { fontSize: 10, fontWeight: '500', color: BRAND, backgroundColor: 'rgba(108,59,255,0.10)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  correctionSeverity:   { fontSize: 10, color: '#999' },
-  correctionCompare:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  correctionOrig:       { fontSize: 13, fontWeight: '500', color: '#999', textDecorationLine: 'line-through' },
-  correctionArrow:      { fontSize: 12, color: '#bbb' },
-  correctionFixed:      { fontSize: 13, fontWeight: '500', color: BRAND },
-  correctionExplain:    { fontSize: 11, color: '#666', lineHeight: 17 },
-  correctionTip:        { fontSize: 11, color: BRAND, fontWeight: '500' },
+  correctionSeverity:   { fontSize: 12, color: '#999' },
+  correctionCompare:    { flexDirection: 'column', gap: 2 },
+  correctionOrig:       { fontSize: 13, fontWeight: '500', color: '#999', textDecorationLine: 'line-through', flexShrink: 1 },
+  correctionArrow:      { fontSize: 11, color: '#bbb' },
+  correctionFixed:      { fontSize: 13, fontWeight: '500', color: BRAND, flexShrink: 1 },
+  correctionExplain:    { fontSize: 13, color: '#666', lineHeight: 19 },
+  correctionTip:        { fontSize: 12, color: BRAND, fontWeight: '500' },
 
   altsSection:    { marginHorizontal: 12, marginBottom: 12, backgroundColor: GREY, borderRadius: 12, padding: 10 },
   altsHeader:     { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
-  altsLabel:      { fontSize: 10, fontWeight: '500', color: BRAND },
+  altsLabel:      { fontSize: 12, fontWeight: '500', color: BRAND },
   altItem:        { paddingVertical: 5 },
   altItemBorder:  { borderBottomWidth: 0.5, borderBottomColor: BORDER, marginBottom: 5 },
   altExpr:        { fontSize: 13, fontWeight: '500', color: '#111' },
-  altExpl:        { fontSize: 10.5, color: '#999', marginTop: 2, lineHeight: 15 },
+  altExpl:        { fontSize: 12, color: '#999', marginTop: 2, lineHeight: 17 },
   encouragement:  { fontSize: 12, color: '#22C55E', paddingHorizontal: 12, paddingBottom: 12 },
 
   // Loading
