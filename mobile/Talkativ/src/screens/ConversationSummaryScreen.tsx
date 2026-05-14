@@ -241,6 +241,7 @@ export default function ConversationSummaryScreen() {
           },
           conversation_history: history,
           session_id: sessionId,
+          session_corrections: (sessionCorrections || []).flatMap((s: any) => s.corrections || []),
         }),
       });
 

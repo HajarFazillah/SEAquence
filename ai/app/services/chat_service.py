@@ -3455,6 +3455,7 @@ class ChatService:
         avatar:               AvatarBase,
         conversation_history: List[ChatMessage],
         session_id:           Optional[str] = None,
+        session_corrections:  Optional[List[Dict]] = None,
     ) -> ConversationAnalysis:
         speech_levels  = get_speech_levels_for_role(avatar.role)
         expected_level = speech_levels["from_user"]
@@ -3494,6 +3495,7 @@ class ChatService:
             avatar_name=avatar.name_ko,
             expected_speech_level=expected_level,
             stored_mistakes=stored_mistakes or None,
+            session_corrections=session_corrections or None,
         )
 
         result = await clova_service.analyze_json(prompt, temperature=0.3, max_tokens=2048)

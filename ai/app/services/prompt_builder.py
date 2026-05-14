@@ -877,6 +877,7 @@ def build_conversation_analysis_prompt(
     avatar_name: str,
     expected_speech_level: SpeechLevel,
     stored_mistakes: Optional[List[dict]] = None,
+    session_corrections: Optional[List[dict]] = None,
 ) -> str:
     speech_info = SPEECH_LEVEL_INFO[expected_speech_level]
 
@@ -913,6 +914,28 @@ def build_conversation_analysis_prompt(
             + "\n"
         )
 
+    corrections_section = ""
+    if session_corrections:
+        corr_lines = []
+        for c in session_corrections:
+            orig = c.get("original", "")
+            corr = c.get("corrected", "")
+            alts = c.get("alternatives") or []
+            if orig and corr:
+                alt_str = " / ".join(alts) if alts else ""
+                corr_lines.append(
+                    f"- \"{orig}\" → \"{corr}\""
+                    + (f" (동등 표현: {alt_str})" if alt_str else "")
+                )
+        if corr_lines:
+            corrections_section = (
+                "\n## 실시간 교정 목록 (교정된 표현 & 동등 표현)\n"
+                "아래는 사용자가 채팅 중 받은 교정 목록입니다. "
+                "vocabulary_to_learn과 phrases_to_learn 추출 시 이 교정된 표현들을 반드시 우선 포함하세요.\n"
+                + "\n".join(corr_lines)
+                + "\n"
+            )
+
     return f"""다음 한국어 대화를 꼼꼼히 분석하여 실제 학습에 도움이 되는 피드백을 제공하세요.
 
 ## 대화 정보
@@ -921,7 +944,7 @@ def build_conversation_analysis_prompt(
 
 ## 전체 대화
 {conversation_text}
-{stored_mistakes_section}
+{stored_mistakes_section}{corrections_section}
 
 ## 분석 목표
 이 분석의 목적은 사용자가 실제로 더 자연스럽고 정확한 한국어를 말할 수 있도록 돕는 것입니다.
@@ -941,20 +964,19 @@ def build_conversation_analysis_prompt(
 - corrected는 원어민이 실제 대화에서 자연스럽게 쓸 표현이어야 합니다.
 
 ## vocabulary_to_learn 추출 기준
-아래 기준으로 3~5개 추출하세요.
-- 이 대화 주제와 직접 관련된 단어
-- 아바타가 사용했거나, 사용자가 알면 바로 다음 대화에서 쓸 수 있는 단어
-- 사용자가 어색하게 표현한 부분을 더 자연스럽게 바꿀 때 도움이 되는 단어
-- 일반적인 교과서 단어보다, 이 대화 맥락에서 실제로 유용한 단어를 우선하세요
+아래 두 가지 소스에서 3~5개 추출하세요. 두 소스를 반드시 모두 참고하세요.
+**소스 1 — 교정 목록**: "실시간 교정 목록" 섹션에 있는 교정된 표현(corrected) 중 단어 단위로 분리할 수 있는 것을 우선 포함하세요.
+**소스 2 — 아바타 응답**: 대화에서 아바타({avatar_name})가 사용한 표현 중, 사용자가 이미 쓴 단어는 제외하고, 학습자가 몰랐을 가능성이 높은 단어를 포함하세요.
+- 일반적인 교과서 단어보다, 이 대화 맥락에서 실제로 유용한 단어를 우선하세요.
 - meaning 필드는 반드시 영어로 작성하세요. 학습자가 비한국어권이기 때문입니다.
 - example 필드는 반드시 한국어 문장으로 작성하세요.
 
 ## phrases_to_learn 추출 기준
-아래 기준으로 2~4개 추출하세요.
-- 이 대화에서 실제로 등장했거나, 바로 응용 가능한 자연스러운 표현
-- {speech_info['name_ko']}에서 자주 쓰는 핵심 문장 패턴
-- 이 상황에서 원어민이 자주 쓰는 표현
-- 예문은 반드시 이 대화의 상황과 비슷한 맥락으로 작성하세요
+아래 두 가지 소스에서 2~4개 추출하세요. 두 소스를 반드시 모두 참고하세요.
+**소스 1 — 교정 목록**: "실시간 교정 목록"의 교정된 표현(corrected) 및 동등 표현(alternatives) 중 문장 패턴으로 쓸 수 있는 것을 우선 포함하세요.
+**소스 2 — 아바타 응답**: 아바타({avatar_name})가 이 대화에서 실제로 사용한 자연스러운 문장 패턴 중 학습 가치가 높은 것을 포함하세요.
+- {speech_info['name_ko']}에서 자주 쓰는 핵심 문장 패턴을 우선하세요.
+- 예문은 반드시 이 대화의 상황과 비슷한 맥락으로 작성하세요.
 - meaning 필드는 반드시 영어로 작성하세요. 학습자가 비한국어권이기 때문입니다.
 - example 필드는 반드시 한국어 문장으로 작성하세요.
 

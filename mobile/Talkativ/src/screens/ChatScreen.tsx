@@ -50,12 +50,13 @@ type HistoryRole = 'user' | 'assistant';
 interface HistoryItem { role: HistoryRole; content: string; }
 
 interface Correction {
-  original:    string;
-  corrected:   string;
-  explanation: string;
-  severity:    'error' | 'warning' | 'info';
-  tip?:        string;
-  type?:       string;
+  original:     string;
+  corrected:    string;
+  explanation:  string;
+  severity:     'error' | 'warning' | 'info';
+  tip?:         string;
+  type?:        string;
+  alternatives?: string[];
 }
 
 interface NaturalAlternative {
@@ -1082,7 +1083,6 @@ export default function ChatScreen() {
           </View>
           <View style={styles.feedbackTitleBlock}>
             <Text style={styles.feedbackTitle}>{feedbackTitle(fb)}</Text>
-            <Text style={styles.feedbackSub}>{feedbackSubtitle(fb)}</Text>
           </View>
           <ChevronDown
             size={14}
@@ -1129,6 +1129,18 @@ export default function ChatScreen() {
                       <Text style={styles.correctionFixed}>{c.corrected}</Text>
                     </View>
                     <Text style={styles.correctionExplain}>{c.explanation}</Text>
+                    {c.alternatives && c.alternatives.length > 0 && (
+                      <View style={styles.correctionAltWrap}>
+                        <Text style={styles.correctionAltLabel}>동등 표현</Text>
+                        <View style={styles.correctionAltRow}>
+                          {c.alternatives.map((alt, ai) => (
+                            <View key={ai} style={styles.correctionAltChip}>
+                              <Text style={styles.correctionAltText}>{alt}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )}
                     {c.tip ? <Text style={styles.correctionTip}>Tip: {c.tip}</Text> : null}
                   </View>
                   );
@@ -1398,8 +1410,13 @@ const styles = StyleSheet.create({
   correctionOrig:       { fontSize: 13, fontWeight: '500', color: '#999', textDecorationLine: 'line-through', flexShrink: 1 },
   correctionArrow:      { fontSize: 11, color: '#bbb' },
   correctionFixed:      { fontSize: 13, fontWeight: '500', color: BRAND, flexShrink: 1 },
-  correctionExplain:    { fontSize: 13, color: '#666', lineHeight: 19 },
-  correctionTip:        { fontSize: 12, color: BRAND, fontWeight: '500' },
+  correctionExplain:    { fontSize: 13, color: '#374151', lineHeight: 19 },
+  correctionAltWrap:    { marginTop: 8, gap: 5 },
+  correctionAltLabel:   { fontSize: 11, fontWeight: '600', color: '#9CA3AF', letterSpacing: 0.3 },
+  correctionAltRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  correctionAltChip:    { backgroundColor: '#EEF2FF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  correctionAltText:    { fontSize: 13, color: BRAND, fontWeight: '500' },
+  correctionTip:        { fontSize: 12, color: BRAND, fontWeight: '500', marginTop: 4 },
 
   altsSection:    { marginHorizontal: 12, marginBottom: 12, backgroundColor: GREY, borderRadius: 12, padding: 10 },
   altsHeader:     { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
