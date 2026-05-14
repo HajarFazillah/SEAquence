@@ -12,8 +12,8 @@ import { StatusBadge, Icon } from '../components';
 import { useHomeData } from '../hooks/useHomeData';
 import { ActiveSession } from '../services/apiSession';
 import { fetchMyWeakAreas } from '../services/apiMistakes';
-import { getMyAvatars } from '../services/apiUser';
-import { apiService } from '../services/api';
+import { getMyAvatars, getMyProfile } from '../services/apiUser';
+import { AI_SERVER_URL } from '../constants';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -179,15 +179,28 @@ export const HomeScreen: React.FC = () => {
     if (randomLoading) return;
     setRandomLoading(true);
     try {
-      const [avatars, situations] = await Promise.all([
+      const [avatars, userProfile] = await Promise.all([
         getMyAvatars(),
-        apiService.getSituations().catch(() => []),
+        getMyProfile().catch(() => null),
       ]);
       if (!avatars.length) return;
-      const avatar    = avatars[Math.floor(Math.random() * avatars.length)];
-      const situation = situations.length
-        ? situations[Math.floor(Math.random() * situations.length)]
-        : { id: 'random', name_ko: '일상 대화', name_en: 'Everyday', description_ko: '자유롭게 대화해보세요' };
+
+      const avatar = avatars[Math.floor(Math.random() * avatars.length)];
+
+      // Ask AI to generate a situation tailored to this avatar + user profile
+      const res = await fetch(`${AI_SERVER_URL}/api/v1/chat/suggest-situations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar, user_profile: userProfile ?? {}, count: 5 }),
+      });
+
+      let situation = { id: 'random', name_ko: '일상 대화', name_en: 'Everyday', description_ko: '자유롭게 대화해보세요' };
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data?.situations) ? data.situations : [];
+        if (list.length) situation = list[Math.floor(Math.random() * list.length)];
+      }
+
       navigation.navigate('Chat', { avatar, situation });
     } catch {
       // silent
