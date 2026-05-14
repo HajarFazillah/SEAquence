@@ -208,7 +208,7 @@ export const HomeScreen: React.FC = () => {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6366F1" />
+          <ActivityIndicator size="large" color="#6C3BFF" />
         </View>
       </SafeAreaView>
     );
@@ -289,7 +289,7 @@ export const HomeScreen: React.FC = () => {
           </View>
           <TouchableOpacity style={styles.sectionLink} onPress={() => navigation.navigate('ConversationHistory')} activeOpacity={0.7}>
             <Text style={styles.sectionLinkText}>기록 보기</Text>
-            <ChevronRight size={13} color="#6366F1" />
+            <ChevronRight size={13} color="#6C3BFF" />
           </TouchableOpacity>
         </View>
 
@@ -331,7 +331,7 @@ export const HomeScreen: React.FC = () => {
           <Text style={styles.sectionTitle}>학습 통계</Text>
           <TouchableOpacity style={styles.sectionLink} onPress={() => navigation.navigate('Analytics', { source: 'home' })} activeOpacity={0.7}>
             <Text style={styles.sectionLinkText}>자세히 보기</Text>
-            <ChevronRight size={13} color="#6366F1" />
+            <ChevronRight size={13} color="#6C3BFF" />
           </TouchableOpacity>
         </View>
 
@@ -427,9 +427,9 @@ const styles = StyleSheet.create({
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitle:    { fontSize: 16, fontWeight: '700', color: '#111827', letterSpacing: -0.3 },
   countBadge:      { backgroundColor: '#EEF2FF', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
-  countText:       { color: '#6366F1', fontWeight: '700', fontSize: 12 },
+  countText:       { color: '#6C3BFF', fontWeight: '700', fontSize: 12 },
   sectionLink:     { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  sectionLinkText: { fontSize: 12, fontWeight: '600', color: '#6366F1' },
+  sectionLinkText: { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
 
   // Scroll
   horizontalScroll:  { marginBottom: 28 },
