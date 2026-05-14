@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
@@ -64,6 +65,50 @@ const MISTAKE_META: Record<string, { label: string; color: string }> = {
   naturalness: { label: '자연스러움', color: '#22C55E' },
 };
 
+// ─── ScoreRing ────────────────────────────────────────────────────────────────
+
+const RING_COLORS = ['#6C3BFF', '#F59E0B', '#22C55E'];
+const SIZE = 80;
+const STROKE = 7;
+const R = (SIZE - STROKE) / 2;
+const CIRCUMFERENCE = 2 * Math.PI * R;
+
+function ScoreRing({ value, label, color, onPress, active }: {
+  value: number; label: string; color: string;
+  onPress: () => void; active: boolean;
+}) {
+  const pct = Math.min(Math.max(value, 0), 100);
+  const filled = (pct / 100) * CIRCUMFERENCE;
+  return (
+    <TouchableOpacity style={ringStyles.wrap} onPress={onPress} activeOpacity={0.75}>
+      <Svg width={SIZE} height={SIZE}>
+        <Circle
+          cx={SIZE / 2} cy={SIZE / 2} r={R}
+          stroke="#F0F0F5" strokeWidth={STROKE} fill="none"
+        />
+        <Circle
+          cx={SIZE / 2} cy={SIZE / 2} r={R}
+          stroke={color} strokeWidth={STROKE} fill="none"
+          strokeDasharray={`${filled} ${CIRCUMFERENCE - filled}`}
+          strokeDashoffset={CIRCUMFERENCE / 4}
+          strokeLinecap="round"
+        />
+      </Svg>
+      <View style={ringStyles.center} pointerEvents="none">
+        <Text style={[ringStyles.num, { color }]}>{Math.round(pct)}</Text>
+      </View>
+      <Text style={[ringStyles.label, active && { color: '#111', fontWeight: '600' }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+const ringStyles = StyleSheet.create({
+  wrap:   { alignItems: 'center', gap: 6, flex: 1 },
+  center: { position: 'absolute', top: 0, left: 0, right: 0, height: SIZE, alignItems: 'center', justifyContent: 'center' },
+  num:    { fontSize: 20, fontWeight: '700', lineHeight: 24 },
+  label:  { fontSize: 11, color: '#999', textAlign: 'center' },
+});
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ConversationSummaryScreen() {
@@ -77,7 +122,8 @@ export default function ConversationSummaryScreen() {
   const [saveSuccess,     setSaveSuccess]     = useState<string | null>(null);
   const [expandedScore,   setExpandedScore]   = useState<number | null>(null);
 
-  const { avatar, duration, conversationHistory, sessionCorrections, avgScore, sessionId } = route.params || {};
+  const { avatar, duration, conversationHistory, sessionCorrections, avgScore, sessionId, situation } = route.params || {};
+  const situationName: string | null = situation?.name_ko || situation?.title || situation?.name || null;
 
   const handleToggleSave = async (item: VocabularyItem) => {
     const wasSaved = !!savedWords[item.word];
@@ -345,9 +391,6 @@ export default function ConversationSummaryScreen() {
       if (c.mixed_style_penalty)        rows.push({ name: '말투 혼용 감점', value: `−${c.mixed_style_penalty}` });
       if (c.llm_score != null)          rows.push({ name: 'LLM 평가', value: `${c.llm_score}` });
     }
-    if (c.raw_score != null && c.raw_score !== detail?.components?.adjusted) {
-      rows.push({ name: '원점수', value: `${c.raw_score}` });
-    }
     return rows;
   };
 
@@ -366,14 +409,14 @@ export default function ConversationSummaryScreen() {
 
         {/* ── Score card ── */}
         <View style={styles.scoreCard}>
-          <View style={styles.scoreBlob} />
           <View style={styles.scoreTop}>
             <View style={[styles.avatarCircle, { backgroundColor: avatar?.avatar_bg || BRAND }]}>
-              <Icon name={avatar?.icon || 'user'} size={18} color="#fff" />
+              <Icon name={avatar?.icon || 'user'} size={16} color="#fff" />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.scoreName}>{avatar?.name_ko || '아바타'}와의 대화</Text>
               <Text style={styles.scoreSub}>
+                {situationName ? `${situationName} · ` : ''}
                 {sessionCorrections?.length > 0
                   ? `${sessionCorrections.length}개 메시지 분석`
                   : '대화 분석 결과'}
@@ -381,41 +424,22 @@ export default function ConversationSummaryScreen() {
               </Text>
             </View>
           </View>
+          <View style={styles.scoreDivider} />
           <View style={styles.scoreNums}>
-            {scoreCards.map((s, i) => {
-              const badge = getConfidenceBadge(s.detail);
-              const isExpanded = expandedScore === i;
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.scoreCol}
-                  activeOpacity={0.75}
-                  onPress={() => setExpandedScore(isExpanded ? null : i)}
-                >
-                  <Text style={styles.scoreNum}>{Math.round(s.value * 100)}</Text>
-                  <View style={styles.scoreBarTrack}>
-                    <View style={[styles.scoreBarFill, { width: `${Math.round(s.value * 100)}%` as any }]} />
-                  </View>
-                  <Text style={styles.scoreColLabel}>{s.label}</Text>
-                  {badge ? (
-                    <View style={[styles.confidencePill, { backgroundColor: badge.color }]}>
-                      <Text style={styles.confidencePillText}>{badge.label}</Text>
-                    </View>
-                  ) : s.detail?.source ? (
-                    <Text style={styles.scoreSourceLabel}>
-                      {getScoreSourceLabel(s.detail)}
-                    </Text>
-                  ) : null}
-                </TouchableOpacity>
-              );
-            })}
+            {scoreCards.map((s, i) => (
+              <ScoreRing
+                key={i}
+                value={Math.round(s.value * 100)}
+                label={s.label}
+                color={RING_COLORS[i]}
+                active={expandedScore === i}
+                onPress={() => setExpandedScore(expandedScore === i ? null : i)}
+              />
+            ))}
           </View>
 
           {expandedScore !== null && scoreCards[expandedScore] ? (
             <View style={styles.breakdownBox}>
-              <Text style={styles.breakdownTitle}>
-                {scoreCards[expandedScore].label} 세부 내역
-              </Text>
               {getScoreBreakdown(scoreCards[expandedScore].label, scoreCards[expandedScore].detail).length > 0 ? (
                 getScoreBreakdown(scoreCards[expandedScore].label, scoreCards[expandedScore].detail).map((row, i) => (
                   <View key={i} style={styles.breakdownRow}>
@@ -426,19 +450,8 @@ export default function ConversationSummaryScreen() {
               ) : (
                 <Text style={styles.breakdownEmpty}>세부 내역이 없습니다.</Text>
               )}
-              {scoreCards[expandedScore].detail?.note ? (
-                <Text style={styles.breakdownNote}>
-                  {scoreCards[expandedScore].detail!.note}
-                </Text>
-              ) : null}
             </View>
-          ) : (
-            <View style={styles.scoreMetaBox}>
-              <Text style={styles.scoreMetaTitle}>
-                {summary.usedFallbackScores ? '일부 점수는 임시값입니다' : '점수를 탭하면 세부 내역을 볼 수 있어요'}
-              </Text>
-            </View>
-          )}
+          ) : null}
         </View>
 
         {/* ── Mistakes ── */}
@@ -616,33 +629,31 @@ const styles = StyleSheet.create({
   loadingHint: { fontSize: 12, color: '#999' },
 
   // Score card
-  scoreCard:     { backgroundColor: BRAND, borderRadius: 20, padding: 18, marginBottom: 20, marginTop: 4, position: 'relative', overflow: 'hidden' },
-  scoreBlob:     { position: 'absolute', width: 140, height: 140, borderRadius: 70, right: -40, top: -40, backgroundColor: 'rgba(255,255,255,0.10)' },
-  scoreTop:      { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
-  avatarCircle:  { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.25)' },
-  scoreName:     { fontSize: 14, fontWeight: '500', color: '#fff' },
-  scoreSub:      { fontSize: 11, color: 'rgba(255,255,255,0.70)', marginTop: 1 },
-  scoreNums:     { flexDirection: 'row', gap: 8 },
-  scoreCol:      { flex: 1, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 12, padding: 10, alignItems: 'center', gap: 4 },
-  scoreNum:      { fontSize: 22, fontWeight: '500', color: '#fff', lineHeight: 26 },
-  scoreBarTrack: { width: '100%', height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.25)', overflow: 'hidden' },
-  scoreBarFill:  { height: '100%', borderRadius: 2, backgroundColor: '#fff' },
-  scoreColLabel: { fontSize: 10, color: 'rgba(255,255,255,0.75)', textAlign: 'center' },
-  scoreSourceLabel: { fontSize: 9, color: 'rgba(255,255,255,0.78)', textAlign: 'center' },
-  scoreMetaBox:  { marginTop: 12, padding: 10, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)', gap: 4 },
-  scoreMetaTitle: { fontSize: 11, fontWeight: '600', color: '#fff' },
-  scoreMetaText: { fontSize: 10, lineHeight: 15, color: 'rgba(255,255,255,0.85)' },
+  scoreCard:     { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 20, marginTop: 4 },
+  scoreTop:      { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  avatarCircle:  { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  scoreName:     { fontSize: 13, fontWeight: '500', color: '#111' },
+  scoreSub:      { fontSize: 11, color: '#999', marginTop: 1 },
+  scoreDivider:  { height: 1, backgroundColor: BORDER, marginBottom: 14 },
+  scoreNums:     { flexDirection: 'row', gap: 0, paddingBottom: 4 },
+  scoreCol:      {},
+  scoreColActive:{},
+  scoreNum:      {},
+  scoreColLabel: {},
+  scoreSourceLabel: {},
+  scoreMetaBox:  {},
+  scoreMetaTitle: {},
+  scoreMetaText: {},
 
-  confidencePill:    { marginTop: 4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
-  confidencePillText:{ fontSize: 9, fontWeight: '600', color: '#7A4B00' },
+  confidencePillText:{ fontSize: 9, color: '#bbb' },
 
-  breakdownBox:    { marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.18)', gap: 6 },
-  breakdownTitle:  { fontSize: 12, fontWeight: '700', color: '#fff', marginBottom: 4 },
+  breakdownBox:    { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: BORDER, gap: 6 },
+  breakdownTitle:  {},
   breakdownRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
-  breakdownName:   { fontSize: 11, color: 'rgba(255,255,255,0.85)' },
-  breakdownValue:  { fontSize: 11, fontWeight: '600', color: '#fff' },
-  breakdownEmpty:  { fontSize: 11, color: 'rgba(255,255,255,0.7)' },
-  breakdownNote:   { marginTop: 6, fontSize: 10, lineHeight: 14, color: 'rgba(255,255,255,0.75)' },
+  breakdownName:   { fontSize: 11, color: '#999' },
+  breakdownValue:  { fontSize: 11, fontWeight: '500', color: '#111' },
+  breakdownEmpty:  { fontSize: 11, color: '#bbb' },
+  breakdownNote:   { marginTop: 4, fontSize: 10, lineHeight: 14, color: '#bbb' },
 
   // Section
   sectionHead:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, marginTop: 6 },
