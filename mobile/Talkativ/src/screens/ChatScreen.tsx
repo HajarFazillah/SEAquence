@@ -13,7 +13,8 @@ import { makePreviewPayload, saveConversationPreview } from '../services/convers
 import { appendPracticePatternEvent } from '../services/personalizationHistory';
 
 
-const AI_SERVER = 'http://10.240.40.137:8000';
+import { AI_SERVER_URL } from '../constants';
+const AI_SERVER = AI_SERVER_URL;
 
 import { saveMistakesToBackend } from '../services/apiMistakes';
 

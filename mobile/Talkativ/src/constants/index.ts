@@ -1,8 +1,9 @@
 import type { IconName } from '../components/Icon';
+import Config from 'react-native-config';
 
 // API Configuration
-export const SPRING_SERVER_URL = 'http://10.240.40.137:8080';
-export const AI_SERVER_URL = 'http://10.240.40.137:8000';
+export const SPRING_SERVER_URL = `http://${Config.SPRING_SERVER_IP || '10.0.2.2'}:8080`;
+export const AI_SERVER_URL = `http://${Config.AI_SERVER_IP || '10.0.2.2'}:8000`;
 export const SPRING_API_BASE_URL = SPRING_SERVER_URL;
 export const AI_API_BASE_URL = `${AI_SERVER_URL}/api/v1`;
 export const API_BASE_URL = SPRING_API_BASE_URL;
