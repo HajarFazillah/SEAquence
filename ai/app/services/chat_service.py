@@ -742,6 +742,7 @@ LEVEL_KO_LABELS = {
     "formal": "합쇼체",
     "polite": "해요체",
     "informal": "반말",
+    "unknown": "불분명한 말투",
 }
 
 _LEVEL_EXAMPLES = {
