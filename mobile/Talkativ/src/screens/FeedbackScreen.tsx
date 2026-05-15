@@ -8,6 +8,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AI_SERVER_URL } from '../constants';
 import {
   Star,
   Clock,
@@ -146,7 +148,29 @@ export default function FeedbackScreen() {
     );
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    try {
+      const userId =
+        (await AsyncStorage.getItem('userId')) ||
+        (await AsyncStorage.getItem('user_id')) ||
+        'test-user-1';
+      fetch(`${AI_SERVER_URL}/api/v1/analytics/${userId}/record/conversation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          duration_minutes: duration
+            ? Math.max(1, Math.round(
+                parseInt(duration.split(':')[0] || '0') +
+                parseInt(duration.split(':')[1] || '0') / 60
+              ))
+            : 1,
+          rating: rating > 0 ? rating : undefined,
+          feedback_tags: selectedTags.length > 0 ? selectedTags : undefined,
+          situation: situation || undefined,
+        }),
+      }).catch(() => {});
+    } catch (_) {}
+
     navigation.navigate('Analytics', {
       avatar,
       duration,

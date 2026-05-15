@@ -8,14 +8,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   BookOpen, AlertCircle, CheckCircle, Bookmark,
-  TrendingUp, ChevronDown, ChevronLeft,
+  TrendingUp, ChevronDown, ChevronLeft, Star,
 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Icon } from '../components';
 import { AI_SERVER_URL } from '../constants';
 import { fetchMistakesBySession, SavedMistake } from '../services/apiMistakes';
 import { saveVocabulary } from '../services/apiVocabulary';
 
 const AI_SERVER = AI_SERVER_URL;
+
+const parseDurationMinutes = (dur: string): number => {
+  if (!dur) return 1;
+  const [mm, ss] = dur.split(':').map(p => parseInt(p || '0', 10));
+  return Math.max(1, Math.round(mm + (ss || 0) / 60));
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,13 +123,14 @@ export default function ConversationSummaryScreen() {
   const route      = useRoute<any>();
 
   const [loading,         setLoading]         = useState(true);
+  const [rating,          setRating]          = useState(0);
   const [summary,         setSummary]         = useState<SummaryData | null>(null);
   const [savedWords,      setSavedWords]      = useState<Record<string, VocabularyItem>>({});
   const [expandedMistake, setExpandedMistake] = useState<number | null>(null);
   const [saveSuccess,     setSaveSuccess]     = useState<string | null>(null);
   const [expandedScore,   setExpandedScore]   = useState<number | null>(null);
 
-  const { avatar, duration, conversationHistory, sessionCorrections, avgScore, sessionId, situation } = route.params || {};
+  const { avatar, duration, situation, conversationHistory, sessionCorrections, avgScore, sessionId } = route.params || {};
   const situationName: string | null = situation?.name_ko || situation?.title || situation?.name || null;
 
   const handleToggleSave = async (item: VocabularyItem) => {
@@ -314,8 +322,46 @@ export default function ConversationSummaryScreen() {
 
   useEffect(() => { buildSummary(); }, [buildSummary]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const userId =
+          (await AsyncStorage.getItem('userId')) ||
+          (await AsyncStorage.getItem('user_id')) ||
+          'test-user-1';
+        await fetch(`${AI_SERVER}/api/v1/analytics/${userId}/record/conversation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            duration_minutes: parseDurationMinutes(duration),
+            situation: situation || undefined,
+            rating: rating > 0 ? rating : undefined,
+          }),
+        });
+      } catch (e) {
+        console.log('record conversation duration failed:', e);
+      }
+    })();
+  }, []);
+
   const handleContinue = () => {
-    navigation.navigate('Avatar');
+    const history = conversationHistory || [];
+    const derivedTurns = history.map((m: any, i: number) => ({
+      id: `t-${i}`,
+      speaker: m.role === 'user' ? '나' : (avatar?.name_ko || '상대방'),
+      text: m.content || m.text || '',
+      type: 'final',
+    }));
+    navigation.navigate('Analytics', {
+      avatar,
+      duration,
+      scores: summary?.scores,
+      scoreDetails: summary?.scoreDetails,
+      usedFallbackScores: summary?.usedFallbackScores,
+      savedWords: Object.values(savedWords),
+      turns: derivedTurns,
+      rating,
+    });
   };
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -590,6 +636,24 @@ export default function ConversationSummaryScreen() {
           </View>
         )}
 
+        {/* ── Rating ── */}
+        <View style={styles.sectionHead}>
+          <Star size={14} color="#6C3BFF" fill="#6C3BFF" strokeWidth={1.8} />
+          <Text style={styles.sectionTitle}>이번 세션 평점</Text>
+        </View>
+        <View style={styles.stars}>
+          {[1, 2, 3, 4, 5].map(n => (
+            <TouchableOpacity key={n} onPress={() => setRating(n)} activeOpacity={0.7}>
+              <Star
+                size={28}
+                color="#6C3BFF"
+                fill={n <= rating ? '#6C3BFF' : 'none'}
+                strokeWidth={1.8}
+              />
+            </TouchableOpacity>
+          ))}
+        </View>
+
       </ScrollView>
 
       {/* Footer */}
@@ -716,6 +780,7 @@ const styles = StyleSheet.create({
 
   // Footer
   footer:          { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: BORDER },
+  stars:           { flexDirection: 'row', gap: 8, marginBottom: 10 },
   continueBtn:     { backgroundColor: BRAND, borderRadius: 22, paddingVertical: 14, alignItems: 'center' },
   continueBtnText: { fontSize: 15, fontWeight: '500', color: '#fff' },
 });
