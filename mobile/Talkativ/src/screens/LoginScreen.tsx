@@ -109,7 +109,7 @@ export const LoginScreen: React.FC = () => {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-          <Text style={styles.welcome}>Welcome to talkativ!</Text>
+          <Text style={styles.welcome}>Welcome to Talkativ!</Text>
 
           <TouchableOpacity style={styles.kakaoButton} onPress={handleKakaoLogin}>
             <Image source={require('../assets/images/kakao_logo.png')} style={styles.kakaoLogo} />

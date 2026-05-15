@@ -1094,17 +1094,6 @@ export default function AnalyticsScreen() {
                 </View>
               )}
 
-              {(sessionId || recordingUri) && (
-                <View style={styles.metaWrap}>
-                  {!!sessionId && (
-                    <Text style={styles.metaText}>Session ID: {sessionId}</Text>
-                  )}
-
-                  {!!recordingUri && (
-                    <Text style={styles.metaText}>녹음 파일이 저장되었습니다</Text>
-                  )}
-                </View>
-              )}
             </View>
           </View>
         )}
