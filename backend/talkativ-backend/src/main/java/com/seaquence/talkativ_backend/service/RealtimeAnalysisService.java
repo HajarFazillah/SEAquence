@@ -40,6 +40,23 @@ public class RealtimeAnalysisService {
         this.restTemplate = new RestTemplate();
     }
 
+    // Overload for WebSocket handler (receives raw bytes)
+    public RealtimeAnalysisResponse analyzeRealtimeAudio(
+            byte[] audioData,
+            String filename,
+            String avatarRole,
+            String userId,
+            String sessionId,
+            String expectedSpeechLevel,
+            String userSpeakerHint,
+            String chunkIndexRaw
+    ) {
+        ClovaSpeechService.ClovaSpeechResult speechResult =
+                clovaSpeechService.transcribeWithDiarization(audioData, filename);
+        return buildResponse(speechResult, avatarRole, userId, sessionId,
+                expectedSpeechLevel, userSpeakerHint, chunkIndexRaw);
+    }
+
     public RealtimeAnalysisResponse analyzeRealtimeAudio(
             MultipartFile file,
             String avatarRole,
@@ -50,6 +67,19 @@ public class RealtimeAnalysisService {
             String chunkIndexRaw
     ) {
         ClovaSpeechService.ClovaSpeechResult speechResult = clovaSpeechService.transcribeWithDiarization(file);
+        return buildResponse(speechResult, avatarRole, userId, sessionId,
+                expectedSpeechLevel, userSpeakerHint, chunkIndexRaw);
+    }
+
+    private RealtimeAnalysisResponse buildResponse(
+            ClovaSpeechService.ClovaSpeechResult speechResult,
+            String avatarRole,
+            String userId,
+            String sessionId,
+            String expectedSpeechLevel,
+            String userSpeakerHint,
+            String chunkIndexRaw
+    ) {
 
         List<TranscriptTurnDto> turns = new ArrayList<>();
         List<InsightDto> insights = new ArrayList<>();
@@ -83,16 +113,24 @@ public class RealtimeAnalysisService {
             if (turn.getText() == null || turn.getText().isBlank()) continue;
 
             turnNumber++;
+            int correctionsForTurn = 0;
+            int analyzedSentences  = 0;
             for (String sentence : splitSentences(turn.getText())) {
                 if (sentence.isBlank()) continue;
+                // Skip fragments too short to assess speech level meaningfully
+                String stripped = sentence.replaceAll("[\\s.,!?。？！·…]", "");
+                if (stripped.length() < 5) continue;
+
+                analyzedSentences++;
                 try {
                     List<CorrectionItem> corrections = analyzeSentence(
                             sentence, avatarRole, resolvedSpeechLevel
                     );
+                    correctionsForTurn += corrections.size();
                     for (CorrectionItem c : corrections) {
                         insights.add(new InsightDto(
                                 "insight-" + turn.getId() + "-" + insights.size(),
-                                "error".equalsIgnoreCase(c.severity) ? "risk" : "risk",
+                                "risk",
                                 c.explanation != null && !c.explanation.isBlank()
                                         ? c.explanation
                                         : "표현을 다듬어보세요.",
@@ -104,6 +142,16 @@ public class RealtimeAnalysisService {
                 } catch (Exception e) {
                     System.err.println("[Realtime] analyze sentence failed: " + e.getMessage());
                 }
+            }
+            // Only add 잘함 when at least one sentence was long enough to analyse and had no corrections
+            if (analyzedSentences > 0 && correctionsForTurn == 0) {
+                insights.add(new InsightDto(
+                        "insight-ok-" + turn.getId(),
+                        "success",
+                        "말투가 자연스럽고 적절해요.",
+                        null,
+                        turn.getId()
+                ));
             }
         }
 

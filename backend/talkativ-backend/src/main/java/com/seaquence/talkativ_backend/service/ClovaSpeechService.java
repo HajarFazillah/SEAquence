@@ -33,10 +33,22 @@ public class ClovaSpeechService {
         this.restTemplate.setRequestFactory(new SimpleClientHttpRequestFactory());
     }
 
+    // Convenience overload for MultipartFile (used by REST controller)
     public ClovaSpeechResult transcribeWithDiarization(MultipartFile file) {
         try {
-            if (file == null || file.isEmpty()) {
-                throw new IllegalArgumentException("Audio file is empty.");
+            if (file == null || file.isEmpty()) throw new IllegalArgumentException("Audio file is empty.");
+            String filename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "audio.m4a";
+            return transcribeWithDiarization(file.getBytes(), filename);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to transcribe audio with CLOVA Speech", e);
+        }
+    }
+
+    // Core method used by both REST and WebSocket handlers
+    public ClovaSpeechResult transcribeWithDiarization(byte[] audioData, String filename) {
+        try {
+            if (audioData == null || audioData.length == 0) {
+                throw new IllegalArgumentException("Audio data is empty.");
             }
 
             HttpHeaders headers = new HttpHeaders();
@@ -45,11 +57,9 @@ public class ClovaSpeechService {
 
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
 
-            ByteArrayResource fileResource = new ByteArrayResource(file.getBytes()) {
+            ByteArrayResource fileResource = new ByteArrayResource(audioData) {
                 @Override
-                public String getFilename() {
-                    return file.getOriginalFilename() != null ? file.getOriginalFilename() : "audio.m4a";
-                }
+                public String getFilename() { return filename; }
             };
 
             HttpHeaders mediaHeaders = new HttpHeaders();
