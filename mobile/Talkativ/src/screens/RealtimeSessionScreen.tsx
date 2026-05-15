@@ -162,33 +162,41 @@ function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: I
   );
 }
 
-// ─── Empty ────────────────────────────────────────────────────────────────────
-function Empty({ analyzing }: { analyzing: boolean }) {
-  const scale = useRef(new Animated.Value(1)).current;
+// ─── Empty (initial state only) ───────────────────────────────────────────────
+const BAR_HEIGHTS = [10, 18, 26, 18, 10];
+function Empty() {
+  return (
+    <View style={em.wrap}>
+      <View style={em.barsRow}>
+        {BAR_HEIGHTS.map((h, i) => (
+          <View key={i} style={[em.bar, { height: h }]} />
+        ))}
+      </View>
+      <Text style={em.title}>대화를 시작하세요</Text>
+      <Text style={em.sub}>아래 버튼을 눌러 녹음을 시작해보세요</Text>
+    </View>
+  );
+}
+
+// ─── Analyzing placeholder (mid-session) ──────────────────────────────────────
+function AnalyzingRow() {
+  const op = useRef(new Animated.Value(0.4)).current;
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
-      Animated.timing(scale, { toValue: 1.06, duration: 1600, useNativeDriver: true }),
-      Animated.timing(scale, { toValue: 1, duration: 1600, useNativeDriver: true }),
+      Animated.timing(op, { toValue: 1,   duration: 600, useNativeDriver: true }),
+      Animated.timing(op, { toValue: 0.4, duration: 600, useNativeDriver: true }),
     ]));
     loop.start();
     return () => loop.stop();
-  }, [scale]);
+  }, [op]);
 
   return (
-    <View style={em.wrap}>
-      <Animated.View style={[em.ring, { transform: [{ scale }] }]} />
-      <View style={em.circle}>
-        <Mic size={22} color={C.ink70} strokeWidth={1.6} />
-      </View>
-      <Text style={em.title}>
-        {analyzing ? '분석 중...' : '대화를 시작하세요'}
-      </Text>
-      <Text style={em.sub}>
-        {analyzing
-          ? '잠시 후 내용이 표시됩니다'
-          : '아래 버튼을 눌러\n녹음을 시작해보세요'}
-      </Text>
-    </View>
+    <Animated.View style={[em.analyzeRow, { opacity: op }]}>
+      {[0, 1, 2].map(i => (
+        <View key={i} style={em.analyzeDot} />
+      ))}
+      <Text style={em.analyzeText}>분석 중</Text>
+    </Animated.View>
   );
 }
 
@@ -520,34 +528,22 @@ export default function RealtimeSessionScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
 
-      {/* ── Top bar ── */}
-      <View style={s.topBar}>
-        <View style={{ width: 36, height: 36 }} />
-
-        <View style={s.timerRow}>
-          <View style={[s.timerDot, recording && s.timerDotRec]} />
-          <Text style={s.timerText}>{fmt(duration)}</Text>
+      {/* ── Session card ── */}
+      <View style={s.sessionCard}>
+        <View style={[s.sessionAvatar, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
+          <Icon name={(avatar?.icon ?? 'user') as IconName} size={18} color="#FFF" />
         </View>
-
-        <View style={{ width: 36, height: 36 }} />
-      </View>
-
-      {/* ── Session info strip ── */}
-      <View style={s.strip}>
-        <View style={[s.avatarDot, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
-          <Icon name={(avatar?.icon ?? 'user') as IconName} size={15} color="#FFF" />
+        <View style={s.sessionInfo}>
+          <Text style={s.sessionName}>{avatar?.name_ko ?? '아바타'}</Text>
+          <Text style={s.sessionStatus}>
+            {analyzing ? '분석 중' : recording ? '녹음 중' : '대기'}
+          </Text>
         </View>
-        <Text style={s.stripName}>{avatar?.name_ko ?? '아바타'}</Text>
-        <Text style={s.stripDivider}>·</Text>
-        <Text style={s.stripStatus}>
-          {analyzing ? '분석 중' : recording ? '녹음 중' : '대기'}
-        </Text>
         {(ok > 0 || risk > 0) && (
-          <>
-            <Text style={s.stripDivider}>·</Text>
-            {ok > 0   && <Text style={[s.stripCount, { color: C.ok }]}>✓ {ok}</Text>}
-            {risk > 0 && <Text style={[s.stripCount, { color: C.risk }]}>⚠ {risk}</Text>}
-          </>
+          <View style={s.sessionCounts}>
+            {ok > 0   && <Text style={[s.sessionCount, { color: C.ok }]}>✓ {ok}</Text>}
+            {risk > 0 && <Text style={[s.sessionCount, { color: C.risk }]}>⚠ {risk}</Text>}
+          </View>
         )}
       </View>
 
@@ -560,7 +556,9 @@ export default function RealtimeSessionScreen() {
           showsVerticalScrollIndicator={false}
         >
           {turns.length === 0
-            ? <Empty analyzing={analyzing} />
+            ? !hasRecorded
+              ? <Empty />
+              : <AnalyzingRow />
             : turns.map(turn => (
                 <Turn
                   key={turn.id} turn={turn}
@@ -579,6 +577,12 @@ export default function RealtimeSessionScreen() {
       {/* ── Controls ── */}
       <View style={s.dock}>
         {recording && <Waveform active />}
+
+        {/* Timer above mic */}
+        <View style={s.timerRow}>
+          <View style={[s.timerDot, recording && s.timerDotRec]} />
+          <Text style={s.timerText}>{fmt(duration)}</Text>
+        </View>
 
         <View style={s.dockInner}>
           <View style={s.avatarChip} />
@@ -633,43 +637,31 @@ export default function RealtimeSessionScreen() {
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.white },
 
-  // Top bar
-  topBar: {
+  // Session card
+  sessionCard: {
     flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 12,
-  },
-  closeBtn: {
-    width: 36, height: 36, borderRadius: 10,
+    marginHorizontal: 20, marginTop: 12, marginBottom: 10,
+    paddingHorizontal: 16, paddingVertical: 12,
     backgroundColor: C.paper,
+    borderRadius: 16,
     borderWidth: 1, borderColor: C.ink10,
+    gap: 12,
+  },
+  sessionAvatar: {
+    width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
-  timerRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  sessionInfo: { flex: 1 },
+  sessionName: { fontSize: 16, fontWeight: '700', color: C.ink100 },
+  sessionStatus: { fontSize: 13, color: C.ink70, marginTop: 2 },
+  sessionCounts: { flexDirection: 'row', gap: 8 },
+  sessionCount: { fontSize: 14, fontWeight: '700' },
+
+  // Timer (now in dock)
+  timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   timerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.ink20 },
   timerDotRec: { backgroundColor: C.recRed },
-  timerText: { fontSize: 16, fontWeight: '700', color: C.ink100, letterSpacing: 0.5 },
-  muteBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: C.paper,
-    borderWidth: 1, borderColor: C.ink10,
-    alignItems: 'center', justifyContent: 'center',
-  },
-
-  // Strip
-  strip: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 20, paddingBottom: 14,
-    gap: 6,
-  },
-  avatarDot: {
-    width: 24, height: 24, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  stripName: { fontSize: 13, fontWeight: '600', color: C.ink100 },
-  stripDivider: { fontSize: 13, color: C.ink20 },
-  stripStatus: { fontSize: 13, color: C.ink70 },
-  stripCount: { fontSize: 13, fontWeight: '600' },
+  timerText: { fontSize: 20, fontWeight: '700', color: C.ink100, letterSpacing: 1 },
 
   // Feed
   feed: { flex: 1, paddingHorizontal: 20 },
@@ -684,7 +676,7 @@ const s = StyleSheet.create({
     borderRadius: 99, overflow: 'hidden',
   },
   scroll: { flex: 1 },
-  scrollContent: { gap: 2, paddingBottom: 8 },
+  scrollContent: { flexGrow: 1, gap: 2, paddingBottom: 8 },
   soloWrap: { marginTop: 8, gap: 2 },
 
   // Dock
@@ -820,19 +812,20 @@ const ins = StyleSheet.create({
 
 // Empty
 const em = StyleSheet.create({
-  wrap: { alignItems: 'center', paddingVertical: 60, gap: 14 },
-  ring: {
-    position: 'absolute', top: 42,
-    width: 72, height: 72, borderRadius: 36,
-    borderWidth: 1, borderColor: C.ink10,
+  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, paddingBottom: 40 },
+  barsRow: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, marginBottom: 4 },
+  bar: { width: 4, borderRadius: 2, backgroundColor: C.ink20 },
+  title: { fontSize: 18, fontWeight: '700', color: C.ink100 },
+  sub: { fontSize: 15, color: C.ink70, textAlign: 'center', lineHeight: 23 },
+
+  analyzeRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 6,
+    paddingVertical: 16,
   },
-  circle: {
-    width: 52, height: 52, borderRadius: 26,
-    borderWidth: 1, borderColor: C.ink10,
-    backgroundColor: C.paper,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 4,
+  analyzeDot: {
+    width: 5, height: 5, borderRadius: 2.5,
+    backgroundColor: C.terra,
   },
-  title: { fontSize: 16, fontWeight: '700', color: C.ink100 },
-  sub: { fontSize: 13, color: C.ink70, textAlign: 'center', lineHeight: 21 },
+  analyzeText: { fontSize: 13, color: C.terra, fontWeight: '500' },
 });
