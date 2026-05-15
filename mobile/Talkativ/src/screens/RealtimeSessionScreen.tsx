@@ -9,15 +9,16 @@ import {
   ScrollView,
   PermissionsAndroid,
   Platform,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import {
   Mic, MicOff,
-  CircleDashed, ArrowRight,
+  CircleDashed, ArrowRight, Star,
 } from 'lucide-react-native';
 import { Icon, type IconName } from '../components';
-import { endSession } from '../services/apiSession';
+import { createSession, endSession } from '../services/apiSession';
 import {
   analyzeRealtimeAudio,
   TranscriptTurnResult,
@@ -111,11 +112,13 @@ function Waveform({ active }: { active: boolean }) {
 function Insight({ item }: { item: Insight }) {
   const risk = item.kind === 'risk';
   return (
-    <View style={[ins.wrap, { borderLeftColor: risk ? C.risk : C.ok }]}>
-      <Text style={[ins.label, { color: risk ? C.risk : C.ok }]}>
-        {risk ? '주의' : '잘함'}
-      </Text>
-      <Text style={ins.msg}>{item.message}</Text>
+    <View style={[ins.wrap, { backgroundColor: risk ? C.riskFg : C.okFg }]}>
+      <View style={ins.header}>
+        <Text style={[ins.badge, { color: risk ? C.risk : C.ok }]}>
+          {risk ? '주의' : '잘함'}
+        </Text>
+        <Text style={ins.msg} numberOfLines={2}>{item.message}</Text>
+      </View>
       {item.suggestion ? (
         <Text style={[ins.sugg, { color: risk ? C.risk : C.ok }]}>
           → {item.suggestion}
@@ -128,33 +131,21 @@ function Insight({ item }: { item: Insight }) {
 // ─── Turn ─────────────────────────────────────────────────────────────────────
 function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: Insight; avatarName?: string }) {
   const live = turn.type === 'partial';
-  // User = not the avatar and not an unknown partner label
   const isUser = !avatarName || turn.speaker !== avatarName;
 
   return (
-    <View style={[tn.row, isUser ? tn.rowUser : tn.rowPartner]}>
-      {/* Bubble + label */}
-      <View style={[tn.col, isUser ? tn.colUser : tn.colPartner]}>
-        <View style={tn.labelRow}>
-          {!isUser && <View style={[tn.dot, tn.dotPartner]} />}
-          <Text style={[tn.speaker, isUser && tn.speakerUser]}>
-            {live ? '나 (녹음 중)' : isUser ? '나' : turn.speaker}
-          </Text>
-          {isUser && <View style={[tn.dot, tn.dotUser]} />}
-          {live && (
-            <CircleDashed size={9} color={C.recRed} strokeWidth={2.5} />
-          )}
-        </View>
-
-        <View style={[tn.bubble, isUser ? tn.bubbleUser : tn.bubblePartner, live && tn.bubbleLive]}>
-          <Text style={[tn.text, isUser ? tn.textUser : tn.textPartner, live && tn.textLive]}>
-            {turn.text}{live ? ' ▌' : ''}
-          </Text>
-        </View>
+    <View style={tn.row}>
+      <Text style={[tn.speaker, isUser ? tn.speakerUser : tn.speakerPartner]}>
+        {live ? '녹음 중' : isUser ? '나' : turn.speaker}
+        {live && <Text style={tn.recDot}> ●</Text>}
+      </Text>
+      <View style={[tn.bubble, isUser ? tn.bubbleUser : tn.bubblePartner, live && tn.bubbleLive]}>
+        <Text style={[tn.text, live && tn.textLive]}>
+          {turn.text}{live ? ' ▌' : ''}
+        </Text>
       </View>
-
       {insight ? (
-        <View style={[tn.insightWrap, isUser ? tn.insightUser : tn.insightPartner]}>
+        <View style={tn.insightWrap}>
           <Insight item={insight} />
         </View>
       ) : null}
@@ -243,6 +234,20 @@ export default function RealtimeSessionScreen() {
     })();
   }, []);
 
+  // Register this session in the DB so stats (completedSessions, practiceMinutes) are tracked.
+  useEffect(() => {
+    createSession({
+      avatarId: String(avatar?.id ?? 'system'),
+      avatarName: avatar?.name_ko ?? '상대방',
+      avatarIcon: avatar?.icon ?? 'user',
+      avatarBg: avatar?.avatar_bg ?? '#555',
+      situation: typeof situation === 'object' ? (situation as any)?.name_ko : (situation ?? '일상 대화'),
+      difficulty: avatar?.difficulty ?? 'medium',
+    }).then(s => {
+      sessionIdRef.current = s.sessionId;
+    }).catch(() => {});
+  }, []);
+
   // Map avatar's expected speech level (from user) to backend code (formal|polite|informal).
   const expectedSpeechLevel: string = (() => {
     const role = avatar?.role || '';
@@ -251,11 +256,14 @@ export default function RealtimeSessionScreen() {
     return 'polite';
   })();
 
-  const [recording, setRecording]   = useState(false);
+  const [recording, setRecording]     = useState(false);
+  const [hasStarted, setHasStarted]   = useState(false);
   const [hasRecorded, setHasRecorded] = useState(false);
-  const [duration, setDuration]     = useState(0);
-  const [ending, setEnding]         = useState(false);
-  const [analyzing, setAnalyzing]   = useState(false);
+  const [duration, setDuration]       = useState(0);
+  const [ending, setEnding]           = useState(false);
+  const [analyzing, setAnalyzing]     = useState(false);
+  const [showRating, setShowRating]   = useState(false);
+  const [pendingRating, setPendingRating] = useState(0);
   const [processingChunks, setProcessingChunks] = useState(0);
   const [turns, setTurns]           = useState<TranscriptTurn[]>([]);
   const [insights, setInsights]     = useState<Insight[]>([]);
@@ -265,6 +273,7 @@ export default function RealtimeSessionScreen() {
   const rippleOpacity = useRef(new Animated.Value(0)).current;
   const rippleLoop    = useRef<Animated.CompositeAnimation | null>(null);
   const ended         = useRef(false);
+  const hasSpeechRef  = useRef(false);
   const scrollRef     = useRef<ScrollView>(null);
   const recordingRef  = useRef(false);
   const rotatingRef   = useRef(false);
@@ -329,7 +338,7 @@ export default function RealtimeSessionScreen() {
     return true;
   }
 
-  const finish = useCallback(async (feedback: boolean) => {
+  const finish = useCallback(async (rating = 0) => {
     if (ended.current) return;
     ended.current = true;
     setEnding(true);
@@ -343,30 +352,19 @@ export default function RealtimeSessionScreen() {
         recorderActiveRef.current = false;
       }
     } catch {}
-    try { if (sessionId) await endSession(sessionId); } catch {}
+    try { if (sessionIdRef.current) await endSession(sessionIdRef.current); } catch {}
 
-    // If we have any final turns, route into the same post-chat flow as the chat screen
-    // so the user sees mistake breakdown / vocab / scoring exactly the same way.
     const finalTurns = turns.filter(t => t.type === 'final');
-    if (finalTurns.length > 0) {
-      const conversationHistory = finalTurns.map(t => ({
-        role: t.speaker === '나' || (avatar?.name_ko && t.speaker !== avatar.name_ko) ? 'user' : 'assistant',
-        content: t.text,
-      }));
-      navigation.navigate('ConversationSummary', {
-        avatar,
-        duration: fmt(duration),
-        situation,
-        conversationHistory,
-        sessionId,
-      });
-      return;
-    }
-
-    if (feedback) {
-      navigation.navigate('Feedback', { avatar, sessionId, situation, duration: fmt(duration), recordingUri: recUri, turns, insights });
-    } else navigation.goBack();
-  }, [sessionId, navigation, avatar, situation, duration, recUri, turns, insights]);
+    navigation.navigate('Analytics', {
+      avatar,
+      duration: fmt(duration),
+      turns: finalTurns,
+      insights,
+      sessionId: sessionIdRef.current,
+      rating,
+      source: 'session',
+    });
+  }, [navigation, avatar, duration, turns, insights]);
 
   useFocusEffect(useCallback(() => {
     const u = navigation.addListener('beforeRemove', (e: any) => {
@@ -374,7 +372,7 @@ export default function RealtimeSessionScreen() {
       e.preventDefault();
       Alert.alert('세션 종료', '세션을 종료하시겠습니까?', [
         { text: '취소', style: 'cancel' },
-        { text: '종료', style: 'destructive', onPress: () => finish(false) },
+        { text: '종료', style: 'destructive', onPress: () => { setShowRating(false); finish(0); } },
       ]);
     });
     return u;
@@ -410,7 +408,16 @@ export default function RealtimeSessionScreen() {
 
       const nextInsights = normInsights(res?.insights ?? []);
 
-      if (nextTurns.length === 0 && nextInsights.length === 0 && !recordingRef.current) {
+      if (nextTurns.length > 0) hasSpeechRef.current = true;
+
+      // Only show the "no speech" hint once, when the user stops and the
+      // entire session produced zero recognised speech.
+      if (
+        nextTurns.length === 0 &&
+        nextInsights.length === 0 &&
+        !recordingRef.current &&
+        !hasSpeechRef.current
+      ) {
         nextInsights.push({
           id: `i-empty-${Date.now()}`,
           kind: 'risk',
@@ -463,18 +470,19 @@ export default function RealtimeSessionScreen() {
 
   const startStreamingCapture = useCallback(async () => {
     if (!(await askMicPerm())) return;
+    setHasStarted(true);
     if (!durationTimerRef.current) {
       durationTimerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
     }
     chunkIndexRef.current = 0;
-    setTurns([]);
-    setInsights([]);
-    setRecUri('');
     await Sound.startRecorder();
     recorderActiveRef.current = true;
     Sound.addRecordBackListener((_: RecordBackType) => {});
     setRecordingState(true);
-    setTurns([{ id: `live-${Date.now()}`, speaker: '듣는 중', text: '음성 스트림을 듣고 있습니다', type: 'partial' }]);
+    setTurns(p => [
+      ...p.filter(t => t.type !== 'partial'),
+      { id: `live-${Date.now()}`, speaker: '듣는 중', text: '음성 스트림을 듣고 있습니다', type: 'partial' },
+    ]);
     chunkTimerRef.current = setInterval(() => {
       if (recordingRef.current) {
         rotateRecordingChunk(true).catch((e: any) => {
@@ -556,7 +564,7 @@ export default function RealtimeSessionScreen() {
           showsVerticalScrollIndicator={false}
         >
           {turns.length === 0
-            ? !hasRecorded
+            ? !hasStarted
               ? <Empty />
               : <AnalyzingRow />
             : turns.map(turn => (
@@ -576,38 +584,31 @@ export default function RealtimeSessionScreen() {
 
       {/* ── Controls ── */}
       <View style={s.dock}>
-        {recording && <Waveform active />}
-
-        {/* Timer above mic */}
+        {/* Timer + waveform in one row */}
         <View style={s.timerRow}>
+          {recording && <Waveform active />}
           <View style={[s.timerDot, recording && s.timerDotRec]} />
           <Text style={s.timerText}>{fmt(duration)}</Text>
         </View>
 
-        <View style={s.dockInner}>
-          <View style={s.avatarChip} />
-
-          {/* Mic */}
-          <View style={s.micWrap}>
-            {recording && (
-              <Animated.View style={[s.ripple, {
-                transform: [{ scale: rippleScale }], opacity: rippleOpacity,
-              }]} />
-            )}
-            <TouchableOpacity
-              style={[s.mic, recording && s.micRec, analyzing && !recording && s.micBusy]}
-              onPress={onMic} activeOpacity={0.8}
-              disabled={ending}
-            >
-              {recording
-                ? <MicOff size={24} color="#FFF" strokeWidth={2.3} />
-                : analyzing
-                  ? <Mic size={24} color="rgba(255,255,255,0.3)" strokeWidth={2} />
-                  : <Mic size={24} color="#FFF" strokeWidth={2.3} />}
-            </TouchableOpacity>
-          </View>
-
-          <View style={s.avatarChip} />
+        {/* Mic centered */}
+        <View style={s.micWrap}>
+          {recording && (
+            <Animated.View style={[s.ripple, {
+              transform: [{ scale: rippleScale }], opacity: rippleOpacity,
+            }]} />
+          )}
+          <TouchableOpacity
+            style={[s.mic, recording && s.micRec, analyzing && !recording && s.micBusy]}
+            onPress={onMic} activeOpacity={0.8}
+            disabled={ending}
+          >
+            {recording
+              ? <MicOff size={22} color="#FFF" strokeWidth={2.3} />
+              : analyzing
+                ? <Mic size={22} color="rgba(255,255,255,0.3)" strokeWidth={2} />
+                : <Mic size={22} color="#FFF" strokeWidth={2.3} />}
+          </TouchableOpacity>
         </View>
 
         <Text style={s.micHint}>
@@ -620,7 +621,7 @@ export default function RealtimeSessionScreen() {
 
         <TouchableOpacity
           style={[s.endBtn, busy && s.endBtnOff]}
-          onPress={() => finish(true)}
+          onPress={() => { setPendingRating(0); setShowRating(true); }}
           disabled={busy} activeOpacity={0.85}
         >
           <Text style={[s.endText, busy && s.endTextOff]}>
@@ -629,42 +630,76 @@ export default function RealtimeSessionScreen() {
           {!busy && <ArrowRight size={15} color="#FFFFFF" strokeWidth={2.5} />}
         </TouchableOpacity>
       </View>
+      {/* ── Rating modal ── */}
+      <Modal visible={showRating} transparent animationType="fade" onRequestClose={() => setShowRating(false)}>
+        <View style={rm.backdrop}>
+          <View style={rm.sheet}>
+            <Text style={rm.title}>세션 평점</Text>
+            <Text style={rm.sub}>이번 대화 어떠셨나요?</Text>
+            <View style={rm.stars}>
+              {[1, 2, 3, 4, 5].map(n => (
+                <TouchableOpacity key={n} onPress={() => setPendingRating(n)} activeOpacity={0.7}>
+                  <Star
+                    size={36}
+                    color={C.terra}
+                    fill={n <= pendingRating ? C.terra : 'none'}
+                    strokeWidth={1.8}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={rm.actions}>
+              <TouchableOpacity style={rm.skipBtn} onPress={() => { setShowRating(false); finish(0); }}>
+                <Text style={rm.skipText}>건너뛰기</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={rm.confirmBtn} onPress={() => { setShowRating(false); finish(pendingRating); }}>
+                <Text style={rm.confirmText}>완료</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.white },
+  safe: { flex: 1, backgroundColor: C.canvas },
 
   // Session card
   sessionCard: {
     flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: 20, marginTop: 12, marginBottom: 10,
-    paddingHorizontal: 16, paddingVertical: 12,
-    backgroundColor: C.paper,
-    borderRadius: 16,
-    borderWidth: 1, borderColor: C.ink10,
+    marginHorizontal: 16, marginTop: 12, marginBottom: 10,
+    paddingHorizontal: 16, paddingVertical: 13,
+    backgroundColor: C.white,
+    borderRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 3,
     gap: 12,
   },
   sessionAvatar: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 42, height: 42, borderRadius: 21,
     alignItems: 'center', justifyContent: 'center',
   },
   sessionInfo: { flex: 1 },
-  sessionName: { fontSize: 16, fontWeight: '700', color: C.ink100 },
-  sessionStatus: { fontSize: 13, color: C.ink70, marginTop: 2 },
+  sessionName: { fontSize: 15, fontWeight: '700', color: C.ink100 },
+  sessionStatus: { fontSize: 12, color: C.ink40, marginTop: 2 },
   sessionCounts: { flexDirection: 'row', gap: 8 },
-  sessionCount: { fontSize: 14, fontWeight: '700' },
+  sessionCount: { fontSize: 13, fontWeight: '700' },
 
   // Timer (now in dock)
   timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
-  timerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.ink20 },
+  timerDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: C.ink20 },
   timerDotRec: { backgroundColor: C.recRed },
   timerText: { fontSize: 20, fontWeight: '700', color: C.ink100, letterSpacing: 1 },
 
   // Feed
-  feed: { flex: 1, paddingHorizontal: 20 },
+  feed: { flex: 1, paddingHorizontal: 16 },
   feedHeader: {
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', marginBottom: 12,
@@ -676,41 +711,43 @@ const s = StyleSheet.create({
     borderRadius: 99, overflow: 'hidden',
   },
   scroll: { flex: 1 },
-  scrollContent: { flexGrow: 1, gap: 2, paddingBottom: 8 },
-  soloWrap: { marginTop: 8, gap: 2 },
+  scrollContent: { flexGrow: 1, gap: 4, paddingBottom: 8 },
+  soloWrap: { marginTop: 8, gap: 4 },
 
   // Dock
   dock: {
     backgroundColor: C.white,
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 30,
-    borderTopWidth: 1,
-    borderTopColor: C.ink10,
-    gap: 12,
-  },
-  dockInner: {
-    flexDirection: 'row',
+    paddingTop: 10,
+    paddingBottom: 22,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 12,
+    gap: 8,
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  avatarChip: {
-    width: 40, height: 40, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  micWrap: { width: 80, height: 80, alignItems: 'center', justifyContent: 'center' },
+  micWrap: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
   ripple: {
     position: 'absolute',
-    width: 70, height: 70, borderRadius: 35,
+    width: 64, height: 64, borderRadius: 32,
     backgroundColor: C.recRed,
   },
   mic: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: C.ink100,
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: C.terra,
     alignItems: 'center', justifyContent: 'center',
+    shadowColor: C.terra,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  micRec: { backgroundColor: C.recRed },
-  micBusy: { backgroundColor: C.ink40 },
+  micRec: { backgroundColor: C.recRed, shadowColor: C.recRed },
+  micBusy: { backgroundColor: C.ink20, shadowOpacity: 0, elevation: 0 },
   muteChip: {
     width: 40, height: 40, borderRadius: 12,
     backgroundColor: C.canvas,
@@ -718,17 +755,15 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   micHint: {
-    textAlign: 'center', fontSize: 13,
-    color: C.ink70, fontWeight: '500',
+    textAlign: 'center', fontSize: 12,
+    color: C.ink40, fontWeight: '500',
   },
   endBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 15, borderRadius: 14,
-    backgroundColor: '#6C3BFF',
+    gap: 8, paddingVertical: 13, borderRadius: 16,
+    backgroundColor: C.terra, width: '100%',
   },
-  endBtnOff: {
-    backgroundColor: C.ink10,
-  },
+  endBtnOff: { backgroundColor: C.ink10 },
   endText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   endTextOff: { color: C.ink40 },
 });
@@ -739,84 +774,64 @@ const wv = StyleSheet.create({
   bar: { width: 2.5, height: 16, borderRadius: 1.5 },
 });
 
-// Turn
+// Turn — centered transcript style
 const tn = StyleSheet.create({
-  // Outer row — controls which side the bubble sits on
   row: {
-    paddingVertical: 6,
-  },
-  rowUser: { alignItems: 'flex-end' },
-  rowPartner: { alignItems: 'flex-start' },
-
-  // Column holds label + bubble, capped at 80% width
-  col: { maxWidth: '80%' },
-  colUser: { alignItems: 'flex-end' },
-  colPartner: { alignItems: 'flex-start' },
-
-  // Speaker label row
-  labelRow: {
-    flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 5,
     gap: 5,
-    marginBottom: 4,
-    paddingHorizontal: 2,
   },
-  dot: { width: 5, height: 5, borderRadius: 2.5 },
-  dotPartner: { backgroundColor: C.ink40 },
-  dotUser: { backgroundColor: '#6C3BFF' },
-  speaker: { fontSize: 10, fontWeight: '700', color: C.ink40, letterSpacing: 0.5, textTransform: 'uppercase' },
-  speakerUser: { color: '#6C3BFF' },
+  speaker: {
+    fontSize: 10, fontWeight: '700',
+    color: C.ink40, letterSpacing: 0.8,
+    textTransform: 'uppercase', textAlign: 'center',
+  },
+  speakerUser: { color: C.terra },
+  speakerPartner: { color: C.ink40 },
+  recDot: { color: C.recRed },
 
-  // Bubbles
   bubble: {
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    width: '100%', borderRadius: 14,
+    paddingHorizontal: 16, paddingVertical: 12,
   },
-  bubbleUser: {
-    backgroundColor: '#EDEAFC',
-    borderBottomRightRadius: 4,
-  },
+  bubbleUser: { backgroundColor: '#EDE9FF' },
   bubblePartner: {
-    backgroundColor: C.paper,
-    borderWidth: 1,
-    borderColor: C.ink10,
-    borderBottomLeftRadius: 4,
+    backgroundColor: C.white,
+    borderWidth: 1, borderColor: C.ink10,
   },
   bubbleLive: { opacity: 0.7 },
 
-  // Text
-  text: { fontSize: 15, lineHeight: 22 },
-  textUser: { color: C.ink100 },
-  textPartner: { color: C.ink100 },
+  text: { fontSize: 15, lineHeight: 23, color: C.ink100, textAlign: 'center' },
   textLive: { color: C.ink70 },
 
-  // Insight offset
-  insightWrap: { marginTop: 6, maxWidth: '80%' },
-  insightUser: { alignSelf: 'flex-end' },
-  insightPartner: { alignSelf: 'flex-start' },
+  insightWrap: { width: '100%' },
 });
 
-// Insight
+// Insight — compact note style
 const ins = StyleSheet.create({
   wrap: {
-    borderLeftWidth: 2.5,
-    paddingLeft: 12,
-    paddingVertical: 2,
-    gap: 3,
+    borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+    gap: 4,
   },
-  label: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
-  msg: { fontSize: 13, color: C.ink70, lineHeight: 19 },
-  sugg: { fontSize: 13, fontWeight: '600', lineHeight: 19 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap',
+  },
+  badge: {
+    fontSize: 10, fontWeight: '800',
+    letterSpacing: 0.8, textTransform: 'uppercase',
+  },
+  msg: { fontSize: 13, color: C.ink70, lineHeight: 18, flex: 1 },
+  sugg: { fontSize: 12, fontWeight: '600', lineHeight: 18, paddingLeft: 2 },
 });
 
 // Empty
 const em = StyleSheet.create({
-  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, paddingBottom: 40 },
-  barsRow: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, marginBottom: 4 },
-  bar: { width: 4, borderRadius: 2, backgroundColor: C.ink20 },
-  title: { fontSize: 18, fontWeight: '700', color: C.ink100 },
-  sub: { fontSize: 15, color: C.ink70, textAlign: 'center', lineHeight: 23 },
+  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingBottom: 40 },
+  barsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, marginBottom: 6 },
+  bar: { width: 4, borderRadius: 2, backgroundColor: C.ink10 },
+  title: { fontSize: 19, fontWeight: '700', color: C.ink100 },
+  sub: { fontSize: 14, color: C.ink40, textAlign: 'center', lineHeight: 22 },
 
   analyzeRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -824,8 +839,35 @@ const em = StyleSheet.create({
     paddingVertical: 16,
   },
   analyzeDot: {
-    width: 5, height: 5, borderRadius: 2.5,
+    width: 6, height: 6, borderRadius: 3,
     backgroundColor: C.terra,
   },
-  analyzeText: { fontSize: 13, color: C.terra, fontWeight: '500' },
+  analyzeText: { fontSize: 13, color: C.terra, fontWeight: '600' },
+});
+
+// Rating modal
+const rm = StyleSheet.create({
+  backdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sheet: {
+    width: '82%', backgroundColor: C.white,
+    borderRadius: 24, padding: 28,
+    alignItems: 'center', gap: 10,
+  },
+  title: { fontSize: 18, fontWeight: '700', color: C.ink100 },
+  sub:   { fontSize: 14, color: C.ink70, marginBottom: 4 },
+  stars: { flexDirection: 'row', gap: 12, marginVertical: 8 },
+  actions: { flexDirection: 'row', gap: 12, marginTop: 8, width: '100%' },
+  skipBtn: {
+    flex: 1, paddingVertical: 13, borderRadius: 12,
+    backgroundColor: C.canvas, alignItems: 'center',
+  },
+  skipText: { fontSize: 15, fontWeight: '600', color: C.ink70 },
+  confirmBtn: {
+    flex: 2, paddingVertical: 13, borderRadius: 12,
+    backgroundColor: C.terra, alignItems: 'center',
+  },
+  confirmText: { fontSize: 15, fontWeight: '700', color: C.white },
 });

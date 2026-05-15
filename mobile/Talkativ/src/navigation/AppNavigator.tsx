@@ -324,7 +324,8 @@ export const AppNavigator: React.FC = () => {
   if (isLoading) {
     return (
       <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color="#6C3BFF" />
+        <Text style={styles.splashWelcome}>Welcome to Talkativ!</Text>
+        <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" style={styles.splashSpinner} />
       </View>
     );
   }
@@ -433,7 +434,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#6C3BFF',
+  },
+  splashWelcome: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 8,
+  },
+  splashSpinner: {
+    marginTop: 48,
   },
   bottomMenu: {
     position: 'absolute',
