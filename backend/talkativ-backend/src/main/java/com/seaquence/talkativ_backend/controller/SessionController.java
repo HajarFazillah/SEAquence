@@ -95,7 +95,7 @@ public class SessionController {
         }
 
         Session s = found.get();
-        s.setStatus("ended");
+        s.setStatus("completed");
         s.setEndedAt(LocalDateTime.now());
         sessionRepository.save(s);
 
