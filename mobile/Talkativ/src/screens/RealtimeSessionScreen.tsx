@@ -24,6 +24,7 @@ import {
   TranscriptTurnResult,
   InsightResult,
 } from '../services/realtimeAnalysisService';
+import { REALTIME_WS_URL } from '../constants';
 import Sound, { RecordBackType } from 'react-native-nitro-sound';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { RootStackParamList } from '../navigation/AppNavigator';
@@ -73,7 +74,7 @@ const C = {
 } as const;
 
 const WAVE_H = [0.25, 0.5, 0.8, 1.0, 0.7, 0.4, 0.9, 0.55, 0.35, 0.75, 0.45];
-const STREAM_CHUNK_MS = 3000;
+const STREAM_CHUNK_MS = 2000;
 
 const pad2 = (n: number) => n.toString().padStart(2, '0');
 const fmt = (s: number) => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
@@ -274,6 +275,7 @@ export default function RealtimeSessionScreen() {
   const rippleLoop    = useRef<Animated.CompositeAnimation | null>(null);
   const ended         = useRef(false);
   const hasSpeechRef  = useRef(false);
+  const wsRef         = useRef<WebSocket | null>(null);
   const scrollRef     = useRef<ScrollView>(null);
   const recordingRef  = useRef(false);
   const rotatingRef   = useRef(false);
@@ -300,6 +302,24 @@ export default function RealtimeSessionScreen() {
       recorderActiveRef.current = false;
     };
   }, []);
+
+  // ─── WebSocket connection ─────────────────────────────────────────────────
+  useEffect(() => {
+    const ws = new WebSocket(REALTIME_WS_URL);
+    wsRef.current = ws;
+    ws.onopen  = () => console.log('[WS] connected');
+    ws.onerror = (e) => console.warn('[WS] error', e);
+    ws.onclose = () => console.log('[WS] closed');
+    return () => { ws.close(); wsRef.current = null; };
+  }, []);
+
+  const toBase64 = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
 
   useEffect(() => {
     if (recording) {
@@ -378,64 +398,85 @@ export default function RealtimeSessionScreen() {
     return u;
   }, [navigation, ending, finish]));
 
+  const processAnalysisResult = useCallback((res: { turns?: TranscriptTurnResult[]; insights?: InsightResult[] } | null, chunkIndex: number) => {
+    const nextTurns = normTurns(res?.turns ?? []).filter(t => t.text.trim().length > 0);
+    const seenLabels: string[] = [];
+    for (const t of nextTurns) {
+      if (!seenLabels.includes(t.speaker)) seenLabels.push(t.speaker);
+    }
+    const avatarLabel = seenLabels[1];
+    if (avatarLabel && avatar?.name_ko) {
+      for (const t of nextTurns) {
+        if (t.speaker === avatarLabel) t.speaker = avatar.name_ko;
+      }
+    }
+    const nextInsights = normInsights(res?.insights ?? []);
+    if (nextTurns.length > 0) hasSpeechRef.current = true;
+    if (nextTurns.length === 0 && nextInsights.length === 0 && !recordingRef.current && !hasSpeechRef.current) {
+      nextInsights.push({
+        id: `i-empty-${Date.now()}`,
+        kind: 'risk',
+        message: '음성이 업로드됐지만 인식된 문장이 없어요.',
+        suggestion: '한 문장 이상 또렷하게 말한 뒤 다시 시도해 보세요.',
+        turnId: '',
+      });
+    }
+    setTurns(p => [...p.filter(t => t.type !== 'partial'), ...nextTurns]);
+    setInsights(p => {
+      const seen = new Set(p.map(i => i.message));
+      return [...p, ...nextInsights.filter(i => !seen.has(i.message))];
+    });
+    setProcessingChunks(count => Math.max(0, count - 1));
+  }, [avatar]);
+
   const uploadRecordedChunk = useCallback(async (rawUri: string, chunkIndex: number) => {
     const uri = normalizeRecordingUri(rawUri);
-    setRecUri(uri);
     setProcessingChunks(count => count + 1);
+
+    // ── WebSocket path (faster) ──────────────────────────────────────────────
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        const blob = await (await fetch(uri)).blob();
+        const audio = await toBase64(blob);
+        ws.onmessage = (event) => {
+          try {
+            processAnalysisResult(JSON.parse(event.data), chunkIndex);
+          } catch { setProcessingChunks(c => Math.max(0, c - 1)); }
+        };
+        ws.send(JSON.stringify({
+          audio,
+          sessionId: sessionIdRef.current,
+          userId,
+          avatarRole: avatar?.role ?? '',
+          expectedSpeechLevel,
+          chunkIndex,
+        }));
+        return;
+      } catch (e) {
+        console.warn('[WS] send failed, falling back to HTTP', e);
+        setProcessingChunks(count => Math.max(0, count - 1));
+        setProcessingChunks(count => count + 1);
+      }
+    }
+
+    // ── HTTP fallback ────────────────────────────────────────────────────────
     try {
       const form = new FormData();
       form.append('file', { uri, name: `recording-${chunkIndex}.m4a`, type: 'audio/mp4' } as any);
-      if (sessionId) form.append('sessionId', sessionId);
+      if (sessionIdRef.current) form.append('sessionId', sessionIdRef.current);
       if (avatar?.role) form.append('avatarRole', avatar.role);
       form.append('userId', userId);
       form.append('expectedSpeechLevel', expectedSpeechLevel);
       form.append('chunkIndex', String(chunkIndex));
 
       const res = await analyzeRealtimeAudio(form);
-      const nextTurns = normTurns(res?.turns ?? [])
-        .filter(t => t.text.trim().length > 0);
-
-      const seenLabels: string[] = [];
-      for (const t of nextTurns) {
-        if (!seenLabels.includes(t.speaker)) seenLabels.push(t.speaker);
-      }
-      const avatarLabel = seenLabels[1];
-      if (avatarLabel && avatar?.name_ko) {
-        for (const t of nextTurns) {
-          if (t.speaker === avatarLabel) t.speaker = avatar.name_ko;
-        }
-      }
-
-      const nextInsights = normInsights(res?.insights ?? []);
-
-      if (nextTurns.length > 0) hasSpeechRef.current = true;
-
-      // Only show the "no speech" hint once, when the user stops and the
-      // entire session produced zero recognised speech.
-      if (
-        nextTurns.length === 0 &&
-        nextInsights.length === 0 &&
-        !recordingRef.current &&
-        !hasSpeechRef.current
-      ) {
-        nextInsights.push({
-          id: `i-empty-${Date.now()}`,
-          kind: 'risk',
-          message: '음성이 업로드됐지만 인식된 문장이 없어요.',
-          suggestion: '한 문장 이상 또렷하게 말한 뒤 다시 시도해 보세요.',
-          turnId: '',
-        });
-      }
-
-      setTurns(p => [...p.filter(t => t.type !== 'partial'), ...nextTurns]);
-      setInsights(p => {
-        const seen = new Set(p.map(i => i.message));
-        return [...p, ...nextInsights.filter(i => !seen.has(i.message))];
-      });
-    } finally {
+      processAnalysisResult(res, chunkIndex);
+    } catch (e: any) {
       setProcessingChunks(count => Math.max(0, count - 1));
+      throw e;
     }
-  }, [avatar, expectedSpeechLevel, sessionId, userId]);
+  }, [avatar, expectedSpeechLevel, userId, processAnalysisResult]);
 
   const rotateRecordingChunk = useCallback(async (restart: boolean) => {
     if (rotatingRef.current) return;
