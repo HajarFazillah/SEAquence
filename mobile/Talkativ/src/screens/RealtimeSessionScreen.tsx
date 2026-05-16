@@ -26,6 +26,7 @@ import {
 } from '../services/realtimeAnalysisService';
 import { REALTIME_WS_URL } from '../constants';
 import Sound, { RecordBackType } from 'react-native-nitro-sound';
+import RNFS from 'react-native-fs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -36,6 +37,7 @@ type RealtimeSessionRoute = NativeStackScreenProps<
 
 type TranscriptTurn = {
   id: string; speaker: string; text: string; type: 'partial' | 'final';
+  suggestions?: string[];
 };
 type Insight = {
   id: string; kind: 'risk' | 'success'; message: string;
@@ -74,7 +76,7 @@ const C = {
 } as const;
 
 const WAVE_H = [0.25, 0.5, 0.8, 1.0, 0.7, 0.4, 0.9, 0.55, 0.35, 0.75, 0.45];
-const STREAM_CHUNK_MS = 2000;
+const STREAM_CHUNK_MS = 5000;
 
 const pad2 = (n: number) => n.toString().padStart(2, '0');
 const fmt = (s: number) => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
@@ -129,25 +131,43 @@ function Insight({ item }: { item: Insight }) {
   );
 }
 
+// ─── Suggestion Cards ────────────────────────────────────────────────────────
+function SuggestionCards({ suggestions }: { suggestions: string[] }) {
+  return (
+    <View style={sg.wrap}>
+      <Text style={sg.label}>💬 답변 제안</Text>
+      {suggestions.map((s, i) => (
+        <TouchableOpacity key={i} style={sg.card} activeOpacity={0.7}>
+          <Text style={sg.text} numberOfLines={2}>{s}</Text>
+          <ArrowRight size={12} color={C.terra} />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 // ─── Turn ─────────────────────────────────────────────────────────────────────
 function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: Insight; avatarName?: string }) {
   const live = turn.type === 'partial';
   const isUser = !avatarName || turn.speaker !== avatarName;
+  const hasSuggestions = !isUser && !live && (turn.suggestions?.length ?? 0) > 0;
 
   return (
     <View style={tn.row}>
-      <Text style={[tn.speaker, isUser ? tn.speakerUser : tn.speakerPartner]}>
-        {live ? '녹음 중' : isUser ? '나' : turn.speaker}
-        {live && <Text style={tn.recDot}> ●</Text>}
-      </Text>
       <View style={[tn.bubble, isUser ? tn.bubbleUser : tn.bubblePartner, live && tn.bubbleLive]}>
         <Text style={[tn.text, live && tn.textLive]}>
           {turn.text}{live ? ' ▌' : ''}
         </Text>
+        {live && <Text style={tn.recDot}>● 녹음 중</Text>}
       </View>
       {insight ? (
         <View style={tn.insightWrap}>
           <Insight item={insight} />
+        </View>
+      ) : null}
+      {hasSuggestions ? (
+        <View style={tn.insightWrap}>
+          <SuggestionCards suggestions={turn.suggestions!} />
         </View>
       ) : null}
     </View>
@@ -199,6 +219,7 @@ const normTurns = (turns: TranscriptTurnResult[] = []): TranscriptTurn[] =>
     speaker: String(t.speaker ?? 'Speaker'),
     text: t.text ?? '',
     type: 'final',
+    suggestions: t.suggestions,
   }));
 
 const normInsights = (items: InsightResult[] = []): Insight[] =>
@@ -312,14 +333,6 @@ export default function RealtimeSessionScreen() {
     ws.onclose = () => console.log('[WS] closed');
     return () => { ws.close(); wsRef.current = null; };
   }, []);
-
-  const toBase64 = (blob: Blob): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload  = () => resolve((reader.result as string).split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
 
   useEffect(() => {
     if (recording) {
@@ -437,8 +450,8 @@ export default function RealtimeSessionScreen() {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       try {
-        const blob = await (await fetch(uri)).blob();
-        const audio = await toBase64(blob);
+        const filePath = uri.replace('file://', '');
+        const audio = await RNFS.readFile(filePath, 'base64');
         ws.onmessage = (event) => {
           try {
             processAnalysisResult(JSON.parse(event.data), chunkIndex);
@@ -822,14 +835,7 @@ const tn = StyleSheet.create({
     paddingVertical: 5,
     gap: 5,
   },
-  speaker: {
-    fontSize: 10, fontWeight: '700',
-    color: C.ink40, letterSpacing: 0.8,
-    textTransform: 'uppercase', textAlign: 'center',
-  },
-  speakerUser: { color: C.terra },
-  speakerPartner: { color: C.ink40 },
-  recDot: { color: C.recRed },
+  recDot: { fontSize: 10, color: C.recRed, marginTop: 4 },
 
   bubble: {
     width: '100%', borderRadius: 14,
@@ -864,6 +870,18 @@ const ins = StyleSheet.create({
   },
   msg: { fontSize: 13, color: C.ink70, lineHeight: 18, flex: 1 },
   sugg: { fontSize: 12, fontWeight: '600', lineHeight: 18, paddingLeft: 2 },
+});
+
+// Suggestion cards
+const sg = StyleSheet.create({
+  wrap: { marginTop: 6, gap: 6 },
+  label: { fontSize: 11, color: C.ink40, fontWeight: '600', marginBottom: 2 },
+  card: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.terraFg,
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, gap: 8,
+  },
+  text: { fontSize: 13, color: C.terra, fontWeight: '500', flex: 1 },
 });
 
 // Empty
