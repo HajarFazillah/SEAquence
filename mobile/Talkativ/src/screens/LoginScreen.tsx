@@ -109,7 +109,8 @@ export const LoginScreen: React.FC = () => {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-          <Text style={styles.welcome}>Welcome to talkativ!</Text>
+          <Image source={require('../assets/images/app_logo.png')} style={styles.appLogo} />
+          <Text style={styles.welcome}>Welcome to Talkativ!</Text>
 
           <TouchableOpacity style={styles.kakaoButton} onPress={handleKakaoLogin}>
             <Image source={require('../assets/images/kakao_logo.png')} style={styles.kakaoLogo} />
@@ -164,7 +165,8 @@ export const LoginScreen: React.FC = () => {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
   container: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 },
-  welcome: { fontSize: 28, fontWeight: '700', color: '#1A1A2E', textAlign: 'center', marginTop: 40, marginBottom: 32 },
+  appLogo: { width: 110, height: 110, borderRadius: 24, alignSelf: 'center', marginTop: 40, marginBottom: 16 },
+  welcome: { fontSize: 28, fontWeight: '700', color: '#1A1A2E', textAlign: 'center', marginBottom: 32 },
   kakaoButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEE500', borderRadius: 30, paddingVertical: 16, marginBottom: 12, position: 'relative' },
   kakaoLogo: { width: 24, height: 24, position: 'absolute', left: 16 },
   kakaoText: { fontSize: 14, fontWeight: '700', color: '#000000', letterSpacing: 0.5 },

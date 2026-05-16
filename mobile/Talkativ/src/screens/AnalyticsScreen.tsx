@@ -175,13 +175,6 @@ const buildSessionScores = (
   return { speechAccuracy, vocabulary, naturalness };
 };
 
-const getScoreSourceLabel = (detail?: ScoreDetail) => {
-  if (!detail?.source) return '';
-  if (detail.used_fallback) return '기본값 사용';
-  if (detail.source.includes('konlpy')) return 'KoNLPy 보조';
-  if (detail.source === 'rule_based') return '규칙 기반 계산';
-  return '혼합 계산';
-};
 
 const getCorrectionTypeLabel = (type?: string) => {
   if (!type) return '';
@@ -1094,17 +1087,6 @@ export default function AnalyticsScreen() {
                 </View>
               )}
 
-              {(sessionId || recordingUri) && (
-                <View style={styles.metaWrap}>
-                  {!!sessionId && (
-                    <Text style={styles.metaText}>Session ID: {sessionId}</Text>
-                  )}
-
-                  {!!recordingUri && (
-                    <Text style={styles.metaText}>녹음 파일이 저장되었습니다</Text>
-                  )}
-                </View>
-              )}
             </View>
           </View>
         )}
@@ -1166,12 +1148,6 @@ export default function AnalyticsScreen() {
                     />
                   </View>
 
-                  {item.detail?.source ? (
-                    <Text style={styles.scoreFootnote}>
-                      {getScoreSourceLabel(item.detail)}
-                      {item.detail.note ? ` · ${item.detail.note}` : ''}
-                    </Text>
-                  ) : null}
                 </View>
               ))}
 
@@ -1629,7 +1605,7 @@ export default function AnalyticsScreen() {
       <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
         <TouchableOpacity
           style={styles.footerBtnOutline}
-          onPress={() => navigation.navigate('Main', { screen: 'Home' })}
+          onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Main', params: { screen: 'Home' } }] })}
         >
           <Text style={styles.footerBtnOutlineText}>홈으로</Text>
         </TouchableOpacity>

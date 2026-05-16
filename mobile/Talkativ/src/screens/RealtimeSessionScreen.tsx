@@ -9,21 +9,24 @@ import {
   ScrollView,
   PermissionsAndroid,
   Platform,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import {
   Mic, MicOff,
-  CircleDashed, ArrowRight,
+  CircleDashed, ArrowRight, Star,
 } from 'lucide-react-native';
 import { Icon, type IconName } from '../components';
-import { endSession } from '../services/apiSession';
+import { createSession, endSession } from '../services/apiSession';
 import {
   analyzeRealtimeAudio,
   TranscriptTurnResult,
   InsightResult,
 } from '../services/realtimeAnalysisService';
+import { REALTIME_WS_URL } from '../constants';
 import Sound, { RecordBackType } from 'react-native-nitro-sound';
+import RNFS from 'react-native-fs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -34,6 +37,7 @@ type RealtimeSessionRoute = NativeStackScreenProps<
 
 type TranscriptTurn = {
   id: string; speaker: string; text: string; type: 'partial' | 'final';
+  suggestions?: string[];
 };
 type Insight = {
   id: string; kind: 'risk' | 'success'; message: string;
@@ -72,7 +76,7 @@ const C = {
 } as const;
 
 const WAVE_H = [0.25, 0.5, 0.8, 1.0, 0.7, 0.4, 0.9, 0.55, 0.35, 0.75, 0.45];
-const STREAM_CHUNK_MS = 3000;
+const STREAM_CHUNK_MS = 5000;
 
 const pad2 = (n: number) => n.toString().padStart(2, '0');
 const fmt = (s: number) => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
@@ -111,11 +115,13 @@ function Waveform({ active }: { active: boolean }) {
 function Insight({ item }: { item: Insight }) {
   const risk = item.kind === 'risk';
   return (
-    <View style={[ins.wrap, { borderLeftColor: risk ? C.risk : C.ok }]}>
-      <Text style={[ins.label, { color: risk ? C.risk : C.ok }]}>
-        {risk ? '주의' : '잘함'}
-      </Text>
-      <Text style={ins.msg}>{item.message}</Text>
+    <View style={[ins.wrap, { backgroundColor: risk ? C.riskFg : C.okFg }]}>
+      <View style={ins.header}>
+        <Text style={[ins.badge, { color: risk ? C.risk : C.ok }]}>
+          {risk ? '주의' : '잘함'}
+        </Text>
+        <Text style={ins.msg} numberOfLines={2}>{item.message}</Text>
+      </View>
       {item.suggestion ? (
         <Text style={[ins.sugg, { color: risk ? C.risk : C.ok }]}>
           → {item.suggestion}
@@ -125,70 +131,84 @@ function Insight({ item }: { item: Insight }) {
   );
 }
 
+// ─── Suggestion Cards ────────────────────────────────────────────────────────
+function SuggestionCards({ suggestions }: { suggestions: string[] }) {
+  return (
+    <View style={sg.wrap}>
+      <Text style={sg.label}>💬 답변 제안</Text>
+      {suggestions.map((s, i) => (
+        <TouchableOpacity key={i} style={sg.card} activeOpacity={0.7}>
+          <Text style={sg.text} numberOfLines={2}>{s}</Text>
+          <ArrowRight size={12} color={C.terra} />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 // ─── Turn ─────────────────────────────────────────────────────────────────────
 function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: Insight; avatarName?: string }) {
   const live = turn.type === 'partial';
-  // User = not the avatar and not an unknown partner label
   const isUser = !avatarName || turn.speaker !== avatarName;
+  const hasSuggestions = !isUser && !live && (turn.suggestions?.length ?? 0) > 0;
 
   return (
-    <View style={[tn.row, isUser ? tn.rowUser : tn.rowPartner]}>
-      {/* Bubble + label */}
-      <View style={[tn.col, isUser ? tn.colUser : tn.colPartner]}>
-        <View style={tn.labelRow}>
-          {!isUser && <View style={[tn.dot, tn.dotPartner]} />}
-          <Text style={[tn.speaker, isUser && tn.speakerUser]}>
-            {live ? '나 (녹음 중)' : isUser ? '나' : turn.speaker}
-          </Text>
-          {isUser && <View style={[tn.dot, tn.dotUser]} />}
-          {live && (
-            <CircleDashed size={9} color={C.recRed} strokeWidth={2.5} />
-          )}
-        </View>
-
-        <View style={[tn.bubble, isUser ? tn.bubbleUser : tn.bubblePartner, live && tn.bubbleLive]}>
-          <Text style={[tn.text, isUser ? tn.textUser : tn.textPartner, live && tn.textLive]}>
-            {turn.text}{live ? ' ▌' : ''}
-          </Text>
-        </View>
+    <View style={tn.row}>
+      <View style={[tn.bubble, isUser ? tn.bubbleUser : tn.bubblePartner, live && tn.bubbleLive]}>
+        <Text style={[tn.text, live && tn.textLive]}>
+          {turn.text}{live ? ' ▌' : ''}
+        </Text>
+        {live && <Text style={tn.recDot}>● 녹음 중</Text>}
       </View>
-
       {insight ? (
-        <View style={[tn.insightWrap, isUser ? tn.insightUser : tn.insightPartner]}>
+        <View style={tn.insightWrap}>
           <Insight item={insight} />
+        </View>
+      ) : null}
+      {hasSuggestions ? (
+        <View style={tn.insightWrap}>
+          <SuggestionCards suggestions={turn.suggestions!} />
         </View>
       ) : null}
     </View>
   );
 }
 
-// ─── Empty ────────────────────────────────────────────────────────────────────
-function Empty({ analyzing }: { analyzing: boolean }) {
-  const scale = useRef(new Animated.Value(1)).current;
+// ─── Empty (initial state only) ───────────────────────────────────────────────
+const BAR_HEIGHTS = [10, 18, 26, 18, 10];
+function Empty() {
+  return (
+    <View style={em.wrap}>
+      <View style={em.barsRow}>
+        {BAR_HEIGHTS.map((h, i) => (
+          <View key={i} style={[em.bar, { height: h }]} />
+        ))}
+      </View>
+      <Text style={em.title}>대화를 시작하세요</Text>
+      <Text style={em.sub}>아래 버튼을 눌러 녹음을 시작해보세요</Text>
+    </View>
+  );
+}
+
+// ─── Analyzing placeholder (mid-session) ──────────────────────────────────────
+function AnalyzingRow() {
+  const op = useRef(new Animated.Value(0.4)).current;
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
-      Animated.timing(scale, { toValue: 1.06, duration: 1600, useNativeDriver: true }),
-      Animated.timing(scale, { toValue: 1, duration: 1600, useNativeDriver: true }),
+      Animated.timing(op, { toValue: 1,   duration: 600, useNativeDriver: true }),
+      Animated.timing(op, { toValue: 0.4, duration: 600, useNativeDriver: true }),
     ]));
     loop.start();
     return () => loop.stop();
-  }, [scale]);
+  }, [op]);
 
   return (
-    <View style={em.wrap}>
-      <Animated.View style={[em.ring, { transform: [{ scale }] }]} />
-      <View style={em.circle}>
-        <Mic size={22} color={C.ink70} strokeWidth={1.6} />
-      </View>
-      <Text style={em.title}>
-        {analyzing ? '분석 중...' : '대화를 시작하세요'}
-      </Text>
-      <Text style={em.sub}>
-        {analyzing
-          ? '잠시 후 내용이 표시됩니다'
-          : '아래 버튼을 눌러\n녹음을 시작해보세요'}
-      </Text>
-    </View>
+    <Animated.View style={[em.analyzeRow, { opacity: op }]}>
+      {[0, 1, 2].map(i => (
+        <View key={i} style={em.analyzeDot} />
+      ))}
+      <Text style={em.analyzeText}>분석 중</Text>
+    </Animated.View>
   );
 }
 
@@ -199,6 +219,7 @@ const normTurns = (turns: TranscriptTurnResult[] = []): TranscriptTurn[] =>
     speaker: String(t.speaker ?? 'Speaker'),
     text: t.text ?? '',
     type: 'final',
+    suggestions: t.suggestions,
   }));
 
 const normInsights = (items: InsightResult[] = []): Insight[] =>
@@ -235,6 +256,20 @@ export default function RealtimeSessionScreen() {
     })();
   }, []);
 
+  // Register this session in the DB so stats (completedSessions, practiceMinutes) are tracked.
+  useEffect(() => {
+    createSession({
+      avatarId: String(avatar?.id ?? 'system'),
+      avatarName: avatar?.name_ko ?? '상대방',
+      avatarIcon: avatar?.icon ?? 'user',
+      avatarBg: avatar?.avatar_bg ?? '#555',
+      situation: typeof situation === 'object' ? (situation as any)?.name_ko : (situation ?? '일상 대화'),
+      difficulty: avatar?.difficulty ?? 'medium',
+    }).then(s => {
+      sessionIdRef.current = s.sessionId;
+    }).catch(() => {});
+  }, []);
+
   // Map avatar's expected speech level (from user) to backend code (formal|polite|informal).
   const expectedSpeechLevel: string = (() => {
     const role = avatar?.role || '';
@@ -243,11 +278,14 @@ export default function RealtimeSessionScreen() {
     return 'polite';
   })();
 
-  const [recording, setRecording]   = useState(false);
+  const [recording, setRecording]     = useState(false);
+  const [hasStarted, setHasStarted]   = useState(false);
   const [hasRecorded, setHasRecorded] = useState(false);
-  const [duration, setDuration]     = useState(0);
-  const [ending, setEnding]         = useState(false);
-  const [analyzing, setAnalyzing]   = useState(false);
+  const [duration, setDuration]       = useState(0);
+  const [ending, setEnding]           = useState(false);
+  const [analyzing, setAnalyzing]     = useState(false);
+  const [showRating, setShowRating]   = useState(false);
+  const [pendingRating, setPendingRating] = useState(0);
   const [processingChunks, setProcessingChunks] = useState(0);
   const [turns, setTurns]           = useState<TranscriptTurn[]>([]);
   const [insights, setInsights]     = useState<Insight[]>([]);
@@ -257,6 +295,8 @@ export default function RealtimeSessionScreen() {
   const rippleOpacity = useRef(new Animated.Value(0)).current;
   const rippleLoop    = useRef<Animated.CompositeAnimation | null>(null);
   const ended         = useRef(false);
+  const hasSpeechRef  = useRef(false);
+  const wsRef         = useRef<WebSocket | null>(null);
   const scrollRef     = useRef<ScrollView>(null);
   const recordingRef  = useRef(false);
   const rotatingRef   = useRef(false);
@@ -282,6 +322,16 @@ export default function RealtimeSessionScreen() {
       Sound.stopRecorder().catch(() => {});
       recorderActiveRef.current = false;
     };
+  }, []);
+
+  // ─── WebSocket connection ─────────────────────────────────────────────────
+  useEffect(() => {
+    const ws = new WebSocket(REALTIME_WS_URL);
+    wsRef.current = ws;
+    ws.onopen  = () => console.log('[WS] connected');
+    ws.onerror = (e) => console.warn('[WS] error', e);
+    ws.onclose = () => console.log('[WS] closed');
+    return () => { ws.close(); wsRef.current = null; };
   }, []);
 
   useEffect(() => {
@@ -321,7 +371,7 @@ export default function RealtimeSessionScreen() {
     return true;
   }
 
-  const finish = useCallback(async (feedback: boolean) => {
+  const finish = useCallback(async (rating = 0) => {
     if (ended.current) return;
     ended.current = true;
     setEnding(true);
@@ -335,30 +385,19 @@ export default function RealtimeSessionScreen() {
         recorderActiveRef.current = false;
       }
     } catch {}
-    try { if (sessionId) await endSession(sessionId); } catch {}
+    try { if (sessionIdRef.current) await endSession(sessionIdRef.current); } catch {}
 
-    // If we have any final turns, route into the same post-chat flow as the chat screen
-    // so the user sees mistake breakdown / vocab / scoring exactly the same way.
     const finalTurns = turns.filter(t => t.type === 'final');
-    if (finalTurns.length > 0) {
-      const conversationHistory = finalTurns.map(t => ({
-        role: t.speaker === '나' || (avatar?.name_ko && t.speaker !== avatar.name_ko) ? 'user' : 'assistant',
-        content: t.text,
-      }));
-      navigation.navigate('ConversationSummary', {
-        avatar,
-        duration: fmt(duration),
-        situation,
-        conversationHistory,
-        sessionId,
-      });
-      return;
-    }
-
-    if (feedback) {
-      navigation.navigate('Feedback', { avatar, sessionId, situation, duration: fmt(duration), recordingUri: recUri, turns, insights });
-    } else navigation.goBack();
-  }, [sessionId, navigation, avatar, situation, duration, recUri, turns, insights]);
+    navigation.navigate('Analytics', {
+      avatar,
+      duration: fmt(duration),
+      turns: finalTurns,
+      insights,
+      sessionId: sessionIdRef.current,
+      rating,
+      source: 'session',
+    });
+  }, [navigation, avatar, duration, turns, insights]);
 
   useFocusEffect(useCallback(() => {
     const u = navigation.addListener('beforeRemove', (e: any) => {
@@ -366,61 +405,91 @@ export default function RealtimeSessionScreen() {
       e.preventDefault();
       Alert.alert('세션 종료', '세션을 종료하시겠습니까?', [
         { text: '취소', style: 'cancel' },
-        { text: '종료', style: 'destructive', onPress: () => finish(false) },
+        { text: '종료', style: 'destructive', onPress: () => { setShowRating(false); finish(0); } },
       ]);
     });
     return u;
   }, [navigation, ending, finish]));
 
+  const processAnalysisResult = useCallback((res: { turns?: TranscriptTurnResult[]; insights?: InsightResult[] } | null, chunkIndex: number) => {
+    const nextTurns = normTurns(res?.turns ?? []).filter(t => t.text.trim().length > 0);
+    const seenLabels: string[] = [];
+    for (const t of nextTurns) {
+      if (!seenLabels.includes(t.speaker)) seenLabels.push(t.speaker);
+    }
+    const avatarLabel = seenLabels[1];
+    if (avatarLabel && avatar?.name_ko) {
+      for (const t of nextTurns) {
+        if (t.speaker === avatarLabel) t.speaker = avatar.name_ko;
+      }
+    }
+    const nextInsights = normInsights(res?.insights ?? []);
+    if (nextTurns.length > 0) hasSpeechRef.current = true;
+    if (nextTurns.length === 0 && nextInsights.length === 0 && !recordingRef.current && !hasSpeechRef.current) {
+      nextInsights.push({
+        id: `i-empty-${Date.now()}`,
+        kind: 'risk',
+        message: '음성이 업로드됐지만 인식된 문장이 없어요.',
+        suggestion: '한 문장 이상 또렷하게 말한 뒤 다시 시도해 보세요.',
+        turnId: '',
+      });
+    }
+    setTurns(p => [...p.filter(t => t.type !== 'partial'), ...nextTurns]);
+    setInsights(p => {
+      const seen = new Set(p.map(i => i.message));
+      return [...p, ...nextInsights.filter(i => !seen.has(i.message))];
+    });
+    setProcessingChunks(count => Math.max(0, count - 1));
+  }, [avatar]);
+
   const uploadRecordedChunk = useCallback(async (rawUri: string, chunkIndex: number) => {
     const uri = normalizeRecordingUri(rawUri);
-    setRecUri(uri);
     setProcessingChunks(count => count + 1);
+
+    // ── WebSocket path (faster) ──────────────────────────────────────────────
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        const filePath = uri.replace('file://', '');
+        const audio = await RNFS.readFile(filePath, 'base64');
+        ws.onmessage = (event) => {
+          try {
+            processAnalysisResult(JSON.parse(event.data), chunkIndex);
+          } catch { setProcessingChunks(c => Math.max(0, c - 1)); }
+        };
+        ws.send(JSON.stringify({
+          audio,
+          sessionId: sessionIdRef.current,
+          userId,
+          avatarRole: avatar?.role ?? '',
+          expectedSpeechLevel,
+          chunkIndex,
+        }));
+        return;
+      } catch (e) {
+        console.warn('[WS] send failed, falling back to HTTP', e);
+        setProcessingChunks(count => Math.max(0, count - 1));
+        setProcessingChunks(count => count + 1);
+      }
+    }
+
+    // ── HTTP fallback ────────────────────────────────────────────────────────
     try {
       const form = new FormData();
       form.append('file', { uri, name: `recording-${chunkIndex}.m4a`, type: 'audio/mp4' } as any);
-      if (sessionId) form.append('sessionId', sessionId);
+      if (sessionIdRef.current) form.append('sessionId', sessionIdRef.current);
       if (avatar?.role) form.append('avatarRole', avatar.role);
       form.append('userId', userId);
       form.append('expectedSpeechLevel', expectedSpeechLevel);
       form.append('chunkIndex', String(chunkIndex));
 
       const res = await analyzeRealtimeAudio(form);
-      const nextTurns = normTurns(res?.turns ?? [])
-        .filter(t => t.text.trim().length > 0);
-
-      const seenLabels: string[] = [];
-      for (const t of nextTurns) {
-        if (!seenLabels.includes(t.speaker)) seenLabels.push(t.speaker);
-      }
-      const avatarLabel = seenLabels[1];
-      if (avatarLabel && avatar?.name_ko) {
-        for (const t of nextTurns) {
-          if (t.speaker === avatarLabel) t.speaker = avatar.name_ko;
-        }
-      }
-
-      const nextInsights = normInsights(res?.insights ?? []);
-
-      if (nextTurns.length === 0 && nextInsights.length === 0 && !recordingRef.current) {
-        nextInsights.push({
-          id: `i-empty-${Date.now()}`,
-          kind: 'risk',
-          message: '음성이 업로드됐지만 인식된 문장이 없어요.',
-          suggestion: '한 문장 이상 또렷하게 말한 뒤 다시 시도해 보세요.',
-          turnId: '',
-        });
-      }
-
-      setTurns(p => [...p.filter(t => t.type !== 'partial'), ...nextTurns]);
-      setInsights(p => {
-        const seen = new Set(p.map(i => i.message));
-        return [...p, ...nextInsights.filter(i => !seen.has(i.message))];
-      });
-    } finally {
+      processAnalysisResult(res, chunkIndex);
+    } catch (e: any) {
       setProcessingChunks(count => Math.max(0, count - 1));
+      throw e;
     }
-  }, [avatar, expectedSpeechLevel, sessionId, userId]);
+  }, [avatar, expectedSpeechLevel, userId, processAnalysisResult]);
 
   const rotateRecordingChunk = useCallback(async (restart: boolean) => {
     if (rotatingRef.current) return;
@@ -455,18 +524,19 @@ export default function RealtimeSessionScreen() {
 
   const startStreamingCapture = useCallback(async () => {
     if (!(await askMicPerm())) return;
+    setHasStarted(true);
     if (!durationTimerRef.current) {
       durationTimerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
     }
     chunkIndexRef.current = 0;
-    setTurns([]);
-    setInsights([]);
-    setRecUri('');
     await Sound.startRecorder();
     recorderActiveRef.current = true;
     Sound.addRecordBackListener((_: RecordBackType) => {});
     setRecordingState(true);
-    setTurns([{ id: `live-${Date.now()}`, speaker: '듣는 중', text: '음성 스트림을 듣고 있습니다', type: 'partial' }]);
+    setTurns(p => [
+      ...p.filter(t => t.type !== 'partial'),
+      { id: `live-${Date.now()}`, speaker: '듣는 중', text: '음성 스트림을 듣고 있습니다', type: 'partial' },
+    ]);
     chunkTimerRef.current = setInterval(() => {
       if (recordingRef.current) {
         rotateRecordingChunk(true).catch((e: any) => {
@@ -520,34 +590,22 @@ export default function RealtimeSessionScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
 
-      {/* ── Top bar ── */}
-      <View style={s.topBar}>
-        <View style={{ width: 36, height: 36 }} />
-
-        <View style={s.timerRow}>
-          <View style={[s.timerDot, recording && s.timerDotRec]} />
-          <Text style={s.timerText}>{fmt(duration)}</Text>
+      {/* ── Session card ── */}
+      <View style={s.sessionCard}>
+        <View style={[s.sessionAvatar, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
+          <Icon name={(avatar?.icon ?? 'user') as IconName} size={18} color="#FFF" />
         </View>
-
-        <View style={{ width: 36, height: 36 }} />
-      </View>
-
-      {/* ── Session info strip ── */}
-      <View style={s.strip}>
-        <View style={[s.avatarDot, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
-          <Icon name={(avatar?.icon ?? 'user') as IconName} size={15} color="#FFF" />
+        <View style={s.sessionInfo}>
+          <Text style={s.sessionName}>{avatar?.name_ko ?? '아바타'}</Text>
+          <Text style={s.sessionStatus}>
+            {analyzing ? '분석 중' : recording ? '녹음 중' : '대기'}
+          </Text>
         </View>
-        <Text style={s.stripName}>{avatar?.name_ko ?? '아바타'}</Text>
-        <Text style={s.stripDivider}>·</Text>
-        <Text style={s.stripStatus}>
-          {analyzing ? '분석 중' : recording ? '녹음 중' : '대기'}
-        </Text>
         {(ok > 0 || risk > 0) && (
-          <>
-            <Text style={s.stripDivider}>·</Text>
-            {ok > 0   && <Text style={[s.stripCount, { color: C.ok }]}>✓ {ok}</Text>}
-            {risk > 0 && <Text style={[s.stripCount, { color: C.risk }]}>⚠ {risk}</Text>}
-          </>
+          <View style={s.sessionCounts}>
+            {ok > 0   && <Text style={[s.sessionCount, { color: C.ok }]}>✓ {ok}</Text>}
+            {risk > 0 && <Text style={[s.sessionCount, { color: C.risk }]}>⚠ {risk}</Text>}
+          </View>
         )}
       </View>
 
@@ -560,7 +618,9 @@ export default function RealtimeSessionScreen() {
           showsVerticalScrollIndicator={false}
         >
           {turns.length === 0
-            ? <Empty analyzing={analyzing} />
+            ? !hasStarted
+              ? <Empty />
+              : <AnalyzingRow />
             : turns.map(turn => (
                 <Turn
                   key={turn.id} turn={turn}
@@ -578,32 +638,31 @@ export default function RealtimeSessionScreen() {
 
       {/* ── Controls ── */}
       <View style={s.dock}>
-        {recording && <Waveform active />}
+        {/* Timer + waveform in one row */}
+        <View style={s.timerRow}>
+          {recording && <Waveform active />}
+          <View style={[s.timerDot, recording && s.timerDotRec]} />
+          <Text style={s.timerText}>{fmt(duration)}</Text>
+        </View>
 
-        <View style={s.dockInner}>
-          <View style={s.avatarChip} />
-
-          {/* Mic */}
-          <View style={s.micWrap}>
-            {recording && (
-              <Animated.View style={[s.ripple, {
-                transform: [{ scale: rippleScale }], opacity: rippleOpacity,
-              }]} />
-            )}
-            <TouchableOpacity
-              style={[s.mic, recording && s.micRec, analyzing && !recording && s.micBusy]}
-              onPress={onMic} activeOpacity={0.8}
-              disabled={ending}
-            >
-              {recording
-                ? <MicOff size={24} color="#FFF" strokeWidth={2.3} />
-                : analyzing
-                  ? <Mic size={24} color="rgba(255,255,255,0.3)" strokeWidth={2} />
-                  : <Mic size={24} color="#FFF" strokeWidth={2.3} />}
-            </TouchableOpacity>
-          </View>
-
-          <View style={s.avatarChip} />
+        {/* Mic centered */}
+        <View style={s.micWrap}>
+          {recording && (
+            <Animated.View style={[s.ripple, {
+              transform: [{ scale: rippleScale }], opacity: rippleOpacity,
+            }]} />
+          )}
+          <TouchableOpacity
+            style={[s.mic, recording && s.micRec, analyzing && !recording && s.micBusy]}
+            onPress={onMic} activeOpacity={0.8}
+            disabled={ending}
+          >
+            {recording
+              ? <MicOff size={22} color="#FFF" strokeWidth={2.3} />
+              : analyzing
+                ? <Mic size={22} color="rgba(255,255,255,0.3)" strokeWidth={2} />
+                : <Mic size={22} color="#FFF" strokeWidth={2.3} />}
+          </TouchableOpacity>
         </View>
 
         <Text style={s.micHint}>
@@ -616,7 +675,7 @@ export default function RealtimeSessionScreen() {
 
         <TouchableOpacity
           style={[s.endBtn, busy && s.endBtnOff]}
-          onPress={() => finish(true)}
+          onPress={() => { setPendingRating(0); setShowRating(true); }}
           disabled={busy} activeOpacity={0.85}
         >
           <Text style={[s.endText, busy && s.endTextOff]}>
@@ -625,54 +684,76 @@ export default function RealtimeSessionScreen() {
           {!busy && <ArrowRight size={15} color="#FFFFFF" strokeWidth={2.5} />}
         </TouchableOpacity>
       </View>
+      {/* ── Rating modal ── */}
+      <Modal visible={showRating} transparent animationType="fade" onRequestClose={() => setShowRating(false)}>
+        <View style={rm.backdrop}>
+          <View style={rm.sheet}>
+            <Text style={rm.title}>세션 평점</Text>
+            <Text style={rm.sub}>이번 대화 어떠셨나요?</Text>
+            <View style={rm.stars}>
+              {[1, 2, 3, 4, 5].map(n => (
+                <TouchableOpacity key={n} onPress={() => setPendingRating(n)} activeOpacity={0.7}>
+                  <Star
+                    size={36}
+                    color={C.terra}
+                    fill={n <= pendingRating ? C.terra : 'none'}
+                    strokeWidth={1.8}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={rm.actions}>
+              <TouchableOpacity style={rm.skipBtn} onPress={() => { setShowRating(false); finish(0); }}>
+                <Text style={rm.skipText}>건너뛰기</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={rm.confirmBtn} onPress={() => { setShowRating(false); finish(pendingRating); }}>
+                <Text style={rm.confirmText}>완료</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.white },
+  safe: { flex: 1, backgroundColor: C.canvas },
 
-  // Top bar
-  topBar: {
+  // Session card
+  sessionCard: {
     flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 12,
+    marginHorizontal: 16, marginTop: 12, marginBottom: 10,
+    paddingHorizontal: 16, paddingVertical: 13,
+    backgroundColor: C.white,
+    borderRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 3,
+    gap: 12,
   },
-  closeBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: C.paper,
-    borderWidth: 1, borderColor: C.ink10,
+  sessionAvatar: {
+    width: 42, height: 42, borderRadius: 21,
     alignItems: 'center', justifyContent: 'center',
   },
-  timerRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  timerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.ink20 },
+  sessionInfo: { flex: 1 },
+  sessionName: { fontSize: 15, fontWeight: '700', color: C.ink100 },
+  sessionStatus: { fontSize: 12, color: C.ink40, marginTop: 2 },
+  sessionCounts: { flexDirection: 'row', gap: 8 },
+  sessionCount: { fontSize: 13, fontWeight: '700' },
+
+  // Timer (now in dock)
+  timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  timerDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: C.ink20 },
   timerDotRec: { backgroundColor: C.recRed },
-  timerText: { fontSize: 16, fontWeight: '700', color: C.ink100, letterSpacing: 0.5 },
-  muteBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: C.paper,
-    borderWidth: 1, borderColor: C.ink10,
-    alignItems: 'center', justifyContent: 'center',
-  },
-
-  // Strip
-  strip: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 20, paddingBottom: 14,
-    gap: 6,
-  },
-  avatarDot: {
-    width: 24, height: 24, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  stripName: { fontSize: 13, fontWeight: '600', color: C.ink100 },
-  stripDivider: { fontSize: 13, color: C.ink20 },
-  stripStatus: { fontSize: 13, color: C.ink70 },
-  stripCount: { fontSize: 13, fontWeight: '600' },
+  timerText: { fontSize: 20, fontWeight: '700', color: C.ink100, letterSpacing: 1 },
 
   // Feed
-  feed: { flex: 1, paddingHorizontal: 20 },
+  feed: { flex: 1, paddingHorizontal: 16 },
   feedHeader: {
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', marginBottom: 12,
@@ -684,41 +765,43 @@ const s = StyleSheet.create({
     borderRadius: 99, overflow: 'hidden',
   },
   scroll: { flex: 1 },
-  scrollContent: { gap: 2, paddingBottom: 8 },
-  soloWrap: { marginTop: 8, gap: 2 },
+  scrollContent: { flexGrow: 1, gap: 4, paddingBottom: 8 },
+  soloWrap: { marginTop: 8, gap: 4 },
 
   // Dock
   dock: {
     backgroundColor: C.white,
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 30,
-    borderTopWidth: 1,
-    borderTopColor: C.ink10,
-    gap: 12,
-  },
-  dockInner: {
-    flexDirection: 'row',
+    paddingTop: 10,
+    paddingBottom: 22,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 12,
+    gap: 8,
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  avatarChip: {
-    width: 40, height: 40, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  micWrap: { width: 80, height: 80, alignItems: 'center', justifyContent: 'center' },
+  micWrap: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
   ripple: {
     position: 'absolute',
-    width: 70, height: 70, borderRadius: 35,
+    width: 64, height: 64, borderRadius: 32,
     backgroundColor: C.recRed,
   },
   mic: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: C.ink100,
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: C.terra,
     alignItems: 'center', justifyContent: 'center',
+    shadowColor: C.terra,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  micRec: { backgroundColor: C.recRed },
-  micBusy: { backgroundColor: C.ink40 },
+  micRec: { backgroundColor: C.recRed, shadowColor: C.recRed },
+  micBusy: { backgroundColor: C.ink20, shadowOpacity: 0, elevation: 0 },
   muteChip: {
     width: 40, height: 40, borderRadius: 12,
     backgroundColor: C.canvas,
@@ -726,17 +809,15 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   micHint: {
-    textAlign: 'center', fontSize: 13,
-    color: C.ink70, fontWeight: '500',
+    textAlign: 'center', fontSize: 12,
+    color: C.ink40, fontWeight: '500',
   },
   endBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 15, borderRadius: 14,
-    backgroundColor: '#6C3BFF',
+    gap: 8, paddingVertical: 13, borderRadius: 16,
+    backgroundColor: C.terra, width: '100%',
   },
-  endBtnOff: {
-    backgroundColor: C.ink10,
-  },
+  endBtnOff: { backgroundColor: C.ink10 },
   endText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   endTextOff: { color: C.ink40 },
 });
@@ -747,92 +828,105 @@ const wv = StyleSheet.create({
   bar: { width: 2.5, height: 16, borderRadius: 1.5 },
 });
 
-// Turn
+// Turn — centered transcript style
 const tn = StyleSheet.create({
-  // Outer row — controls which side the bubble sits on
   row: {
-    paddingVertical: 6,
-  },
-  rowUser: { alignItems: 'flex-end' },
-  rowPartner: { alignItems: 'flex-start' },
-
-  // Column holds label + bubble, capped at 80% width
-  col: { maxWidth: '80%' },
-  colUser: { alignItems: 'flex-end' },
-  colPartner: { alignItems: 'flex-start' },
-
-  // Speaker label row
-  labelRow: {
-    flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 5,
     gap: 5,
-    marginBottom: 4,
-    paddingHorizontal: 2,
   },
-  dot: { width: 5, height: 5, borderRadius: 2.5 },
-  dotPartner: { backgroundColor: C.ink40 },
-  dotUser: { backgroundColor: '#6C3BFF' },
-  speaker: { fontSize: 10, fontWeight: '700', color: C.ink40, letterSpacing: 0.5, textTransform: 'uppercase' },
-  speakerUser: { color: '#6C3BFF' },
+  recDot: { fontSize: 10, color: C.recRed, marginTop: 4 },
 
-  // Bubbles
   bubble: {
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    width: '100%', borderRadius: 14,
+    paddingHorizontal: 16, paddingVertical: 12,
   },
-  bubbleUser: {
-    backgroundColor: '#EDEAFC',
-    borderBottomRightRadius: 4,
-  },
+  bubbleUser: { backgroundColor: '#EDE9FF' },
   bubblePartner: {
-    backgroundColor: C.paper,
-    borderWidth: 1,
-    borderColor: C.ink10,
-    borderBottomLeftRadius: 4,
+    backgroundColor: C.white,
+    borderWidth: 1, borderColor: C.ink10,
   },
   bubbleLive: { opacity: 0.7 },
 
-  // Text
-  text: { fontSize: 15, lineHeight: 22 },
-  textUser: { color: C.ink100 },
-  textPartner: { color: C.ink100 },
+  text: { fontSize: 15, lineHeight: 23, color: C.ink100, textAlign: 'center' },
   textLive: { color: C.ink70 },
 
-  // Insight offset
-  insightWrap: { marginTop: 6, maxWidth: '80%' },
-  insightUser: { alignSelf: 'flex-end' },
-  insightPartner: { alignSelf: 'flex-start' },
+  insightWrap: { width: '100%' },
 });
 
-// Insight
+// Insight — compact note style
 const ins = StyleSheet.create({
   wrap: {
-    borderLeftWidth: 2.5,
-    paddingLeft: 12,
-    paddingVertical: 2,
-    gap: 3,
+    borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+    gap: 4,
   },
-  label: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
-  msg: { fontSize: 13, color: C.ink70, lineHeight: 19 },
-  sugg: { fontSize: 13, fontWeight: '600', lineHeight: 19 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap',
+  },
+  badge: {
+    fontSize: 10, fontWeight: '800',
+    letterSpacing: 0.8, textTransform: 'uppercase',
+  },
+  msg: { fontSize: 13, color: C.ink70, lineHeight: 18, flex: 1 },
+  sugg: { fontSize: 12, fontWeight: '600', lineHeight: 18, paddingLeft: 2 },
+});
+
+// Suggestion cards
+const sg = StyleSheet.create({
+  wrap: { marginTop: 6, gap: 6 },
+  label: { fontSize: 11, color: C.ink40, fontWeight: '600', marginBottom: 2 },
+  card: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.terraFg,
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, gap: 8,
+  },
+  text: { fontSize: 13, color: C.terra, fontWeight: '500', flex: 1 },
 });
 
 // Empty
 const em = StyleSheet.create({
-  wrap: { alignItems: 'center', paddingVertical: 60, gap: 14 },
-  ring: {
-    position: 'absolute', top: 42,
-    width: 72, height: 72, borderRadius: 36,
-    borderWidth: 1, borderColor: C.ink10,
+  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingBottom: 40 },
+  barsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, marginBottom: 6 },
+  bar: { width: 4, borderRadius: 2, backgroundColor: C.ink10 },
+  title: { fontSize: 19, fontWeight: '700', color: C.ink100 },
+  sub: { fontSize: 14, color: C.ink40, textAlign: 'center', lineHeight: 22 },
+
+  analyzeRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 6,
+    paddingVertical: 16,
   },
-  circle: {
-    width: 52, height: 52, borderRadius: 26,
-    borderWidth: 1, borderColor: C.ink10,
-    backgroundColor: C.paper,
+  analyzeDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: C.terra,
+  },
+  analyzeText: { fontSize: 13, color: C.terra, fontWeight: '600' },
+});
+
+// Rating modal
+const rm = StyleSheet.create({
+  backdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center', justifyContent: 'center',
-    marginBottom: 4,
   },
-  title: { fontSize: 16, fontWeight: '700', color: C.ink100 },
-  sub: { fontSize: 13, color: C.ink70, textAlign: 'center', lineHeight: 21 },
+  sheet: {
+    width: '82%', backgroundColor: C.white,
+    borderRadius: 24, padding: 28,
+    alignItems: 'center', gap: 10,
+  },
+  title: { fontSize: 18, fontWeight: '700', color: C.ink100 },
+  sub:   { fontSize: 14, color: C.ink70, marginBottom: 4 },
+  stars: { flexDirection: 'row', gap: 12, marginVertical: 8 },
+  actions: { flexDirection: 'row', gap: 12, marginTop: 8, width: '100%' },
+  skipBtn: {
+    flex: 1, paddingVertical: 13, borderRadius: 12,
+    backgroundColor: C.canvas, alignItems: 'center',
+  },
+  skipText: { fontSize: 15, fontWeight: '600', color: C.ink70 },
+  confirmBtn: {
+    flex: 2, paddingVertical: 13, borderRadius: 12,
+    backgroundColor: C.terra, alignItems: 'center',
+  },
+  confirmText: { fontSize: 15, fontWeight: '700', color: C.white },
 });

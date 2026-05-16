@@ -40,6 +40,23 @@ public class RealtimeAnalysisService {
         this.restTemplate = new RestTemplate();
     }
 
+    // Overload for WebSocket handler (receives raw bytes)
+    public RealtimeAnalysisResponse analyzeRealtimeAudio(
+            byte[] audioData,
+            String filename,
+            String avatarRole,
+            String userId,
+            String sessionId,
+            String expectedSpeechLevel,
+            String userSpeakerHint,
+            String chunkIndexRaw
+    ) {
+        ClovaSpeechService.ClovaSpeechResult speechResult =
+                clovaSpeechService.transcribeWithDiarization(audioData, filename);
+        return buildResponse(speechResult, avatarRole, userId, sessionId,
+                expectedSpeechLevel, userSpeakerHint, chunkIndexRaw);
+    }
+
     public RealtimeAnalysisResponse analyzeRealtimeAudio(
             MultipartFile file,
             String avatarRole,
@@ -50,6 +67,19 @@ public class RealtimeAnalysisService {
             String chunkIndexRaw
     ) {
         ClovaSpeechService.ClovaSpeechResult speechResult = clovaSpeechService.transcribeWithDiarization(file);
+        return buildResponse(speechResult, avatarRole, userId, sessionId,
+                expectedSpeechLevel, userSpeakerHint, chunkIndexRaw);
+    }
+
+    private RealtimeAnalysisResponse buildResponse(
+            ClovaSpeechService.ClovaSpeechResult speechResult,
+            String avatarRole,
+            String userId,
+            String sessionId,
+            String expectedSpeechLevel,
+            String userSpeakerHint,
+            String chunkIndexRaw
+    ) {
 
         List<TranscriptTurnDto> turns = new ArrayList<>();
         List<InsightDto> insights = new ArrayList<>();
@@ -68,7 +98,7 @@ public class RealtimeAnalysisService {
         int idx = 1;
         for (ClovaSpeechService.SpeakerTurn turn : speechResult.getTurns()) {
             String turnId = "chunk-" + chunkIndex + "-turn-" + idx;
-            turns.add(new TranscriptTurnDto(turnId, turn.getSpeaker(), turn.getText(), "final"));
+            turns.add(new TranscriptTurnDto(turnId, turn.getSpeaker(), turn.getText(), "final", null));
             if (userSpeakerLabel == null) userSpeakerLabel = turn.getSpeaker();
             idx++;
         }
@@ -83,16 +113,24 @@ public class RealtimeAnalysisService {
             if (turn.getText() == null || turn.getText().isBlank()) continue;
 
             turnNumber++;
+            int correctionsForTurn = 0;
+            int analyzedSentences  = 0;
             for (String sentence : splitSentences(turn.getText())) {
                 if (sentence.isBlank()) continue;
+                // Skip fragments too short to assess speech level meaningfully
+                String stripped = sentence.replaceAll("[\\s.,!?。？！·…]", "");
+                if (stripped.length() < 5) continue;
+
+                analyzedSentences++;
                 try {
                     List<CorrectionItem> corrections = analyzeSentence(
                             sentence, avatarRole, resolvedSpeechLevel
                     );
+                    correctionsForTurn += corrections.size();
                     for (CorrectionItem c : corrections) {
                         insights.add(new InsightDto(
                                 "insight-" + turn.getId() + "-" + insights.size(),
-                                "error".equalsIgnoreCase(c.severity) ? "risk" : "risk",
+                                "risk",
                                 c.explanation != null && !c.explanation.isBlank()
                                         ? c.explanation
                                         : "표현을 다듬어보세요.",
@@ -104,6 +142,35 @@ public class RealtimeAnalysisService {
                 } catch (Exception e) {
                     System.err.println("[Realtime] analyze sentence failed: " + e.getMessage());
                 }
+            }
+            // Only add 잘함 when at least one sentence was long enough to analyse and had no corrections
+            if (analyzedSentences > 0 && correctionsForTurn == 0) {
+                insights.add(new InsightDto(
+                        "insight-ok-" + turn.getId(),
+                        "success",
+                        "말투가 자연스럽고 적절해요.",
+                        null,
+                        turn.getId()
+                ));
+            }
+        }
+
+        // Attach response suggestions to the last partner turn
+        String finalUserLabel = userSpeakerLabel;
+        TranscriptTurnDto lastPartnerTurn = null;
+        for (int i = turns.size() - 1; i >= 0; i--) {
+            if (!turns.get(i).getSpeaker().equals(finalUserLabel)) {
+                lastPartnerTurn = turns.get(i);
+                break;
+            }
+        }
+        if (lastPartnerTurn != null
+                && lastPartnerTurn.getText() != null
+                && !lastPartnerTurn.getText().isBlank()) {
+            List<String> suggestions = suggestResponses(
+                    turns, lastPartnerTurn.getText(), avatarRole, resolvedSpeechLevel);
+            if (!suggestions.isEmpty()) {
+                lastPartnerTurn.setSuggestions(suggestions);
             }
         }
 
@@ -170,6 +237,55 @@ public class RealtimeAnalysisService {
             }
         }
         return out;
+    }
+
+    private List<String> suggestResponses(
+            List<TranscriptTurnDto> turns,
+            String partnerText,
+            String avatarRole,
+            String speechLevel) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            List<Map<String, String>> history = new ArrayList<>();
+            for (TranscriptTurnDto t : turns) {
+                if (t.getText() == null || t.getText().isBlank()) continue;
+                Map<String, String> m = new HashMap<>();
+                m.put("speaker", t.getSpeaker());
+                m.put("text", t.getText());
+                history.add(m);
+            }
+            if (history.size() > 4) history = history.subList(history.size() - 4, history.size());
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("partner_text", partnerText);
+            body.put("conversation_history", history);
+            if (avatarRole != null && !avatarRole.isBlank()) body.put("avatar_role", avatarRole);
+            body.put("speech_level", speechLevel != null ? speechLevel : "polite");
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    aiServerUrl + "/api/v1/chat/suggest",
+                    HttpMethod.POST,
+                    request,
+                    String.class
+            );
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode node = root.path("suggestions");
+            List<String> result = new ArrayList<>();
+            if (node.isArray()) {
+                for (JsonNode s : node) {
+                    String text = s.asText("").trim();
+                    if (!text.isBlank()) result.add(text);
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            System.err.println("[Realtime] suggest responses failed: " + e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     private void persistMistake(String userId, String sessionId, int turnNumber, CorrectionItem c) {

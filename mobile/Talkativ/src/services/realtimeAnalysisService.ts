@@ -8,6 +8,7 @@ export type TranscriptTurnResult = {
   speaker?: string;
   text?: string;
   type?: 'partial' | 'final' | string;
+  suggestions?: string[];
 };
 
 export type InsightResult = {
