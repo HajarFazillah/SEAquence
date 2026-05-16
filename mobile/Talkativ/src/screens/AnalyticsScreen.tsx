@@ -578,6 +578,7 @@ export default function AnalyticsScreen() {
     turns = [],
     insights = [],
     stats,
+    savedExpressions = [],
   } = route.params || {};
 
   const isHomeAnalysis =
@@ -1261,7 +1262,6 @@ export default function AnalyticsScreen() {
                       styles.turnItemBorder,
                   ]}
                 >
-                  <Text style={styles.turnSpeaker}>{turn.speaker}</Text>
                   <Text style={styles.turnText}>{turn.text}</Text>
                 </View>
               ))}
@@ -1586,13 +1586,33 @@ export default function AnalyticsScreen() {
             </View>
           )}
 
-        {savedItems && savedItems.length > 0 && (
+        {savedExpressions && savedExpressions.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionEye}>SAVED</Text>
+              <Text style={styles.sectionTitle}>배운 표현 ({savedExpressions.length})</Text>
+            </View>
+            <View style={{ gap: 8 }}>
+              {savedExpressions.map((expr: { id: string; original: string; corrected: string; note: string }) => (
+                <View key={expr.id} style={styles.savedExprCard}>
+                  <Text style={styles.savedExprOriginal}>{expr.original}</Text>
+                  <View style={styles.savedExprArrowRow}>
+                    <Text style={styles.savedExprArrow}>→</Text>
+                    <Text style={styles.savedExprCorrected}>{expr.corrected}</Text>
+                  </View>
+                  <Text style={styles.savedExprNote}>{expr.note}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {savedItems && savedItems.length > 0 && !savedExpressions?.length && (
           <View style={styles.section}>
             <View style={styles.sectionHead}>
               <Text style={styles.sectionEye}>SAVED</Text>
               <Text style={styles.sectionTitle}>저장한 표현 ({savedItems.length})</Text>
             </View>
-
             <View style={styles.tagsWrap}>
               {savedItems.map((item: string, i: number) => (
                 <Tag key={i} label={item} variant="outline" />
@@ -1612,7 +1632,7 @@ export default function AnalyticsScreen() {
 
         <TouchableOpacity
           style={styles.footerBtn}
-          onPress={() => navigation.navigate('AvatarSelection')}
+          onPress={() => navigation.navigate('Main', { screen: 'Home' })}
         >
           <Text style={styles.footerBtnText}>다시 연습하기</Text>
         </TouchableOpacity>
@@ -2353,6 +2373,21 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+
+  savedExprCard: {
+    backgroundColor: '#F8F7FC',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+    borderLeftWidth: 3,
+    borderLeftColor: '#5B35E8',
+  },
+  savedExprOriginal: { fontSize: 14, color: '#4A4858', lineHeight: 20 },
+  savedExprArrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  savedExprArrow: { fontSize: 13, color: '#5B35E8', fontWeight: '700' },
+  savedExprCorrected: { fontSize: 14, fontWeight: '700', color: '#5B35E8', flex: 1 },
+  savedExprNote: { fontSize: 11, color: '#9694A8', marginTop: 2, lineHeight: 16 },
 
   footer: {
     flexDirection: 'row',
