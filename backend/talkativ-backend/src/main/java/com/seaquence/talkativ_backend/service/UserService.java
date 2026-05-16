@@ -6,9 +6,11 @@ import com.seaquence.talkativ_backend.dto.RegisterRequest;
 import com.seaquence.talkativ_backend.dto.UserResponse;
 import com.seaquence.talkativ_backend.dto.UserStats;
 import com.seaquence.talkativ_backend.entity.Mistake;
+import com.seaquence.talkativ_backend.entity.PasswordResetToken;
 import com.seaquence.talkativ_backend.entity.Session;
 import com.seaquence.talkativ_backend.entity.User;
 import com.seaquence.talkativ_backend.repository.MistakeRepository;
+import com.seaquence.talkativ_backend.repository.PasswordResetTokenRepository;
 import com.seaquence.talkativ_backend.repository.SessionRepository;
 import com.seaquence.talkativ_backend.repository.UserRepository;
 import com.seaquence.talkativ_backend.security.JwtUtil;
@@ -16,7 +18,9 @@ import com.seaquence.talkativ_backend.security.JwtUtil;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -30,16 +34,24 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final SessionRepository sessionRepository;
     private final MistakeRepository mistakeRepository;
+    private final PasswordResetTokenRepository resetTokenRepository;
+    private final EmailService emailService;
+
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     public UserService(UserRepository userRepository, JwtUtil jwtUtil,
             PasswordEncoder passwordEncoder,
             SessionRepository sessionRepository,
-            MistakeRepository mistakeRepository) {
+            MistakeRepository mistakeRepository,
+            PasswordResetTokenRepository resetTokenRepository,
+            EmailService emailService) {
         this.userRepository = userRepository;
         this.jwtUtil = jwtUtil;
         this.passwordEncoder = passwordEncoder;
         this.sessionRepository = sessionRepository;
         this.mistakeRepository = mistakeRepository;
+        this.resetTokenRepository = resetTokenRepository;
+        this.emailService = emailService;
     }
 
     // Register new user
@@ -151,6 +163,45 @@ public class UserService {
             .orElse(null);
 
         return new UserStats(completedSessions, mistakes.size(), practiceMinutes, 0, topMistakeType);
+    }
+
+    // Forgot password — generates OTP and sends it by email
+    public void forgotPassword(String email) {
+        // Silently succeed if email not found (prevents user enumeration)
+        if (!userRepository.existsByEmail(email)) return;
+
+        // Clear any previous tokens for this email
+        resetTokenRepository.deleteAllByEmail(email);
+
+        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
+
+        PasswordResetToken token = new PasswordResetToken();
+        token.setEmail(email);
+        token.setCode(code);
+        token.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+        resetTokenRepository.save(token);
+
+        emailService.sendPasswordResetCode(email, code);
+    }
+
+    // Reset password — validates OTP and sets new password
+    public void resetPassword(String email, String code, String newPassword) {
+        PasswordResetToken token = resetTokenRepository
+                .findByEmailAndCodeAndUsedFalse(email, code)
+                .orElseThrow(() -> new RuntimeException("Invalid or expired code."));
+
+        if (LocalDateTime.now().isAfter(token.getExpiresAt())) {
+            throw new RuntimeException("Code has expired. Please request a new one.");
+        }
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found."));
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        token.setUsed(true);
+        resetTokenRepository.save(token);
     }
 
     // Convert entity to response DTO
