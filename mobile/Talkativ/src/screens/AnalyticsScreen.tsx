@@ -1007,10 +1007,6 @@ export default function AnalyticsScreen() {
                     ).nodes}
                   </G>
                 </Svg>
-                <View style={styles.weakDonutCenter}>
-                  <Text style={styles.weakDonutValue}>{weakChartData[0]?.count || 0}</Text>
-                  <Text style={styles.weakDonutLabel}>최다 실수</Text>
-                </View>
               </View>
             </View>
           </View>
