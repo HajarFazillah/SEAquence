@@ -6,6 +6,7 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -21,7 +22,7 @@ import {
   CheckCircle2,
   Star,
 } from 'lucide-react-native';
-import Svg, { Circle, G } from 'react-native-svg';
+import Svg, { Circle, G, Polyline, Line, Text as SvgText } from 'react-native-svg';
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AI_SERVER_URL } from '../constants';
@@ -283,6 +284,15 @@ const LEVEL_LABELS: Record<string, string> = {
   informal: '반말',
 };
 
+const RELATIONSHIP_LABELS: Record<string, string> = {
+  junior: '후배',
+  friend: '친구',
+  senior: '선배',
+  professor: '교수님',
+  boss: '팀장님',
+  stranger: '처음 만나는 사람',
+};
+
 // ─── Mistake-pattern aggregation ──────────────────────────────────────────────
 //
 // Two derived signals over the user's mistake history, computed client-side
@@ -418,19 +428,21 @@ const groupEvents = (
   events: PracticePatternEvent[],
   getKey: (event: PracticePatternEvent) => string | undefined,
 ) => {
-  const groups = new Map<string, { total: number; errors: number }>();
+  const groups = new Map<string, { total: number; errors: number; corrections: number }>();
   events.forEach(event => {
     const key = getKey(event);
     if (!key) return;
-    const current = groups.get(key) || { total: 0, errors: 0 };
+    const current = groups.get(key) || { total: 0, errors: 0, corrections: 0 };
     current.total += 1;
     if (event.hadErrors) current.errors += 1;
+    current.corrections += event.correctionTypes?.length ?? 0;
     groups.set(key, current);
   });
   return Array.from(groups.entries()).map(([key, value]) => ({
     key,
     total: value.total,
     errors: value.errors,
+    corrections: value.corrections,
     rate: value.total ? value.errors / value.total : 0,
   }));
 };
@@ -468,38 +480,38 @@ const buildPersonalizationSignals = (
     }));
 
   const weakSpeechLevels: RankedSignal[] = groupEvents(events, e => e.speechLevel)
-    .filter(item => item.errors > 0)
-    .sort((a, b) => b.rate - a.rate || b.errors - a.errors)
+    .filter(item => item.corrections > 0)
+    .sort((a, b) => b.corrections - a.corrections)
     .slice(0, 2)
     .map(item => ({
       key: item.key,
       label: LEVEL_LABELS[item.key as keyof typeof LEVEL_LABELS] || item.key,
-      value: `${Math.round(item.rate * 100)}%`,
-      note: `${item.total}번 중 ${item.errors}번 실수`,
+      value: `${item.corrections}번`,
+      note: '',
       severity: signalSeverity(item.rate),
     }));
 
   const difficultRelationships: RankedSignal[] = groupEvents(events, e => e.relationshipType)
-    .filter(item => item.total >= 1 && item.errors > 0)
-    .sort((a, b) => b.rate - a.rate || b.total - a.total)
+    .filter(item => item.corrections > 0)
+    .sort((a, b) => b.corrections - a.corrections)
     .slice(0, 3)
     .map(item => ({
       key: item.key,
-      label: item.key,
-      value: `${Math.round(item.rate * 100)}%`,
-      note: `${item.total}턴 중 ${item.errors}턴에서 오류`,
+      label: RELATIONSHIP_LABELS[item.key] || item.key,
+      value: `${item.corrections}번`,
+      note: '',
       severity: signalSeverity(item.rate),
     }));
 
   const difficultScenarios: RankedSignal[] = groupEvents(events, e => e.situationName || e.situationId)
-    .filter(item => item.total >= 1 && item.errors > 0)
-    .sort((a, b) => b.rate - a.rate || b.total - a.total)
+    .filter(item => item.corrections > 0)
+    .sort((a, b) => b.corrections - a.corrections)
     .slice(0, 3)
     .map(item => ({
       key: item.key,
       label: item.key,
-      value: `${Math.round(item.rate * 100)}%`,
-      note: `${item.total}턴 중 ${item.errors}턴에서 오류`,
+      value: `${item.corrections}번`,
+      note: '',
       severity: signalSeverity(item.rate),
     }));
 
@@ -532,15 +544,15 @@ const buildPersonalizationSignals = (
   }] : [];
 
   const scenarioGroups = groupEvents(events, e => e.situationName || e.situationId)
-    .sort((a, b) => b.total - a.total || b.errors - a.errors)
+    .sort((a, b) => b.total - a.total || b.corrections - a.corrections)
     .slice(0, 5);
   const maxScenarioTotal = Math.max(1, ...scenarioGroups.map(item => item.total));
   const scenarioPracticeChart: ScenarioChartItem[] = scenarioGroups.map(item => ({
     key: item.key,
     label: item.key,
     total: item.total,
-    errors: item.errors,
-    errorRate: item.rate,
+    errors: item.corrections,
+    errorRate: item.total ? item.corrections / item.total : 0,
     practiceRatio: Math.max(8, Math.round((item.total / maxScenarioTotal) * 100)),
   }));
 
@@ -553,6 +565,88 @@ const buildPersonalizationSignals = (
     trend,
     scenarioPracticeChart,
   };
+};
+
+const getWeekStart = (date: Date): string => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)); // Monday
+  return d.toISOString().slice(0, 10);
+};
+
+const computeErrorTrend = (
+  mistakes: SavedMistake[],
+  period: 'daily' | 'weekly' | 'monthly',
+) => {
+  const toKey = (d: Date) => {
+    if (period === 'daily') return d.toISOString().slice(0, 10);
+    if (period === 'weekly') return getWeekStart(d);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const toLabel = (key: string) => {
+    const d = new Date(key);
+    if (period === 'daily') return `${d.getMonth() + 1}/${d.getDate()}`;
+    if (period === 'weekly') return `${d.getMonth() + 1}/${d.getDate()}`;
+    return `${d.getMonth() + 1}월`;
+  };
+
+  // Count mistakes per period per type
+  const mistakeCounts = new Map<string, Record<string, number>>();
+  mistakes
+    .filter(m => m.createdAt && m.correctionType)
+    .forEach(m => {
+      const key = toKey(new Date(m.createdAt!));
+      const existing = mistakeCounts.get(key) ?? {};
+      const t = m.correctionType!;
+      existing[t] = (existing[t] ?? 0) + 1;
+      mistakeCounts.set(key, existing);
+    });
+
+  // Find top-4 types by total count
+  const totalTypeCounts = new Map<string, number>();
+  mistakeCounts.forEach(counts =>
+    Object.entries(counts).forEach(([t, c]) =>
+      totalTypeCounts.set(t, (totalTypeCounts.get(t) ?? 0) + c),
+    ),
+  );
+  const topTypes = Array.from(totalTypeCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([type], idx) => ({
+      type,
+      label: getCorrectionTypeLabel(type) || type,
+      color: WEAK_AREA_PALETTE[idx % WEAK_AREA_PALETTE.length],
+    }));
+
+  // Generate every slot in the range (fill zeros for empty slots)
+  const now = new Date();
+  const slots: string[] = [];
+  if (period === 'daily') {
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      slots.push(d.toISOString().slice(0, 10));
+    }
+  } else if (period === 'weekly') {
+    for (let i = 7; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i * 7);
+      slots.push(getWeekStart(d));
+    }
+  } else {
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      slots.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+  }
+
+  const errorBars = slots.map(key => ({
+    label: toLabel(key),
+    counts: mistakeCounts.get(key) ?? {},
+  }));
+
+  return { topTypes, errorBars };
 };
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -590,6 +684,7 @@ export default function AnalyticsScreen() {
   const [recentMistakes, setRecentMistakes] = useState<SavedMistake[]>([]);
   const [practiceEvents, setPracticeEvents] = useState<PracticePatternEvent[]>([]);
   const [recentTypeFilter, setRecentTypeFilter] = useState('all');
+  const [trendPeriod, setTrendPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
   useEffect(() => {
     loadAnalytics();
@@ -669,6 +764,10 @@ export default function AnalyticsScreen() {
   const weeklyTrends = useMemo(
     () => computeWeeklyTrend(recentMistakes),
     [recentMistakes],
+  );
+  const trendData = useMemo(
+    () => computeErrorTrend(recentMistakes, trendPeriod),
+    [recentMistakes, trendPeriod],
   );
   const weakChartData = useMemo(() => {
     const merged = new Map<string, WeakArea & { typeSet: Set<string> }>();
@@ -870,6 +969,192 @@ export default function AnalyticsScreen() {
     );
   };
 
+  const renderWeakDonut = () => {
+    if (!weakChartData.length) return null;
+    return (
+      <View style={styles.section}>
+        <View style={styles.sectionHead}>
+          <Text style={styles.sectionEye}>WEAK SPOTS</Text>
+          <Text style={styles.sectionTitle}>약점 분석</Text>
+        </View>
+        <View style={styles.card}>
+          <View style={styles.weakChartWrap}>
+            <View style={styles.weakDonutWrapCentered}>
+              <View style={styles.weakDonutWrap}>
+                <Svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
+                  <G rotation="-90" origin={`${DONUT_SIZE / 2}, ${DONUT_SIZE / 2}`}>
+                    <Circle
+                      cx={DONUT_SIZE / 2} cy={DONUT_SIZE / 2} r={DONUT_RADIUS}
+                      stroke="#F0F0F5" strokeWidth={DONUT_STROKE} fill="none"
+                    />
+                    {weakChartData.reduce(
+                      (acc, item) => {
+                        const length = item.ratio * DONUT_CIRCUMFERENCE;
+                        acc.nodes.push(
+                          <Circle
+                            key={item.key}
+                            cx={DONUT_SIZE / 2} cy={DONUT_SIZE / 2} r={DONUT_RADIUS}
+                            stroke={item.color} strokeWidth={DONUT_STROKE} fill="none"
+                            strokeLinecap="butt"
+                            strokeDasharray={`${length} ${DONUT_CIRCUMFERENCE - length}`}
+                            strokeDashoffset={-acc.offset}
+                            onPress={() => setRecentTypeFilter(item.key)}
+                          />,
+                        );
+                        acc.offset += length;
+                        return acc;
+                      },
+                      { offset: 0, nodes: [] as React.ReactNode[] },
+                    ).nodes}
+                  </G>
+                </Svg>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.weakLegend}>
+            {weakChartData.map(item => {
+              const active = recentTypeFilter === item.key;
+              const delta = item.trend.thisWeek - item.trend.lastWeek;
+              const trendText =
+                item.trend.thisWeek + item.trend.lastWeek === 0
+                  ? '최근 기록 기준'
+                  : delta < 0
+                    ? `지난 7일 ${Math.abs(delta)}회 감소`
+                    : delta > 0
+                      ? `지난 7일 ${delta}회 증가`
+                      : '지난 7일 변화 없음';
+              return (
+                <TouchableOpacity
+                  key={item.key}
+                  style={[styles.weakLegendRow, active && styles.weakLegendRowActive]}
+                  onPress={() => setRecentTypeFilter(active ? 'all' : item.key)}
+                >
+                  <View style={[styles.weakLegendDot, { backgroundColor: item.color }]} />
+                  <View style={styles.weakLegendTextWrap}>
+                    <Text style={styles.weakLegendLabel}>{item.label}</Text>
+                    <Text style={styles.weakLegendMeta}>
+                      {item.count}회 · 영향도 {Math.round(item.ratio * 100)}% · {trendText}
+                    </Text>
+                    <Text style={styles.weakLegendReason}>{item.reason}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderAccuracyTrendChart = () => {
+    const { topTypes, errorBars } = trendData;
+    if (!errorBars.length || !topTypes.length) return null;
+
+    const CHART_W = Dimensions.get('window').width - 48;
+    const CHART_H = 160;
+    const PAD = { top: 16, right: 16, bottom: 28, left: 28 };
+    const plotW = CHART_W - PAD.left - PAD.right;
+    const plotH = CHART_H - PAD.top - PAD.bottom;
+    const n = errorBars.length;
+
+    const maxCount = Math.max(
+      1,
+      ...topTypes.flatMap(t => errorBars.map(b => b.counts[t.type] ?? 0)),
+    );
+
+    const ex = (i: number) => PAD.left + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+    const ey = (count: number) => PAD.top + (1 - count / maxCount) * plotH;
+
+    const gridValues = [0, Math.round(maxCount / 2), maxCount].filter((v, i, a) => a.indexOf(v) === i);
+
+    return (
+      <View style={styles.section}>
+        <View style={styles.sectionHead}>
+          <Text style={styles.sectionEye}>PROGRESS</Text>
+          <Text style={styles.sectionTitle}>오류 유형별 추이</Text>
+        </View>
+        <View style={styles.card}>
+          <View style={styles.trendChartHeaderRow}>
+            <View style={styles.trendPeriodToggle}>
+              {(['daily', 'weekly', 'monthly'] as const).map(p => (
+                <TouchableOpacity
+                  key={p}
+                  style={[styles.trendPeriodBtn, trendPeriod === p && styles.trendPeriodBtnActive]}
+                  onPress={() => setTrendPeriod(p)}
+                >
+                  <Text style={[styles.trendPeriodBtnText, trendPeriod === p && styles.trendPeriodBtnTextActive]}>
+                    {p === 'daily' ? '일별' : p === 'weekly' ? '주별' : '월별'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <Svg width={CHART_W} height={CHART_H}>
+            {gridValues.map(v => (
+              <G key={v}>
+                <Line
+                  x1={PAD.left} y1={ey(v)}
+                  x2={CHART_W - PAD.right} y2={ey(v)}
+                  stroke="#EBEBF5" strokeWidth={1}
+                />
+                <SvgText
+                  x={PAD.left - 5} y={ey(v) + 4}
+                  fontSize={9} fill="#BBBBCC" textAnchor="end"
+                >
+                  {v}
+                </SvgText>
+              </G>
+            ))}
+
+            {topTypes.map(t => (
+              <G key={t.type}>
+                <Polyline
+                  points={errorBars.map((b, i) => `${ex(i)},${ey(b.counts[t.type] ?? 0)}`).join(' ')}
+                  fill="none"
+                  stroke={t.color}
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+                {errorBars.map((b, i) => (
+                  <Circle
+                    key={i}
+                    cx={ex(i)} cy={ey(b.counts[t.type] ?? 0)}
+                    r={3}
+                    fill={t.color}
+                  />
+                ))}
+              </G>
+            ))}
+
+            {errorBars.map((b, i) => {
+              const step = n <= 7 ? 1 : Math.ceil(n / 7);
+              if (i % step !== 0 && i !== n - 1) return null;
+              return <SvgText
+                key={i}
+                x={ex(i)} y={CHART_H - 4}
+                fontSize={9} fill="#BBBBCC" textAnchor="middle"
+              >
+                {b.label}
+              </SvgText>;
+            })}
+          </Svg>
+
+          <View style={styles.trendErrorLegend}>
+            {topTypes.map(t => (
+              <View key={t.type} style={styles.trendErrorLegendItem}>
+                <View style={[styles.trendErrorDot, { backgroundColor: t.color }]} />
+                <Text style={styles.trendErrorLabel}>{t.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   const renderScenarioPracticeChart = (items: ScenarioChartItem[]) => {
     if (!items.length) return null;
     return (
@@ -890,7 +1175,7 @@ export default function AnalyticsScreen() {
                   {item.label}
                 </Text>
                 <Text style={styles.scenarioChartValue}>
-                  {item.total}회 · 오류 {Math.round(item.errorRate * 100)}%
+                  {item.total}회 · 오류 {item.errors}번
                 </Text>
               </View>
 
@@ -1019,11 +1304,15 @@ export default function AnalyticsScreen() {
           </View>
         )}
 
+        {isHomeAnalysis && renderAccuracyTrendChart()}
+
+        {isHomeAnalysis && renderWeakDonut()}
+
         {isHomeAnalysis && (
           <View style={styles.section}>
             <View style={styles.sectionHead}>
-              <Text style={styles.sectionEye}>PERSONALIZATION</Text>
-              <Text style={styles.sectionTitle}>실제 실수 기반 맞춤 분석</Text>
+              <Text style={styles.sectionEye}>ANALYSIS</Text>
+              <Text style={styles.sectionTitle}>약점 분석</Text>
             </View>
 
             <View style={styles.card}>
@@ -1269,119 +1558,7 @@ export default function AnalyticsScreen() {
           </View>
         )}
 
-        {weakAreas.length > 0 ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionEye}>WEAK SPOTS</Text>
-              <Text style={styles.sectionTitle}>약점 분석</Text>
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.weakChartWrap}>
-                <View style={styles.weakDonutWrapCentered}>
-                <View style={styles.weakDonutWrap}>
-                  <Svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
-                    <G rotation="-90" origin={`${DONUT_SIZE / 2}, ${DONUT_SIZE / 2}`}>
-                      <Circle
-                        cx={DONUT_SIZE / 2}
-                        cy={DONUT_SIZE / 2}
-                        r={DONUT_RADIUS}
-                        stroke="#F0F0F5"
-                        strokeWidth={DONUT_STROKE}
-                        fill="none"
-                      />
-                      {weakChartData.reduce(
-                        (acc, item) => {
-                          const length = item.ratio * DONUT_CIRCUMFERENCE;
-                          const segment = (
-                            <Circle
-                              key={item.key}
-                              cx={DONUT_SIZE / 2}
-                              cy={DONUT_SIZE / 2}
-                              r={DONUT_RADIUS}
-                              stroke={item.color}
-                              strokeWidth={DONUT_STROKE}
-                              fill="none"
-                              strokeLinecap="butt"
-                              strokeDasharray={`${length} ${DONUT_CIRCUMFERENCE - length}`}
-                              strokeDashoffset={-acc.offset}
-                              onPress={() => setRecentTypeFilter(item.key)}
-                            />
-                          );
-                          acc.offset += length;
-                          acc.nodes.push(segment);
-                          return acc;
-                        },
-                        { offset: 0, nodes: [] as React.ReactNode[] },
-                      ).nodes}
-                    </G>
-                  </Svg>
-
-                  <View style={styles.weakDonutCenter}>
-                    <Text style={styles.weakDonutValue}>
-                      {weakChartData[0]?.count || 0}
-                    </Text>
-                    <Text style={styles.weakDonutLabel}>최다 실수</Text>
-                  </View>
-                </View>
-                </View>
-              </View>
-
-              <View style={styles.weakLegend}>
-                {weakChartData.map(item => {
-                  const active = recentTypeFilter === item.key;
-                  const delta = item.trend.thisWeek - item.trend.lastWeek;
-                  const trendText =
-                    item.trend.thisWeek + item.trend.lastWeek === 0
-                      ? '최근 기록 기준'
-                      : delta < 0
-                        ? `지난 7일 ${Math.abs(delta)}회 감소`
-                        : delta > 0
-                          ? `지난 7일 ${delta}회 증가`
-                          : '지난 7일 변화 없음';
-
-                  return (
-                  <TouchableOpacity
-                    key={item.key}
-                    style={[
-                      styles.weakLegendRow,
-                      active && styles.weakLegendRowActive,
-                    ]}
-                    onPress={() => setRecentTypeFilter(active ? 'all' : item.key)}
-                  >
-                    <View style={[styles.weakLegendDot, { backgroundColor: item.color }]} />
-                    <View style={styles.weakLegendTextWrap}>
-                      <Text style={styles.weakLegendLabel}>
-                        {item.label}
-                      </Text>
-                      <Text style={styles.weakLegendMeta}>
-                        {item.count}회 · 영향도 {Math.round(item.ratio * 100)}% · {trendText}
-                      </Text>
-                      <Text style={styles.weakLegendReason}>
-                        {item.reason}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
-        ) : isHomeAnalysis && recentMistakes.length === 0 ? (
-          <View style={styles.section}>
-            <View style={[styles.card, styles.emptyCard]}>
-              <View style={styles.emptyIcon}>
-                <AlertCircle size={20} color="#6C3BFF" />
-              </View>
-
-              <Text style={styles.emptyTitle}>아직 쌓인 실수 데이터가 없어요</Text>
-
-              <Text style={styles.emptyText}>
-                대화 후 백엔드가 오류를 저장하면 이곳에 반복되는 약점이 순위로 표시됩니다.
-              </Text>
-            </View>
-          </View>
-        ) : null}
+        {!isHomeAnalysis && renderWeakDonut()}
 
         {isHomeAnalysis && recentMistakes.length > 0 && (
           <View style={styles.section}>
@@ -2220,14 +2397,14 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   weakLegendMeta: {
+    fontSize: 13,
+    color: '#333',
+    lineHeight: 18,
+  },
+  weakLegendReason: {
     fontSize: 12,
     color: '#555',
     lineHeight: 17,
-  },
-  weakLegendReason: {
-    fontSize: 11,
-    color: '#777',
-    lineHeight: 16,
     marginTop: 3,
   },
 
@@ -2509,5 +2686,77 @@ const styles = StyleSheet.create({
   recentEmptyText: {
     fontSize: 13,
     color: '#666',
+  },
+
+  trendChartHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  trendPeriodToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#F0F0F7',
+    borderRadius: 8,
+    padding: 2,
+  },
+  trendPeriodBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  trendPeriodBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  trendPeriodBtnText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#999',
+  },
+  trendPeriodBtnTextActive: {
+    color: '#6C3BFF',
+    fontWeight: '700',
+  },
+  trendErrorSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F7',
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  trendErrorTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#555',
+    marginBottom: 4,
+    paddingHorizontal: 14,
+  },
+  trendErrorLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  trendErrorLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  trendErrorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  trendErrorLabel: {
+    fontSize: 11,
+    color: '#555',
+    fontWeight: '500',
   },
 });
