@@ -1152,6 +1152,53 @@ async def quick_correction_check(request: QuickCorrectionRequest):
             encouragement=correction.encouragement,
             streak_bonus=False,
         )
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Response suggestion for realtime sessions ─────────────────────────────────
+
+class SuggestRequest(BaseModel):
+    partner_text: str
+    conversation_history: List[Dict[str, Any]] = Field(default_factory=list)
+    avatar_role: Optional[str] = None
+    speech_level: str = "polite"
+
+class SuggestResponse(BaseModel):
+    suggestions: List[str] = Field(default_factory=list)
+
+@router.post("/suggest", response_model=SuggestResponse)
+async def suggest_responses(request: SuggestRequest):
+    """Generate 3 natural Korean response options for the user after a partner turn."""
+    level_labels = {"formal": "합쇼체", "polite": "해요체", "informal": "반말"}
+    level_label = level_labels.get(request.speech_level, "해요체")
+
+    role_line = f"상대방은 {request.avatar_role}입니다." if request.avatar_role else ""
+    history_lines = "\n".join(
+        f"{h.get('speaker', '?')}: {h.get('text', '')}"
+        for h in (request.conversation_history or [])[-4:]
+        if h.get("text", "").strip()
+    )
+
+    prompt = f"""한국어 대화 연습 도우미입니다. 사용자가 {level_label}로 상대방에게 자연스럽게 답할 수 있도록 도와주세요.
+{role_line}
+{"이전 대화:\n" + history_lines + "\n" if history_lines else ""}상대방: {request.partner_text}
+
+이 말에 대한 자연스러운 {level_label} 응답 3가지를 제안하세요.
+각 응답은 20자 이내로 짧고 실용적이어야 합니다. 다양한 반응(동의, 질문, 감탄 등)을 포함하세요.
+
+JSON만 반환하세요:
+{{"suggestions": ["응답1", "응답2", "응답3"]}}"""
+
+    try:
+        data = await clova_service.analyze_json(prompt, max_tokens=200, temperature=0.8)
+        items = data.get("suggestions") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            items = data.get("items") if isinstance(data, dict) else None
+        if isinstance(items, list):
+            return SuggestResponse(suggestions=[str(s).strip() for s in items[:3] if str(s).strip()])
+        return SuggestResponse(suggestions=[])
+    except Exception as e:
+        print(f"[suggest] error: {e}")
+        return SuggestResponse(suggestions=[])

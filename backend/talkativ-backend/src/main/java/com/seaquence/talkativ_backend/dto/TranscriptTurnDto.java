@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.List;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -14,4 +16,5 @@ public class TranscriptTurnDto {
     private String speaker;
     private String text;
     private String type; // "final"
+    private List<String> suggestions; // response suggestions for partner turns; null for user turns
 }
