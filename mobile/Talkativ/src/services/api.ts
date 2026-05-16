@@ -129,40 +129,27 @@ const LEVEL_META: Record<SpeechLevelCode, { name_ko: string; description: string
 };
 
 const ROLE_LABELS: Record<string, string> = {
-  friend: '친구',
-  close_friend: '절친',
-  classmate: '반 친구',
-  roommate: '룸메이트',
-  club_member: '동아리 멤버',
-  junior: '후배',
-  senior: '선배',
-  professor: '교수님',
-  teacher: '선생님',
-  tutor: '과외 선생님',
-  younger_sibling: '동생',
-  older_brother: '형/오빠',
-  older_sister: '누나/언니',
-  cousin: '사촌',
-  parent: '부모님',
-  grandparent: '조부모님',
-  uncle_aunt: '삼촌/이모',
-  in_law: '시댁/처가 어른',
-  intern: '인턴',
-  colleague: '동료',
-  teammate: '팀원',
-  team_leader: '팀장',
-  manager: '매니저',
-  boss: '사장님',
-  ceo: '대표님',
-  client: '고객',
-  mentor: '멘토',
-  staff: '직원',
-  customer: '손님',
-  stranger: '모르는 사람',
-  neighbor: '이웃',
-  doctor: '의사 선생님',
-  delivery: '배달원',
-  taxi_driver: '택시 기사님',
+  friend: '친구', close_friend: '절친', classmate: '동기', classmate_formal: '같은 반 친구',
+  roommate: '룸메이트', club_member: '동아리 멤버',
+  junior: '후배', senior: '선배', professor: '교수님', teacher: '선생님', tutor: '튜터/과외선생',
+  younger_sibling: '동생', older_brother: '형/오빠', older_sister: '누나/언니',
+  cousin: '사촌', parent: '부모님', grandparent: '조부모님',
+  uncle_aunt: '삼촌/이모', in_law: '시댁/처가 어른',
+  intern: '인턴', colleague: '동료', teammate: '팀원', team_leader: '팀장',
+  manager: '매니저', boss: '상사/부장', ceo: '대표/사장님',
+  client: '고객/클라이언트', mentor: '멘토', staff: '직원/점원', customer: '손님',
+  stranger: '처음 만난 사람', neighbor: '이웃', doctor: '의사',
+  delivery: '배달원', taxi_driver: '택시기사',
+};
+
+export const humanizeRoleId = (raw: string | undefined | null): string => {
+  if (!raw) return '';
+  const key = String(raw).trim();
+  if (ROLE_LABELS[key]) return ROLE_LABELS[key];
+  // Generic fallback: strip suffixes like _formal, _polite and replace underscores
+  const stripped = key.replace(/_(formal|informal|polite|casual)$/, '');
+  if (ROLE_LABELS[stripped]) return ROLE_LABELS[stripped];
+  return stripped.replace(/_/g, ' ');
 };
 
 const parseAge = (value: unknown, fallback: number): number => {
@@ -312,7 +299,7 @@ class ApiService {
     situation?: Situation
   ): Promise<SpeechRecommendation> {
     const avatarRole = avatar?.role || 'friend';
-    const roleLabel = ROLE_LABELS[avatarRole] || avatar?.custom_role || avatarRole;
+    const roleLabel = avatar?.custom_role || humanizeRoleId(avatarRole);
     const defaultLevel = (avatar?.formality_from_user as SpeechLevelCode) || 'polite';
     const fallbackRecommendation = buildRecommendationFallback(defaultLevel, roleLabel, situation);
 
