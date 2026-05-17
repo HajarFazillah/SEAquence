@@ -227,7 +227,32 @@ DIRECT_REQUEST_PATTERNS = [
         "explanation": "요청 표현이 직접적으로 들릴 수 있습니다. 정중한 상황에서는 간접 요청 표현이 더 자연스럽습니다.",
     },
     {
-        "pattern": re.compile(r"(해도 돼요|내도 돼요|가도 돼요|써도 돼요|먹어도 돼요|봐도 돼요)"),
+        "pattern": re.compile(r"내도 돼요"),
+        "softened": "제출해도 괜찮을까요?",
+        "explanation": "'내도 돼요?'는 상황에 따라 가볍게 들릴 수 있습니다. 과제나 서류는 '제출해도 괜찮을까요?'가 더 정중합니다.",
+    },
+    {
+        "pattern": re.compile(r"써도 돼요"),
+        "softened": "사용해도 괜찮을까요?",
+        "explanation": "'돼요?'는 상황에 따라 가볍게 들릴 수 있습니다. 공식적인 상황에서는 '괜찮을까요?'가 더 정중합니다.",
+    },
+    {
+        "pattern": re.compile(r"가도 돼요"),
+        "softened": "가도 괜찮을까요?",
+        "explanation": "'돼요?'는 상황에 따라 가볍게 들릴 수 있습니다. 공식적인 상황에서는 '괜찮을까요?'가 더 정중합니다.",
+    },
+    {
+        "pattern": re.compile(r"먹어도 돼요"),
+        "softened": "먹어도 괜찮을까요?",
+        "explanation": "'돼요?'는 상황에 따라 가볍게 들릴 수 있습니다. 공식적인 상황에서는 '괜찮을까요?'가 더 정중합니다.",
+    },
+    {
+        "pattern": re.compile(r"봐도 돼요"),
+        "softened": "봐도 괜찮을까요?",
+        "explanation": "'돼요?'는 상황에 따라 가볍게 들릴 수 있습니다. 공식적인 상황에서는 '괜찮을까요?'가 더 정중합니다.",
+    },
+    {
+        "pattern": re.compile(r"해도 돼요"),
         "softened": "해도 괜찮을까요?",
         "explanation": "'돼요?'는 상황에 따라 가볍게 들릴 수 있습니다. 공식적인 상황에서는 '괜찮을까요?'가 더 정중합니다.",
     },
@@ -371,6 +396,7 @@ POLITE_PATTERNS = [
 
 
 INFORMAL_PATTERNS = [
+    r"(싶|하|되|있|없|겠)다[.?!]?$",
     r"[아어][\s.?!]*$",
     r"야[.?!]?$",
     r"지[.?!]?$",
@@ -447,6 +473,7 @@ INFORMAL_PATTERNS = [
     r"이야[.?!]?$",
     r"인데[.?!]?$",
     r"싶어[.?!]?$",
+    r"(싶음|겠음|없음|있음|예정임|[가-힣]+함|[가-힣]+됨)[.?!]?$",
     r"할까[?]?$",
     r"갈까[?]?$",
     r"볼까[?]?$",
@@ -515,7 +542,7 @@ _FINAL_ENDINGS_INFORMAL = {
     "ㄹ게", "을게", "ㄹ까", "을까", "ㄹ래", "을래",
     "냐", "니", "자", "야",
     "더라", "더라고", "더라구", "ㄴ데", "는데",
-    "겠어", "이야",
+    "겠어", "이야", "다",
 }
 
 _komoran_instance = None
@@ -790,6 +817,9 @@ class NativeSpeechAnalyzer:
 
         if t.endswith(("요", "세요", "해요", "죠", "네요", "까요")):
             return SpeechLevel.POLITE, "guess"
+
+        if t.endswith(("싶음", "싶다", "겠음", "겠다", "없음", "없다", "있음", "있다", "예정임", "함", "한다", "됨", "된다")):
+            return SpeechLevel.INFORMAL, "guess"
 
         if t.endswith(("어", "아", "야", "지", "냐", "니", "군", "구나")):
             return SpeechLevel.INFORMAL, "guess"

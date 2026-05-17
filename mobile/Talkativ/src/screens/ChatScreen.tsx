@@ -215,12 +215,6 @@ const LEVEL_LABELS: Record<string, string> = {
   formal: '합쇼체', polite: '해요체', informal: '반말',
 };
 
-const LEVEL_EXAMPLES: Record<string, string> = {
-  formal:   '안녕하십니까. 만나서 반갑습니다.',
-  polite:   '안녕하세요. 만나서 반가워요.',
-  informal: '안녕. 만나서 반가워.',
-};
-
 const DECORATIVE_REPLY_SYMBOLS = /😊|😂|❤️|❤|✨|😍|🥰|😘|💕|💖|💗|💝|💞|💓|😄|😆|😁|😃|🤣|🙂|😉|☺️|☺|🌟|⭐/g;
 const BAD_ALT_PATTERNS = [
   /^이렇게도 말할 수 있어요/i,
@@ -259,315 +253,12 @@ const SPEECH_LEVEL_TERMS: Record<string, { code: string; label: string }> = {
 
 // ─── Utility functions (unchanged) ───────────────────────────────────────────
 
-const normalizeInputToken = (text: string) =>
-  text.trim().toLowerCase().replace(/[.,!?…。？！]+$/g, '').replace(/\s+/g, ' ');
-
 const normalizeExpectedLevelCode = (level?: string) => {
   if (!level) return '';
   const normalized = String(level).trim().toLowerCase();
   if (LEVEL_LABELS[normalized]) return normalized;
   const compact = normalized.replace(/\s+/g, '');
   return SPEECH_LEVEL_TERMS[normalized]?.code || SPEECH_LEVEL_TERMS[compact]?.code || '';
-};
-
-const splitTrailingPunctuation = (text: string) => {
-  const match = text.match(/([.!?…。？！"')\]\s]*)$/);
-  const trailing = match?.[1] || '';
-  return { core: text.slice(0, text.length - trailing.length), trailing };
-};
-
-const getFinalConsonantIndex = (char: string) => {
-  if (!char || char.length !== 1) return -1;
-  const code = char.charCodeAt(0);
-  if (code < 0xac00 || code > 0xd7a3) return -1;
-  return (code - 0xac00) % 28;
-};
-
-const hasBatchimBieup = (char: string) => getFinalConsonantIndex(char) === 17;
-const removeFinalBieup = (char: string) =>
-  hasBatchimBieup(char) ? String.fromCharCode(char.charCodeAt(0) - 17) : char;
-
-const endsWithHapsidaFormal = (text: string) => {
-  const { core } = splitTrailingPunctuation(text.trim());
-  if (!core) return false;
-  if (core.endsWith('읍시다') || core.endsWith('십시다')) return true;
-  if (!core.endsWith('시다') || core.length < 3) return false;
-  return hasBatchimBieup(core.charAt(core.length - 3));
-};
-
-const convertHapsidaToInformal = (text: string) => {
-  const { core, trailing } = splitTrailingPunctuation(text.trim());
-  if (!core) return null;
-  if (core.endsWith('읍시다') && core.length >= 4)
-    return `${core.slice(0, -4)}${core.charAt(core.length - 4)}자${trailing}`;
-  if (core.endsWith('시다') && core.length >= 3) {
-    const lead = core.charAt(core.length - 3);
-    if (hasBatchimBieup(lead))
-      return `${core.slice(0, -3)}${removeFinalBieup(lead)}자${trailing}`;
-  }
-  return null;
-};
-
-const detectLikelySpeechLevel = (text: string) => {
-  const compact = text.trim().replace(/\s+/g, ' ');
-  if (!/[가-힣]/.test(compact)) return null;
-  if (endsWithHapsidaFormal(compact)) return 'formal';
-  if (/(안녕하십니까|감사합니다|죄송합니다|부탁드립니다|입니다|합니다|했습니다|하겠습니다|습니까|십니까|니다[.!?…。！？""')\]\s]*$)/.test(compact)) return 'formal';
-  if (/(안녕하세요|고마워요|감사해요|미안해요|죄송해요|반가워요|괜찮아요|좋아요|있어요|없어요|이에요|예요|세요|해요|아요|어요|나요|죠|지요|네요|군요|까요|요[.!?…。！？""')\]\s]*$)/.test(compact)) return 'polite';
-  if (/(^|\s)(안녕|응|아니|고마워|미안해|반가워|괜찮아|좋아|있어|없어|뭐해|가자|갈래|먹어|마셔|봐|해|자)([.!?…。！？""')\]\s]|$)/.test(compact)
-    || /(어떻게 지내|뭐 해|뭐해|잘 지내|했어|할래|줄래|니\?|냐\?|야[.!?…。！？""')\]\s]*$)/.test(compact)) return 'informal';
-  return null;
-};
-
-const COMMON_TYPO_FIXES: Array<{ pattern: RegExp; original: string; corrected: string; explanation: string }> = [
-  { pattern: /안녕하새요/, original: '안녕하새요', corrected: '안녕하세요', explanation: "'안녕하새요'는 오타이고, 표준 표현은 '안녕하세요'입니다." },
-  { pattern: /안녕하세여/, original: '안녕하세여', corrected: '안녕하세요', explanation: "'안녕하세여'는 채팅식 표기이고, 연습 문장에서는 '안녕하세요'가 자연스럽습니다." },
-  { pattern: /감사함니다/, original: '감사함니다', corrected: '감사합니다', explanation: "'감사함니다'가 아니라 '감사합니다'로 적는 것이 맞습니다." },
-  { pattern: /어떻개/, original: '어떻개', corrected: '어떻게', explanation: "'어떻개'는 오타이고, '어떻게'가 맞습니다." },
-  { pattern: /어떡게/, original: '어떡게', corrected: '어떻게', explanation: "'어떡게'는 오타이고, '어떻게'가 맞습니다." },
-  { pattern: /괜찬/, original: '괜찬', corrected: '괜찮', explanation: "'괜찬'보다 '괜찮'이 맞는 표기입니다." },
-  { pattern: /할께/, original: '할께', corrected: '할게', explanation: "미래의 의지를 말할 때는 '할게'가 자연스럽고 맞는 표기입니다." },
-  { pattern: /되요/, original: '되요', corrected: '돼요', explanation: "'되요'보다 '돼요'가 맞는 표기입니다." },
-  { pattern: /됬/, original: '됬', corrected: '됐', explanation: "'됬'은 잘못된 표기이고, '됐'이 맞습니다." },
-  { pattern: /오랫만/, original: '오랫만', corrected: '오랜만', explanation: "'오랫만'이 아니라 '오랜만'이 맞는 표기입니다." },
-  { pattern: /몇일/, original: '몇일', corrected: '며칠', explanation: "'몇일'보다 '며칠'이 표준어입니다." },
-  { pattern: /왠만/, original: '왠만', corrected: '웬만', explanation: "'왠만'이 아니라 '웬만'이 맞습니다." },
-  { pattern: /설겆이/, original: '설겆이', corrected: '설거지', explanation: "'설겆이'보다 '설거지'가 표준어입니다." },
-  { pattern: /반가워여/, original: '반가워여', corrected: '반가워요', explanation: "'반가워여'는 채팅식 표기이고, 연습 문장에서는 '반가워요'가 자연스럽습니다." },
-  { pattern: /고마워여/, original: '고마워여', corrected: '고마워요', explanation: "'고마워여'는 채팅식 표기이고, 연습 문장에서는 '고마워요'가 자연스럽습니다." },
-  { pattern: /미안해여/, original: '미안해여', corrected: '미안해요', explanation: "'미안해여'는 채팅식 표기이고, 연습 문장에서는 '미안해요'가 자연스럽습니다." },
-  { pattern: /한잔/, original: '한잔', corrected: '한 잔', explanation: "'한잔'보다 '한 잔'처럼 띄어 쓰는 것이 자연스럽습니다." },
-  { pattern: /두개/, original: '두개', corrected: '두 개', explanation: "'두개'보다 '두 개'처럼 띄어 쓰는 것이 자연스럽습니다." },
-  { pattern: /세개/, original: '세개', corrected: '세 개', explanation: "'세개'보다 '세 개'처럼 띄어 쓰는 것이 자연스럽습니다." },
-  { pattern: /갑시당/, original: '갑시당', corrected: '갑시다', explanation: "'갑시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '갑시다'가 자연스럽습니다." },
-  { pattern: /봅시당/, original: '봅시당', corrected: '봅시다', explanation: "'봅시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '봅시다'가 자연스럽습니다." },
-  { pattern: /합시당/, original: '합시당', corrected: '합시다', explanation: "'합시당'은 장난스러운 채팅식 표기이고, 연습 문장에서는 '합시다'가 자연스럽습니다." },
-];
-
-const getLocalTypoCorrections = (text: string): Correction[] =>
-  COMMON_TYPO_FIXES.filter(item => item.pattern.test(text)).map(item => ({
-    original: item.original, corrected: item.corrected,
-    explanation: item.explanation, severity: 'error', type: 'spelling',
-  }));
-
-const applyLocalSpellingFixes = (text: string) =>
-  COMMON_TYPO_FIXES.reduce((result, item) => result.replace(item.pattern, item.corrected), text);
-
-const replaceAll = (text: string, pairs: Array<[RegExp, string]>) =>
-  pairs.reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), text);
-
-const bestEffortInformalToPolite = (text: string) => {
-  const trimmed = text.trim();
-  if (!trimmed) return trimmed;
-  const match = trimmed.match(/([.!?…。？！"')\]\s]*)$/);
-  const trailing = match?.[1] || '';
-  const core = trailing ? trimmed.slice(0, trimmed.length - trailing.length) : trimmed;
-
-  const replacements: Array<[RegExp, string]> = [
-    [/뭐해$/g, '뭐 해요'],
-    [/좋아해$/g, '좋아해요'],
-    [/싫어해$/g, '싫어해요'],
-    [/괜찮아$/g, '괜찮아요'],
-    [/좋아$/g, '좋아요'],
-    [/싫어$/g, '싫어요'],
-    [/있어$/g, '있어요'],
-    [/없어$/g, '없어요'],
-    [/맞아$/g, '맞아요'],
-    [/알아$/g, '알아요'],
-    [/몰라$/g, '몰라요'],
-    [/해$/g, '해요'],
-    [/가$/g, '가요'],
-    [/와$/g, '와요'],
-    [/봐$/g, '봐요'],
-    [/먹어$/g, '먹어요'],
-    [/마셔$/g, '마셔요'],
-    [/줘$/g, '주세요'],
-    [/주라$/g, '주세요'],
-    [/주면\s*돼$/g, '주세요'],
-    [/이야$/g, '이에요'],
-    [/야$/g, '예요'],
-  ];
-
-  let converted = core;
-  for (const [pattern, replacement] of replacements) {
-    const updated = converted.replace(pattern, replacement);
-    if (updated !== converted) {
-      converted = updated;
-      break;
-    }
-  }
-
-  if (converted === core && !/(요|니다|습니다|세요|까요)$/.test(core)) {
-    if (/(어|아|해)$/.test(core)) converted = `${core}요`;
-    else if (/(니|냐)$/.test(core)) converted = `${core.slice(0, -1)}나요`;
-  }
-
-  return `${converted}${trailing}`.trim();
-};
-
-const makeSpeechLevelSuggestion = (text: string, expectedCode: string) => {
-  const spellingFixedText = applyLocalSpellingFixes(text);
-  if (expectedCode === 'informal') {
-    const convertedHapsida = convertHapsidaToInformal(spellingFixedText);
-    if (convertedHapsida && convertedHapsida !== text) return convertedHapsida;
-    const changed = replaceAll(spellingFixedText, [
-      [/안녕하십니까|안녕하세요/g, '안녕'],
-      [/만나서 반갑습니다|만나서 반가워요/g, '만나서 반가워'],
-      [/감사합니다|고마워요/g, '고마워'],
-      [/죄송합니다|죄송해요|미안해요/g, '미안해'],
-      [/어떻게 지내세요[?？]?|어떻게 지내요[?？]?/g, '어떻게 지내?'],
-      [/이에요/g, '이야'], [/예요/g, '야'], [/입니다/g, '이야'],
-      [/([가-힣])요([.!?…。！]?)/g, '$1$2'], [/습니다/g, '어'], [/니다/g, '야'],
-    ]).trim();
-    return changed && changed !== text ? changed : spellingFixedText;
-  }
-  if (expectedCode === 'formal') {
-    const changed = replaceAll(spellingFixedText, [
-      [/안녕하세요|안녕/g, '안녕하십니까'],
-      [/만나서 반가워요|만나서 반가워/g, '만나서 반갑습니다'],
-      [/고마워요|고마워/g, '감사합니다'],
-      [/미안해요|미안해/g, '죄송합니다'],
-      [/어떻게 지내세요[?？]?|어떻게 지내요[?？]?|어떻게 지내[?？]?/g, '어떻게 지내십니까?'],
-      [/이에요|예요/g, '입니다'],
-    ]).trim();
-    return changed && changed !== text ? changed : spellingFixedText;
-  }
-  const changed = replaceAll(spellingFixedText, [
-    [/안녕하십니까|안녕/g, '안녕하세요'],
-    [/만나서 반갑습니다|만나서 반가워/g, '만나서 반가워요'],
-    [/감사합니다|고마워/g, '고마워요'],
-    [/죄송합니다|미안해/g, '미안해요'],
-    [/어떻게 지내십니까[?？]?|어떻게 지내[?？]?/g, '어떻게 지내세요?'],
-  ]).trim();
-  const bestEffort = bestEffortInformalToPolite(spellingFixedText);
-  if (bestEffort && bestEffort !== text) return bestEffort;
-  return changed && changed !== text ? changed : spellingFixedText;
-};
-
-const buildLocalSpeechMismatch = (text: string, expectedLevel?: string) => {
-  const expectedCode = normalizeExpectedLevelCode(expectedLevel);
-  if (!expectedCode) return null;
-  const spellingFixedText = applyLocalSpellingFixes(text);
-  const detectedCode = detectLikelySpeechLevel(spellingFixedText);
-  if (!detectedCode || detectedCode === expectedCode) return null;
-  const expectedLabel = LEVEL_LABELS[expectedCode];
-  const detectedLabel = LEVEL_LABELS[detectedCode];
-  const corrected = makeSpeechLevelSuggestion(text, expectedCode);
-  return {
-    detectedCode, expectedCode, detectedLabel, expectedLabel, corrected,
-    score: expectedCode === 'formal' && detectedCode === 'polite' ? 75 : 60,
-    summary: `추천 말투는 ${expectedLabel}인데, 이 문장은 ${detectedLabel}에 가까워요. ${expectedLabel} 상황에 맞게 문장 끝맺음을 바꿔 주세요.`,
-    correction: {
-      original: text, corrected,
-      explanation: `${detectedLabel} 표현이라 현재 상대에게 요구되는 ${expectedLabel}와 맞지 않습니다.`,
-      severity: 'warning' as const, type: 'speech_level',
-      tip: `${expectedLabel} 예시: ${LEVEL_EXAMPLES[expectedCode]}`,
-    },
-  };
-};
-
-const getLocalInputOverride = (text: string) => {
-  const normalized = normalizeInputToken(text);
-  const compact = normalized.replace(/\s+/g, '');
-  const speechTerm = SPEECH_LEVEL_TERMS[normalized] || SPEECH_LEVEL_TERMS[compact];
-  if (!speechTerm) return null;
-  return {
-    input_kind: 'speech_level_term', verdict: 'speech_level_term',
-    detected_speech_level: speechTerm.label,
-    detected_speech_level_code: speechTerm.code,
-    summary: `'${text.trim()}'은(는) 말투 이름이라 실제 대화 문장으로 점수를 매기기 어려워요.`,
-    natural_alternatives: [{ expression: `${speechTerm.label}로 말해 볼게요.`, explanation: '말투 이름만 말하는 것보다 자연스러운 연습 문장입니다.' }],
-  };
-};
-
-const applyLocalFeedbackGuard = (text: string, feedback: SpeechAnalysis | null, expectedLevel?: string): SpeechAnalysis | null => {
-  const localOverride = getLocalInputOverride(text);
-  if (localOverride) {
-    return {
-      corrected_message: '',
-      detected_speech_level: localOverride.detected_speech_level,
-      detected_speech_level_code: localOverride.detected_speech_level_code,
-      speech_level_correct: true,
-      expected_speech_level: feedback?.expected_speech_level || '',
-      expected_speech_level_code: feedback?.expected_speech_level_code,
-      input_kind: localOverride.input_kind, verdict: localOverride.verdict,
-      has_errors: false, accuracy_score: null, scorable: false,
-      corrections: [], natural_alternatives: localOverride.natural_alternatives,
-      encouragement: '', summary: localOverride.summary,
-    };
-  }
-  const typoCorrections = getLocalTypoCorrections(text);
-  const shouldTrustBackendSpeech =
-    Boolean(feedback)
-    && feedback?.input_kind !== 'speech_level_term'
-    && feedback?.verdict !== 'speech_level_term';
-  const speechMismatch = shouldTrustBackendSpeech ? null : buildLocalSpeechMismatch(text, expectedLevel);
-  if (typoCorrections.length === 0 && !speechMismatch) return feedback;
-  if (feedback && shouldTrustBackendSpeech) {
-    if (typoCorrections.length === 0) return feedback;
-    const existingTypoKeys = new Set(
-      (feedback.corrections || [])
-        .filter(c => c.type === 'spelling')
-        .map(c => `${c.original}=>${c.corrected}`),
-    );
-    const missingTypos = typoCorrections.filter(
-      c => !existingTypoKeys.has(`${c.original}=>${c.corrected}`),
-    );
-    if (missingTypos.length === 0) return feedback;
-
-    const mergedCorrections = [...feedback.corrections, ...missingTypos];
-    const mergedAlternatives = feedback.natural_alternatives?.length > 0
-      ? feedback.natural_alternatives
-      : [{ expression: applyLocalSpellingFixes(text), explanation: '오타를 고친 자연스러운 문장입니다.' }];
-
-    return {
-      ...feedback,
-      corrected_message: feedback.corrected_message || applyLocalSpellingFixes(text),
-      has_errors: true,
-      verdict: feedback.speech_level_correct === false ? (feedback.verdict || 'wrong_speech_level') : 'spelling',
-      accuracy_score: Math.min(feedback.accuracy_score ?? 100, 70),
-      corrections: mergedCorrections,
-      natural_alternatives: mergedAlternatives,
-      summary: feedback.summary || '오타를 고치면 더 자연스러워요.',
-      encouragement: feedback.encouragement || '오타만 다듬어도 훨씬 자연스럽게 들려요.',
-    };
-  }
-  const spellingFixedText = applyLocalSpellingFixes(text);
-  const fallbackExpectedCode = normalizeExpectedLevelCode(expectedLevel);
-  const expectedCode = speechMismatch?.expectedCode || feedback?.expected_speech_level_code || fallbackExpectedCode;
-  const detectedCode = speechMismatch?.detectedCode || feedback?.detected_speech_level_code || detectLikelySpeechLevel(text) || '';
-  const typoSummary = typoCorrections.map(c => `'${c.original}'는 '${c.corrected}'`).join(', ');
-  const finalSpeechCorrection: Correction | null = speechMismatch ? {
-    original: text, corrected: speechMismatch.corrected,
-    explanation: typoCorrections.length > 0
-      ? `먼저 ${typoSummary}로 고친 뒤, ${speechMismatch.detectedLabel} 표현을 ${speechMismatch.expectedLabel}에 맞게 바꿔야 합니다.`
-      : `${speechMismatch.detectedLabel} 표현이라 현재 상대에게 요구되는 ${speechMismatch.expectedLabel}와 맞지 않습니다.`,
-    severity: 'warning',
-    type: typoCorrections.length > 0 ? 'spelling_speech_level' : 'speech_level',
-    tip: `${speechMismatch.expectedLabel} 예시: ${LEVEL_EXAMPLES[speechMismatch.expectedCode]}`,
-  } : null;
-  const localCorrections = finalSpeechCorrection ? [finalSpeechCorrection] : typoCorrections;
-  const localScore = Math.min(speechMismatch?.score ?? 100, typoCorrections.length > 0 ? 70 : 100);
-  const backendScore = feedback?.accuracy_score ?? 100;
-  const summary = [speechMismatch?.summary, typoCorrections.length > 0 ? '오타가 보여서 자연스러운 표기로 고쳐 봤어요.' : ''].filter(Boolean).join(' ');
-  const localEncouragement = speechMismatch ? '문장 끝맺음만 맞춰도 훨씬 자연스럽게 들려요.' : '오타만 고치면 더 자연스럽게 들려요.';
-  return {
-    corrected_message: speechMismatch ? speechMismatch.corrected : (spellingFixedText !== text ? spellingFixedText : feedback?.corrected_message || ''),
-    detected_speech_level: detectedCode ? LEVEL_LABELS[detectedCode] : feedback?.detected_speech_level || '',
-    detected_speech_level_code: detectedCode || feedback?.detected_speech_level_code,
-    speech_level_correct: speechMismatch ? false : feedback?.speech_level_correct ?? true,
-    expected_speech_level: expectedCode ? LEVEL_LABELS[expectedCode] : feedback?.expected_speech_level || '',
-    expected_speech_level_code: expectedCode || feedback?.expected_speech_level_code,
-    input_kind: feedback?.input_kind,
-    verdict: speechMismatch ? (typoCorrections.length > 0 ? 'speech_and_spelling' : 'wrong_speech_level') : 'spelling',
-    has_errors: true, accuracy_score: Math.min(backendScore, localScore), scorable: true,
-    corrections: localCorrections,
-    natural_alternatives: speechMismatch
-      ? [{ expression: speechMismatch.corrected, explanation: `${speechMismatch.expectedLabel}로 더 자연스럽게 바꾼 최종 문장입니다.` }]
-      : spellingFixedText !== text ? [{ expression: spellingFixedText, explanation: '오타를 고친 자연스러운 문장입니다.' }]
-      : feedback?.natural_alternatives || [],
-    encouragement: localEncouragement, summary: summary || feedback?.summary || '',
-  };
 };
 
 const isScorableFeedback = (fb: SpeechAnalysis) =>
@@ -608,7 +299,6 @@ const isValidAlternative = (
   alt: NaturalAlternative | undefined,
   originalText = '',
   correctedText = '',
-  expectedLevel = '',
 ) => {
   const expression = alt?.expression?.trim() || '';
   const explanation = alt?.explanation?.trim() || '';
@@ -616,32 +306,48 @@ const isValidAlternative = (
   if (BAD_ALT_PATTERNS.some(pattern => pattern.test(expression) || pattern.test(explanation))) return false;
   if (expression === originalText.trim()) return false;
   if (correctedText && expression === correctedText.trim()) return false;
-  const expectedCode = normalizeExpectedLevelCode(expectedLevel);
-  const detectedCode = detectLikelySpeechLevel(expression) || '';
-  if (expectedCode && detectedCode && detectedCode !== expectedCode) return false;
   return true;
 };
 
-const getRecommendedExpression = (feedback?: SpeechAnalysis | null, fallback = '') =>
-  feedback?.corrected_message || feedback?.natural_alternatives?.[0]?.expression || feedback?.corrections?.[0]?.corrected || fallback;
+const applyCorrectionOnce = (text: string, original: string, corrected: string) => {
+  if (!text || !original || !corrected || original === corrected) return text;
+
+  let searchFrom = 0;
+  while (true) {
+    const index = text.indexOf(original, searchFrom);
+    if (index < 0) return text;
+    if (text.startsWith(corrected, index)) {
+      searchFrom = index + original.length;
+      continue;
+    }
+    return `${text.slice(0, index)}${corrected}${text.slice(index + original.length)}`;
+  }
+};
 
 const buildWholeSentenceCorrection = (originalText: string, feedback?: SpeechAnalysis | null) => {
   if (!feedback?.has_errors) return '';
-  if (feedback.corrected_message?.trim()) return feedback.corrected_message.trim();
 
   const directWholeSentence = feedback.corrections?.find(c => c.original?.trim() === originalText.trim() && c.corrected?.trim());
-  if (directWholeSentence?.corrected) return directWholeSentence.corrected.trim();
+  const baseText = feedback.corrected_message?.trim() || directWholeSentence?.corrected?.trim() || originalText;
 
-  let reconstructed = originalText;
+  let reconstructed = baseText;
   for (const correction of feedback.corrections || []) {
     if (!correction.original || !correction.corrected) continue;
     if (correction.original === originalText) continue;
-    reconstructed = reconstructed.replace(correction.original, correction.corrected);
+    if (!originalText.includes(correction.original)) continue;
+    if (!reconstructed.includes(correction.original)) continue;
+    reconstructed = applyCorrectionOnce(reconstructed, correction.original, correction.corrected);
   }
   if (reconstructed.trim() && reconstructed.trim() !== originalText.trim()) return reconstructed.trim();
 
   return feedback?.natural_alternatives?.[0]?.expression?.trim() || '';
 };
+
+const getRecommendedExpression = (feedback?: SpeechAnalysis | null, fallback = '') =>
+  (feedback ? buildWholeSentenceCorrection(fallback, feedback) : '')
+  || feedback?.natural_alternatives?.[0]?.expression
+  || feedback?.corrections?.[0]?.corrected
+  || fallback;
 
 const buildRecentMistakeContext = (messages: Message[]) =>
   messages.filter(m => m.sender === 'user' && m.feedback?.has_errors).slice(-4).map(m => ({
@@ -652,7 +358,7 @@ const buildRecentMistakeContext = (messages: Message[]) =>
 const buildCorrectionContext = (sessionId: string, text: string, expectedSpeechLevel: string | undefined, feedback: SpeechAnalysis | null, messages: Message[]): CorrectionContext => {
   const expectedCode = normalizeExpectedLevelCode(expectedSpeechLevel);
   const expectedLabel = expectedCode ? LEVEL_LABELS[expectedCode] : String(expectedSpeechLevel || '');
-  const correctedUserMessage = getRecommendedExpression(feedback, applyLocalSpellingFixes(text));
+  const correctedUserMessage = getRecommendedExpression(feedback, text);
   return {
     session_id: sessionId,
     expected_speech_level_code: expectedCode || String(expectedSpeechLevel || ''),
@@ -779,13 +485,22 @@ const makeRoleSafeAiReply = (rawMessage: string, originalText: string, avatar: a
 const feedbackTitle = (fb: SpeechAnalysis) => {
   const detected = normalizeSpeechLevelLabel(fb.detected_speech_level);
   const expected = normalizeSpeechLevelLabel(fb.expected_speech_level);
+  const correctionTypes = new Set((fb.corrections || []).map(c => c.type));
+  const actionableTypes = new Set(
+    Array.from(correctionTypes).filter(type => type && type !== 'info'),
+  );
   if (fb.verdict === 'speech_level_term' || fb.input_kind === 'speech_level_term') return '말투 이름만 입력됨';
   if (fb.verdict === 'not_scorable' || fb.scorable === false) return '분석 제외';
   if (fb.verdict === 'speech_and_spelling') return '여러 부분을 함께 다듬어 볼까요?';
   if (fb.verdict === 'practice_expression') return `${detected || expected || '말투'} 연습 표현`;
   if (fb.verdict === 'fragment') return '표현 조각';
-  if (fb.verdict === 'spelling' || fb.corrections.some(c => c.type === 'spelling')) return '표기를 조금 다듬으면 더 좋아요';
+  if (actionableTypes.size >= 2) return '여러 부분을 함께 다듬어 볼까요?';
   if (fb.verdict === 'wrong_speech_level') return detected ? `${detected}보다 조금 더 맞춰 볼게요` : '말투를 조금 맞춰 볼게요';
+  if (correctionTypes.has('grammar')) return '문장 구조를 조금 다듬으면 더 좋아요';
+  if (correctionTypes.has('honorific')) return '높임 표현을 조금 더 자연스럽게 해볼게요';
+  if (correctionTypes.has('vocabulary')) return '어휘를 조금 더 상황에 맞춰 볼게요';
+  if (correctionTypes.has('expression')) return '표현을 조금 더 자연스럽게 다듬어 볼게요';
+  if (fb.verdict === 'spelling' || correctionTypes.has('spelling')) return '표기를 조금 다듬으면 더 좋아요';
   if (fb.verdict === 'needs_revision') return '조금만 다듬으면 더 자연스러워요';
   if (fb.verdict === 'unclear') return '말투를 판단하기 어려워요';
   if (fb.input_kind === 'meta_practice') return `${detected || expected || '말투'} 연습 표현`;
@@ -817,6 +532,9 @@ const correctionCategoryMeta = (correction: Correction) => {
   }
   if (correction.type === 'grammar') {
     return { label: '문법', tint: '#FCE7F3', text: '#BE185D' };
+  }
+  if (correction.type === 'expression') {
+    return { label: '표현', tint: '#E0F2FE', text: '#0369A1' };
   }
   if (compactOriginal === compactCorrected && original !== corrected) {
     return { label: '띄어쓰기', tint: '#DCFCE7', text: '#15803D' };
@@ -877,11 +595,11 @@ const sendMessageToAI = async (
     natural_alternatives: correction.natural_alternatives || [],
     encouragement: correction.encouragement || '', summary: correction.summary || correction.overall_feedback || '',
   } : null;
-  const finalSpeechAnalysis = applyLocalFeedbackGuard(text, speech_analysis, expectedSpeechLevel);
+  const finalSpeechAnalysis = speech_analysis;
   const correctedText = correction?.corrected_message || finalSpeechAnalysis?.corrections?.[0]?.corrected || '';
   if (finalSpeechAnalysis) {
     finalSpeechAnalysis.natural_alternatives = (finalSpeechAnalysis.natural_alternatives || []).filter(
-      alt => isValidAlternative(alt, text, correctedText, expectedSpeechLevel),
+      alt => isValidAlternative(alt, text, correctedText),
     );
   }
   return {
@@ -929,6 +647,7 @@ export default function ChatScreen() {
   const [correctStreak,    setCorrectStreak]    = useState(0);
   // Default expanded = true so card opens immediately after send
   const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
+  const [expandedAlternatives, setExpandedAlternatives] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     // Read both keys for backward compatibility ('userId' is the canonical key set on login).
@@ -953,8 +672,7 @@ export default function ChatScreen() {
     setLoading(true);
     try {
       const history: HistoryItem[] = [...buildHistoryFromMessages(messages), { role: 'user', content: text }];
-      const localAnalysisHint = applyLocalFeedbackGuard(text, null, recommendedLevel);
-      const correctionContext = buildCorrectionContext(sessionIdRef.current, text, recommendedLevel, localAnalysisHint, messages);
+      const correctionContext = buildCorrectionContext(sessionIdRef.current, text, recommendedLevel, null, messages);
       const data = await sendMessageToAI(text, history, avatar, situation, userId, recommendedLevel, sessionIdRef.current, correctionContext);
       const aiMsg: Message = { id: (Date.now() + 1).toString(), text: data.message, sender: 'ai' };
       setAvatarMood(data.current_mood);
@@ -1057,13 +775,24 @@ export default function ChatScreen() {
     if (!item.feedback) return null;
     const fb         = item.feedback;
     const expanded   = expandedFeedback[item.id] ?? true;
+    const altsExpanded = expandedAlternatives[item.id] ?? true;
     const hasError   = fb.has_errors;
     const isScorable = isScorableFeedback(fb);
     const sc         = scoreColor(fb.accuracy_score);
     const scoreLabel = isScorable ? `${fb.accuracy_score}점` : '분석 제외';
-    const alternatives    = fb.natural_alternatives || [];
-    const hasAlts         = alternatives.length > 0;
+    const alternatives = fb.natural_alternatives || [];
     const fullSentenceCorrection = hasError ? buildWholeSentenceCorrection(item.text, fb) : '';
+    const hasAlts = alternatives.length > 0;
+    const nonDuplicateCorrections = fb.corrections.filter(c => {
+      if (!fullSentenceCorrection) return true;
+      const isWholeSentenceCorrection =
+        c.corrected.trim() === fullSentenceCorrection.trim() ||
+        c.original.trim() === item.text.trim();
+      return !isWholeSentenceCorrection || fb.corrections.length === 1;
+    });
+    const visibleCorrections = nonDuplicateCorrections.length > 0
+      ? nonDuplicateCorrections
+      : fb.corrections;
     const categoryMetas = Array.from(new Map(fb.corrections.map(c => {
       const meta = correctionCategoryMeta(c);
       return [meta.label, meta];
@@ -1083,7 +812,7 @@ export default function ChatScreen() {
               : <CheckCircle size={12} color="#888" />}
           </View>
           <View style={styles.feedbackTitleBlock}>
-            <Text style={styles.feedbackTitle}>{feedbackTitle(fb)}</Text>
+            <Text style={styles.feedbackTitle}>{feedbackTitle({ ...fb, corrections: visibleCorrections })}</Text>
           </View>
           <ChevronDown
             size={14}
@@ -1107,12 +836,9 @@ export default function ChatScreen() {
             {/* Note */}
 
             {/* All corrections detail */}
-            {hasError && fb.corrections.length > 0 && (
+            {hasError && visibleCorrections.length > 0 && (
               <View style={styles.correctionList}>
-                {fb.corrections.filter(c =>
-                  !fullSentenceCorrection ||
-                  c.corrected.trim() !== fullSentenceCorrection.trim()
-                ).map((c, i) => {
+                {visibleCorrections.map((c, i) => {
                   const meta = correctionCategoryMeta(c);
                   return (
                   <View key={i} style={styles.correctionItem}>
@@ -1142,7 +868,6 @@ export default function ChatScreen() {
                         </View>
                       </View>
                     )}
-                    {c.tip ? <Text style={styles.correctionTip}>Tip: {c.tip}</Text> : null}
                   </View>
                   );
                 })}
@@ -1152,11 +877,25 @@ export default function ChatScreen() {
             {/* Alternatives */}
             {hasAlts && (
               <View style={styles.altsSection}>
-                <View style={styles.altsHeader}>
-                  <Lightbulb size={12} color="#6C3BFF" />
-                  <Text style={styles.altsLabel}>이렇게도 말할 수 있어요</Text>
-                </View>
-                {alternatives.map((alt, i) => (
+                <TouchableOpacity
+                  style={[styles.altsHeader, !altsExpanded && styles.altsHeaderCollapsed]}
+                  onPress={() => setExpandedAlternatives(prev => ({ ...prev, [item.id]: !altsExpanded }))}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.altsHeaderLeft}>
+                    <Lightbulb size={12} color="#6C3BFF" />
+                    <Text style={styles.altsLabel}>이렇게도 말할 수 있어요</Text>
+                  </View>
+                  <View style={styles.altsHeaderRight}>
+                    <Text style={styles.altsCount}>{alternatives.length}</Text>
+                    <ChevronDown
+                      size={14}
+                      color="#6C3BFF"
+                      style={{ transform: [{ rotate: altsExpanded ? '180deg' : '0deg' }] }}
+                    />
+                  </View>
+                </TouchableOpacity>
+                {altsExpanded && alternatives.map((alt, i) => (
                   <View key={i} style={[styles.altItem, i < alternatives.length - 1 && styles.altItemBorder]}>
                     <Text style={styles.altExpr}>{alt.expression}</Text>
                     {alt.explanation ? <Text style={styles.altExpl}>{alt.explanation}</Text> : null}
@@ -1267,7 +1006,7 @@ export default function ChatScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.messageList}
           renderItem={renderMessage}
-          extraData={expandedFeedback}
+          extraData={{ expandedFeedback, expandedAlternatives }}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
 
@@ -1420,8 +1159,12 @@ const styles = StyleSheet.create({
   correctionTip:        { fontSize: 12, color: BRAND, fontWeight: '500', marginTop: 4 },
 
   altsSection:    { marginHorizontal: 12, marginBottom: 12, backgroundColor: GREY, borderRadius: 12, padding: 10 },
-  altsHeader:     { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
+  altsHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  altsHeaderCollapsed: { marginBottom: 0 },
+  altsHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 },
+  altsHeaderRight:{ flexDirection: 'row', alignItems: 'center', gap: 4 },
   altsLabel:      { fontSize: 12, fontWeight: '500', color: BRAND },
+  altsCount:      { fontSize: 11, fontWeight: '600', color: BRAND },
   altItem:        { paddingVertical: 5 },
   altItemBorder:  { borderBottomWidth: 0.5, borderBottomColor: BORDER, marginBottom: 5 },
   altExpr:        { fontSize: 13, fontWeight: '500', color: '#111' },
