@@ -255,8 +255,8 @@ function TouchableModeCard({
       <View style={styles.modeInfo}>
         <View style={styles.modeTitleRow}>
           <Text style={styles.modeTitle}>{title}</Text>
-          <View style={[styles.modeTag, active && styles.modeTagActive]}>
-            <Text style={[styles.modeTagText, active && styles.modeTagTextActive]}>{tag}</Text>
+          <View style={styles.modeTag}>
+            <Text style={styles.modeTagText}>{tag}</Text>
           </View>
         </View>
         <Text style={styles.modeSubtitle}>{subtitle}</Text>
