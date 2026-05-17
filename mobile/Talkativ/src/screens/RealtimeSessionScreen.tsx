@@ -16,7 +16,7 @@ import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/nativ
 import {
   Mic, MicOff,
   CircleDashed, ArrowRight, Star,
-  Bookmark, BookmarkCheck, BookOpen, X as XIcon, Target, Lightbulb,
+  Bookmark, BookmarkCheck, BookOpen, X as XIcon, Target, Lightbulb, ArrowLeft,
 } from 'lucide-react-native';
 import { Icon, type IconName } from '../components';
 import { createSession, endSession } from '../services/apiSession';
@@ -469,17 +469,42 @@ export default function RealtimeSessionScreen() {
     });
   }, [navigation, avatar, duration, turns, insights, savedExpressions]);
 
+  const cancelSession = useCallback(async () => {
+    if (ended.current) return;
+    ended.current = true;
+    try {
+      if (recordingRef.current) {
+        setRecordingState(false);
+        if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
+        chunkTimerRef.current = null;
+        Sound.removeRecordBackListener();
+        await Sound.stopRecorder();
+        recorderActiveRef.current = false;
+      }
+    } catch {}
+    try { if (sessionIdRef.current) await endSession(sessionIdRef.current); } catch {}
+    navigation.goBack();
+  }, [navigation]);
+
+  const onCancelPress = useCallback(() => {
+    Alert.alert(
+      '세션 취소',
+      '세션을 취소하면 분석 결과가 저장되지 않습니다.',
+      [
+        { text: '계속하기', style: 'cancel' },
+        { text: '나가기', style: 'destructive', onPress: cancelSession },
+      ]
+    );
+  }, [cancelSession]);
+
   useFocusEffect(useCallback(() => {
     const u = navigation.addListener('beforeRemove', (e: any) => {
       if (ended.current || ending) return;
       e.preventDefault();
-      Alert.alert('세션 종료', '세션을 종료하시겠습니까?', [
-        { text: '취소', style: 'cancel' },
-        { text: '종료', style: 'destructive', onPress: () => { setShowRating(false); finish(0); } },
-      ]);
+      onCancelPress();
     });
     return u;
-  }, [navigation, ending, finish]));
+  }, [navigation, ending, onCancelPress]));
 
   const processAnalysisResult = useCallback((res: { turns?: TranscriptTurnResult[]; insights?: InsightResult[] } | null, chunkIndex: number) => {
     const nextTurns = normTurns(res?.turns ?? []).filter(t => t.text.trim().length > 0);
@@ -662,6 +687,9 @@ export default function RealtimeSessionScreen() {
       {/* ── Session card ── */}
       <View style={s.sessionCard}>
         <View style={s.sessionTopRow}>
+          <TouchableOpacity onPress={onCancelPress} hitSlop={8} style={s.cancelBtn}>
+            <ArrowLeft size={20} color={C.ink40} strokeWidth={2} />
+          </TouchableOpacity>
           <View style={[s.sessionAvatar, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
             <Icon name={(avatar?.icon ?? 'user') as IconName} size={18} color="#FFF" />
           </View>
@@ -864,6 +892,10 @@ export default function RealtimeSessionScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.canvas },
+
+  cancelBtn: {
+    padding: 4,
+  },
 
   // Session card
   sessionCard: {

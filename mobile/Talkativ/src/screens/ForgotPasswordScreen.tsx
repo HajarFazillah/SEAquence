@@ -37,7 +37,7 @@ export default function ForgotPasswordScreen() {
       await forgotPassword(email.trim());
       setStep('reset');
     } catch (error: any) {
-      Alert.alert('Error', error.message ?? 'Failed to send reset code. Please try again.');
+      Alert.alert('오류', error.message ?? '인증 코드 전송에 실패했습니다. 다시 시도해주세요.');
     } finally {
       setIsLoading(false);
     }
@@ -45,21 +45,21 @@ export default function ForgotPasswordScreen() {
 
   const handleResetPassword = async () => {
     if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match.');
+      Alert.alert('오류', '비밀번호가 일치하지 않습니다.');
       return;
     }
     if (newPassword.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters.');
+      Alert.alert('오류', '비밀번호는 6자 이상이어야 합니다.');
       return;
     }
     setIsLoading(true);
     try {
       await resetPassword(email.trim(), code.trim(), newPassword);
-      Alert.alert('Success', 'Your password has been reset. Please log in with your new password.', [
-        { text: 'Log In', onPress: () => navigation.navigate('Login') },
+      Alert.alert('완료', '비밀번호가 재설정되었습니다. 새 비밀번호로 로그인해주세요.', [
+        { text: '로그인', onPress: () => navigation.navigate('Login') },
       ]);
     } catch (error: any) {
-      Alert.alert('Error', error.message ?? 'Failed to reset password. Please check your code and try again.');
+      Alert.alert('오류', error.message ?? '비밀번호 재설정에 실패했습니다. 코드를 확인하고 다시 시도해주세요.');
     } finally {
       setIsLoading(false);
     }
@@ -102,7 +102,7 @@ export default function ForgotPasswordScreen() {
               </Text>
 
               <InputField
-                label="Email address"
+                label="이메일 주소"
                 value={email}
                 onChangeText={setEmail}
                 placeholder="example@email.com"
@@ -128,16 +128,16 @@ export default function ForgotPasswordScreen() {
               </Text>
 
               <InputField
-                label="Verification Code"
+                label="인증 코드"
                 value={code}
                 onChangeText={setCode}
-                placeholder="6-digit code"
+                placeholder="인증 코드 6자리"
                 keyboardType="numeric"
                 autoCapitalize="none"
               />
 
               <InputField
-                label="New Password (6자 이상)"
+                label="새 비밀번호 (6자 이상)"
                 value={newPassword}
                 onChangeText={setNewPassword}
                 placeholder=""
@@ -145,12 +145,12 @@ export default function ForgotPasswordScreen() {
               />
 
               <InputField
-                label="Confirm New Password"
+                label="비밀번호 확인"
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 placeholder=""
                 secureTextEntry
-                error={confirmPassword.length > 0 && newPassword !== confirmPassword ? 'Passwords do not match' : undefined}
+                error={confirmPassword.length > 0 && newPassword !== confirmPassword ? '비밀번호가 일치하지 않습니다' : undefined}
               />
 
               <TouchableOpacity style={styles.resendRow} onPress={handleSendCode} disabled={isLoading}>
