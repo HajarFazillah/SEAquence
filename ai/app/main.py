@@ -4,17 +4,27 @@ Talkativ AI Server - Main Application
 Korean conversation coaching AI powered by HyperCLOVA X.
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import router as api_router
 from app.core.config import settings
+from app.ml.korean_nlp import embedding_service
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    embedding_service.load()
+    yield
 
 
 app = FastAPI(
     title="Talkativ AI Server",
     description="Korean conversation coaching AI for language learners",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 # CORS
