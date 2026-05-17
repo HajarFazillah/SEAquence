@@ -1,12 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet,
-  ScrollView, TouchableOpacity, Image, TextInput,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Camera, User, Sparkles } from 'lucide-react-native';
 import { Header, Card, Button, InputField } from '../components';
+import { getMyProfile, updateMyProfile } from '../services/apiUser';
 
 const KOREAN_LEVELS = [
   { id: 'beginner', label: '초급', labelEn: 'Beginner' },
@@ -20,45 +27,60 @@ const GENDERS = [
   { id: 'other', label: '기타' },
 ];
 
-// Mock user data
 const mockUser = {
-  name: 'Nunnalin',
-  email: 'nunnalin@example.com',
-  avatarUrl: 'https://i.pravatar.cc/100?img=47',
-  age: '25',
-  gender: 'female',
+  name: '',
+  email: '',
+  avatarUrl: '',
+  age: '',
+  gender: 'other',
   koreanLevel: 'intermediate',
-  memo: '저는 사회적 불안이 있어서 천천히 대화하고 싶어요. 실수해도 친절하게 대해주세요.',
+  memo: '',
 };
 
 export default function EditProfileScreen() {
   const navigation = useNavigation<any>();
-  
+
   const [name, setName] = useState(mockUser.name);
   const [email, setEmail] = useState(mockUser.email);
   const [age, setAge] = useState(mockUser.age);
   const [gender, setGender] = useState(mockUser.gender);
   const [koreanLevel, setKoreanLevel] = useState(mockUser.koreanLevel);
   const [memo, setMemo] = useState(mockUser.memo);
-  const [avatarUrl] = useState(mockUser.avatarUrl);
+  const [avatarUrl, setAvatarUrl] = useState(mockUser.avatarUrl);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
-    const profileData = {
-      name,
-      email,
-      age: parseInt(age, 10),
-      gender,
-      korean_level: koreanLevel,
-      memo,
-      // AI context
-      ai_context: {
-        user_description: memo,
-        language_level: koreanLevel,
-        age_group: parseInt(age, 10) < 20 ? 'teen' : parseInt(age, 10) < 30 ? '20s' : parseInt(age, 10) < 40 ? '30s' : 'adult',
-      },
-    };
-    console.log('Saving profile:', profileData);
-    navigation.goBack();
+  useEffect(() => {
+    getMyProfile()
+      .then(profile => {
+        setName(profile.username ?? '');
+        setEmail(profile.email ?? '');
+        setAge(profile.age ?? '');
+        setGender(profile.gender ?? 'other');
+        setKoreanLevel(profile.koreanLevel ?? 'intermediate');
+        setMemo(profile.memo ?? '');
+        setAvatarUrl(profile.avatarUrl ?? mockUser.avatarUrl);
+      })
+      .catch(err => console.log('Edit profile fetch failed:', err));
+  }, []);
+
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      await updateMyProfile({
+        username: name,
+        age,
+        gender,
+        koreanLevel,
+        memo,
+      });
+      navigation.goBack();
+    } catch (err) {
+      console.log('Profile update failed:', err);
+      Alert.alert('저장 실패', '프로필을 저장하지 못했어요. 다시 시도해주세요.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleChangePhoto = () => {
@@ -69,8 +91,10 @@ export default function EditProfileScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <Header title="프로필 수정" />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Avatar */}
         <View style={styles.avatarSection}>
           <View style={styles.avatarContainer}>
@@ -81,7 +105,10 @@ export default function EditProfileScreen() {
                 <User size={40} color="#B0B0C5" />
               </View>
             )}
-            <TouchableOpacity style={styles.cameraButton} onPress={handleChangePhoto}>
+            <TouchableOpacity
+              style={styles.cameraButton}
+              onPress={handleChangePhoto}
+            >
               <Camera size={18} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
@@ -93,21 +120,18 @@ export default function EditProfileScreen() {
         {/* Basic Info */}
         <Card variant="elevated" style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>기본 정보</Text>
-          
+
           <InputField
             label="이름"
             value={name}
             onChangeText={setName}
             placeholder="이름을 입력하세요"
           />
-          
-          <InputField
-            label="이메일"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="이메일을 입력하세요"
-            keyboardType="email-address"
-          />
+
+          <View style={styles.readOnlyField}>
+            <Text style={styles.fieldLabel}>이메일</Text>
+            <Text style={styles.readOnlyValue}>{email || '미설정'}</Text>
+          </View>
 
           <InputField
             label="나이"
@@ -119,7 +143,7 @@ export default function EditProfileScreen() {
 
           <Text style={styles.fieldLabel}>성별</Text>
           <View style={styles.genderRow}>
-            {GENDERS.map((g) => (
+            {GENDERS.map(g => (
               <TouchableOpacity
                 key={g.id}
                 style={[
@@ -128,10 +152,12 @@ export default function EditProfileScreen() {
                 ]}
                 onPress={() => setGender(g.id)}
               >
-                <Text style={[
-                  styles.genderText,
-                  gender === g.id && styles.genderTextActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.genderText,
+                    gender === g.id && styles.genderTextActive,
+                  ]}
+                >
                   {g.label}
                 </Text>
               </TouchableOpacity>
@@ -145,9 +171,9 @@ export default function EditProfileScreen() {
           <Text style={styles.sectionSubtitle}>
             현재 한국어 실력에 맞는 수준을 선택하세요
           </Text>
-          
+
           <View style={styles.levelGrid}>
-            {KOREAN_LEVELS.map((level) => (
+            {KOREAN_LEVELS.map(level => (
               <TouchableOpacity
                 key={level.id}
                 style={[
@@ -156,16 +182,20 @@ export default function EditProfileScreen() {
                 ]}
                 onPress={() => setKoreanLevel(level.id)}
               >
-                <Text style={[
-                  styles.levelLabel,
-                  koreanLevel === level.id && styles.levelLabelActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.levelLabel,
+                    koreanLevel === level.id && styles.levelLabelActive,
+                  ]}
+                >
                   {level.label}
                 </Text>
-                <Text style={[
-                  styles.levelLabelEn,
-                  koreanLevel === level.id && styles.levelLabelEnActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.levelLabelEn,
+                    koreanLevel === level.id && styles.levelLabelEnActive,
+                  ]}
+                >
                   {level.labelEn}
                 </Text>
               </TouchableOpacity>
@@ -179,7 +209,7 @@ export default function EditProfileScreen() {
           <Text style={styles.sectionSubtitle}>
             AI가 당신을 더 잘 이해할 수 있도록 자유롭게 적어주세요
           </Text>
-          
+
           <TextInput
             style={styles.memoInput}
             value={memo}
@@ -200,21 +230,14 @@ export default function EditProfileScreen() {
         </Card>
 
         {/* Danger Zone */}
-        <Card variant="outlined" style={styles.dangerCard}>
-          <Text style={styles.dangerTitle}>계정 관리</Text>
-          <TouchableOpacity style={styles.dangerButton}>
-            <Text style={styles.dangerButtonText}>계정 삭제</Text>
-          </TouchableOpacity>
-        </Card>
-
       </ScrollView>
 
       {/* Save Button */}
       <View style={styles.footer}>
         <Button
-          title="저장하기"
+          title={isSaving ? '저장 중...' : '저장하기'}
           onPress={handleSave}
-          disabled={!name.trim() || !age.trim()}
+          disabled={!name.trim() || isSaving}
         />
       </View>
     </SafeAreaView>
@@ -411,4 +434,17 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: '#F7F7FB',
   },
+
+readOnlyField: {
+  marginBottom: 14,
+},
+readOnlyValue: {
+  backgroundColor: '#F5F5FA',
+  borderRadius: 12,
+  paddingHorizontal: 16,
+  paddingVertical: 14,
+  fontSize: 14,
+  color: '#6C6C80',
+},
+
 });
