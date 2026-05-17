@@ -35,6 +35,10 @@
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Talkativ needs access to your microphone to transcribe your Korean speech for real-time conversation practice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Talkativ uses speech recognition to analyze your Korean pronunciation and grammar.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
