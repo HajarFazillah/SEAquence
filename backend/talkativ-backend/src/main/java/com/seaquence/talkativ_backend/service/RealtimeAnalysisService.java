@@ -95,10 +95,12 @@ public class RealtimeAnalysisService {
                 : null;
 
         int chunkIndex = parseChunkIndex(chunkIndexRaw);
+        Map<String, Double> turnConfidence = new HashMap<>();
         int idx = 1;
         for (ClovaSpeechService.SpeakerTurn turn : speechResult.getTurns()) {
             String turnId = "chunk-" + chunkIndex + "-turn-" + idx;
             turns.add(new TranscriptTurnDto(turnId, turn.getSpeaker(), turn.getText(), "final", null));
+            turnConfidence.put(turnId, turn.getConfidence());
             if (userSpeakerLabel == null) userSpeakerLabel = turn.getSpeaker();
             idx++;
         }
@@ -111,6 +113,7 @@ public class RealtimeAnalysisService {
         for (TranscriptTurnDto turn : turns) {
             if (!turn.getSpeaker().equals(userSpeakerLabel)) continue;
             if (turn.getText() == null || turn.getText().isBlank()) continue;
+            if (turnConfidence.getOrDefault(turn.getId(), 1.0) < 0.75) continue;
 
             turnNumber++;
             int correctionsForTurn = 0;

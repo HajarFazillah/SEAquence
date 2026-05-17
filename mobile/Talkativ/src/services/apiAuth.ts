@@ -41,8 +41,33 @@ export const getAuthHeader = async () => {
   return { Authorization: `Bearer ${token}` };
 };
 
+// Auth: Forgot Password — sends OTP to email
+export const forgotPassword = async (email: string) => {
+  const response = await fetch(`${SPRING_BASE_URL}/api/users/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message ?? 'Failed to send reset code.');
+  }
+};
+
+// Auth: Reset Password — confirms OTP and sets new password
+export const resetPassword = async (email: string, code: string, newPassword: string) => {
+  const response = await fetch(`${SPRING_BASE_URL}/api/users/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code, newPassword }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message ?? 'Failed to reset password.');
+  }
+};
+
 // Auth: Logout
 export const logoutUser = async () => {
-  await AsyncStorage.removeItem('token');
-  await AsyncStorage.removeItem('userId');
+  await AsyncStorage.multiRemove(['token', 'userId', 'user_id']);
 };

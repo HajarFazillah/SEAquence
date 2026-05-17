@@ -1,4 +1,11 @@
 {
     "java.compile.nullAnalysis.mode": "automatic",
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.import.exclusions": [
+        "**/node_modules/**",
+        "**/android/build/**",
+        "**/android/.gradle/**"
+    ],
+    "java.autobuild.enabled": false,
+    "java.project.sourcePaths": ["backend/talkativ-backend/src"]
 }

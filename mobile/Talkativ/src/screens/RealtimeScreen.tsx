@@ -28,7 +28,7 @@ export default function RealtimeScreen() {
   const [selectedAvatarId, setSelectedAvatarId] = useState<number | null>(null);
   const [avatars, setAvatars] = useState<AvatarFromDB[]>([]);
   const [isLoadingAvatars, setIsLoadingAvatars] = useState(true);
-  const [isStarting, setIsStarting] = useState(false);
+
   const [showHowTo, setShowHowTo] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
 
@@ -51,35 +51,11 @@ export default function RealtimeScreen() {
   };
 
   // ─── Start session ────────────────────────────────────────────────────────
-  const handleStartSession = async () => {
+  const handleStartSession = () => {
     if (selectedAvatarId === null) return;
     const avatar = avatars.find((a) => a.id === selectedAvatarId);
     if (!avatar) return;
-
-    setIsStarting(true);
-    try {
-      const session = await createSession({
-        avatarId: avatar.id.toString(),
-        avatarName: avatar.name_ko,
-        avatarIcon: avatar.icon,
-        avatarBg: avatar.avatar_bg,
-        situation: '일상 대화',
-        difficulty: avatar.difficulty,
-      });
-      navigation.navigate('RealtimeSession', {
-        avatar,
-        sessionId: session.sessionId,
-        situation: session.situation,
-      });
-    } catch {
-      Alert.alert(
-        '세션 시작 실패',
-        '세션을 시작할 수 없습니다. 잠시 후 다시 시도해주세요.',
-        [{ text: '확인' }]
-      );
-    } finally {
-      setIsStarting(false);
-    }
+    navigation.navigate('ScenarioIntro', { avatar });
   };
 
   const handlePrimaryAction = () => {
@@ -241,19 +217,12 @@ export default function RealtimeScreen() {
 
       {/* Start Button */}
       <View style={styles.footer}>
-        {isStarting ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color="#6C3BFF" />
-            <Text style={styles.loadingText}>세션 준비 중...</Text>
-          </View>
-        ) : (
-          <Button
-            title={mode === 'quick' ? '빠른 시작하기' : '세션 시작하기'}
-            onPress={handlePrimaryAction}
-            showArrow
-            disabled={primaryDisabled}
-          />
-        )}
+        <Button
+          title={mode === 'quick' ? '빠른 시작하기' : '세션 시작하기'}
+          onPress={handlePrimaryAction}
+          showArrow
+          disabled={primaryDisabled}
+        />
       </View>
     </SafeAreaView>
   );

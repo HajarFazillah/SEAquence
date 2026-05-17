@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // Auth Screens
 import { LoginScreen } from '../screens/LoginScreen';
 import SignUpScreen from '../screens/SignUpScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 
 // Main Tabs
 import { MainTabs } from './MainTabs';
@@ -52,6 +53,7 @@ import ConversationHistoryScreen from '../screens/ConversationHistoryScreen';
 
 // Realtime Session
 import RealtimeSessionScreen from '../screens/RealtimeSessionScreen';
+import ScenarioIntroScreen from '../screens/ScenarioIntroScreen';
 
 // Legacy
 import FeedbackScreen from '../screens/FeedbackScreen';
@@ -90,6 +92,7 @@ export type RootStackParamList = {
   // Auth
   Login: undefined;
   SignUp: undefined;
+  ForgotPassword: undefined;
 
   // Main
   Main: NavigatorScreenParams<MainTabParamList>;
@@ -183,6 +186,9 @@ export type RootStackParamList = {
     sessionId?: string;
     situation?: any;
   };
+  ScenarioIntro: {
+    avatar: any;
+  };
 
   // Legacy
   Feedback: {
@@ -213,6 +219,7 @@ const MENU_ITEMS: {
 const HIDE_MENU_ROUTES = new Set([
   'Login',
   'SignUp',
+  'ForgotPassword',
   'Profiles',
   'CreateProfileStep1',
   'CreateProfileStep2',
@@ -344,6 +351,7 @@ export const AppNavigator: React.FC = () => {
             {/* Auth */}
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="SignUp" component={SignUpScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
 
             {/* Main Tabs */}
             <Stack.Screen name="Main" component={MainTabs} />
@@ -375,6 +383,7 @@ export const AppNavigator: React.FC = () => {
               component={AvatarCompatibilityScreen}
             />
             <Stack.Screen name="AvatarDetail" component={AvatarDetailScreen} />
+            <Stack.Screen name="ScenarioIntro" component={ScenarioIntroScreen} />
             <Stack.Screen name="CreateAvatar" component={CreateAvatarScreen} />
 
             {/* Situation Flow */}

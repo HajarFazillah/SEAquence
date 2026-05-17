@@ -16,6 +16,7 @@ import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/nativ
 import {
   Mic, MicOff,
   CircleDashed, ArrowRight, Star,
+  Bookmark, BookmarkCheck, BookOpen, X as XIcon, Target, Lightbulb,
 } from 'lucide-react-native';
 import { Icon, type IconName } from '../components';
 import { createSession, endSession } from '../services/apiSession';
@@ -43,6 +44,16 @@ type Insight = {
   id: string; kind: 'risk' | 'success'; message: string;
   suggestion?: string; turnId: string;
 };
+type SavedExpression = {
+  id: string; original: string; corrected: string; note: string;
+};
+
+const EMPTY_TIPS = [
+  '자연스럽게 말씀해 보세요',
+  '또박또박 천천히 말해보세요',
+  '새로운 표현에 도전해 보세요',
+  '짧은 문장부터 시작해도 좋아요',
+];
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
 const C = {
@@ -112,8 +123,9 @@ function Waveform({ active }: { active: boolean }) {
 }
 
 // ─── Insight ──────────────────────────────────────────────────────────────────
-function Insight({ item }: { item: Insight }) {
+function Insight({ item, onSave, saved }: { item: Insight; onSave?: () => void; saved?: boolean }) {
   const risk = item.kind === 'risk';
+  const canSave = risk && !!item.suggestion && !!onSave;
   return (
     <View style={[ins.wrap, { backgroundColor: risk ? C.riskFg : C.okFg }]}>
       <View style={ins.header}>
@@ -121,6 +133,13 @@ function Insight({ item }: { item: Insight }) {
           {risk ? '주의' : '잘함'}
         </Text>
         <Text style={ins.msg} numberOfLines={2}>{item.message}</Text>
+        {canSave ? (
+          <TouchableOpacity onPress={onSave} hitSlop={8} style={ins.saveBtn}>
+            {saved
+              ? <BookmarkCheck size={16} color={C.terra} fill={C.terra} />
+              : <Bookmark size={16} color={C.risk} />}
+          </TouchableOpacity>
+        ) : null}
       </View>
       {item.suggestion ? (
         <Text style={[ins.sugg, { color: risk ? C.risk : C.ok }]}>
@@ -147,7 +166,13 @@ function SuggestionCards({ suggestions }: { suggestions: string[] }) {
 }
 
 // ─── Turn ─────────────────────────────────────────────────────────────────────
-function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: Insight; avatarName?: string }) {
+function Turn({
+  turn, insight, avatarName, onSaveInsight, isInsightSaved,
+}: {
+  turn: TranscriptTurn; insight?: Insight; avatarName?: string;
+  onSaveInsight?: (insight: Insight, turn: TranscriptTurn) => void;
+  isInsightSaved?: (insight: Insight) => boolean;
+}) {
   const live = turn.type === 'partial';
   const isUser = !avatarName || turn.speaker !== avatarName;
   const hasSuggestions = !isUser && !live && (turn.suggestions?.length ?? 0) > 0;
@@ -162,7 +187,11 @@ function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: I
       </View>
       {insight ? (
         <View style={tn.insightWrap}>
-          <Insight item={insight} />
+          <Insight
+            item={insight}
+            onSave={onSaveInsight ? () => onSaveInsight(insight, turn) : undefined}
+            saved={isInsightSaved ? isInsightSaved(insight) : false}
+          />
         </View>
       ) : null}
       {hasSuggestions ? (
@@ -177,6 +206,18 @@ function Turn({ turn, insight, avatarName }: { turn: TranscriptTurn; insight?: I
 // ─── Empty (initial state only) ───────────────────────────────────────────────
 const BAR_HEIGHTS = [10, 18, 26, 18, 10];
 function Empty() {
+  const [tipIdx, setTipIdx] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const interval = setInterval(() => {
+      Animated.sequence([
+        Animated.timing(fade, { toValue: 0, duration: 250, useNativeDriver: true }),
+        Animated.timing(fade, { toValue: 1, duration: 250, useNativeDriver: true }),
+      ]).start();
+      setTimeout(() => setTipIdx(i => (i + 1) % EMPTY_TIPS.length), 250);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [fade]);
   return (
     <View style={em.wrap}>
       <View style={em.barsRow}>
@@ -186,6 +227,10 @@ function Empty() {
       </View>
       <Text style={em.title}>대화를 시작하세요</Text>
       <Text style={em.sub}>아래 버튼을 눌러 녹음을 시작해보세요</Text>
+      <Animated.View style={[em.tipChip, { opacity: fade }]}>
+        <Lightbulb size={13} color={C.terra} strokeWidth={2} />
+        <Text style={em.tipText}>{EMPTY_TIPS[tipIdx]}</Text>
+      </Animated.View>
     </View>
   );
 }
@@ -240,7 +285,9 @@ export default function RealtimeSessionScreen() {
   const route = useRoute<RealtimeSessionRoute>();
   const avatar   = route.params?.avatar;
   const routeSessionId = route.params?.sessionId as string | undefined;
-  const situation  = route.params?.situation as string | undefined;
+  const situation  = route.params?.situation;
+  const scenarioObj = situation && typeof situation === 'object' && situation.name_ko ? situation : null;
+  const [scenarioBannerVisible, setScenarioBannerVisible] = useState(!!scenarioObj);
 
   // Stable session id for the whole realtime session (so DB-saved mistakes group together).
   const sessionIdRef = useRef(
@@ -290,6 +337,28 @@ export default function RealtimeSessionScreen() {
   const [turns, setTurns]           = useState<TranscriptTurn[]>([]);
   const [insights, setInsights]     = useState<Insight[]>([]);
   const [recUri, setRecUri]         = useState('');
+  const [savedExpressions, setSavedExpressions] = useState<SavedExpression[]>([]);
+  const [showSavedModal, setShowSavedModal] = useState(false);
+
+  const handleSaveInsight = useCallback((insight: Insight, turn: TranscriptTurn) => {
+    if (!insight.suggestion || !turn.text) return;
+    setSavedExpressions(prev => {
+      if (prev.some(e => e.id === insight.id)) {
+        return prev.filter(e => e.id !== insight.id);
+      }
+      return [...prev, {
+        id: insight.id,
+        original: turn.text,
+        corrected: insight.suggestion!,
+        note: insight.message,
+      }];
+    });
+  }, []);
+
+  const isInsightSaved = useCallback(
+    (insight: Insight) => savedExpressions.some(e => e.id === insight.id),
+    [savedExpressions],
+  );
 
   const rippleScale   = useRef(new Animated.Value(1)).current;
   const rippleOpacity = useRef(new Animated.Value(0)).current;
@@ -396,8 +465,9 @@ export default function RealtimeSessionScreen() {
       sessionId: sessionIdRef.current,
       rating,
       source: 'session',
+      savedExpressions,
     });
-  }, [navigation, avatar, duration, turns, insights]);
+  }, [navigation, avatar, duration, turns, insights, savedExpressions]);
 
   useFocusEffect(useCallback(() => {
     const u = navigation.addListener('beforeRemove', (e: any) => {
@@ -417,11 +487,11 @@ export default function RealtimeSessionScreen() {
     for (const t of nextTurns) {
       if (!seenLabels.includes(t.speaker)) seenLabels.push(t.speaker);
     }
+    const userLabel = seenLabels[0];
     const avatarLabel = seenLabels[1];
-    if (avatarLabel && avatar?.name_ko) {
-      for (const t of nextTurns) {
-        if (t.speaker === avatarLabel) t.speaker = avatar.name_ko;
-      }
+    for (const t of nextTurns) {
+      if (userLabel && t.speaker === userLabel) t.speaker = '나';
+      else if (avatarLabel && avatar?.name_ko && t.speaker === avatarLabel) t.speaker = avatar.name_ko;
     }
     const nextInsights = normInsights(res?.insights ?? []);
     if (nextTurns.length > 0) hasSpeechRef.current = true;
@@ -528,7 +598,6 @@ export default function RealtimeSessionScreen() {
     if (!durationTimerRef.current) {
       durationTimerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
     }
-    chunkIndexRef.current = 0;
     await Sound.startRecorder();
     recorderActiveRef.current = true;
     Sound.addRecordBackListener((_: RecordBackType) => {});
@@ -592,22 +661,57 @@ export default function RealtimeSessionScreen() {
 
       {/* ── Session card ── */}
       <View style={s.sessionCard}>
-        <View style={[s.sessionAvatar, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
-          <Icon name={(avatar?.icon ?? 'user') as IconName} size={18} color="#FFF" />
-        </View>
-        <View style={s.sessionInfo}>
-          <Text style={s.sessionName}>{avatar?.name_ko ?? '아바타'}</Text>
-          <Text style={s.sessionStatus}>
-            {analyzing ? '분석 중' : recording ? '녹음 중' : '대기'}
-          </Text>
-        </View>
-        {(ok > 0 || risk > 0) && (
-          <View style={s.sessionCounts}>
-            {ok > 0   && <Text style={[s.sessionCount, { color: C.ok }]}>✓ {ok}</Text>}
-            {risk > 0 && <Text style={[s.sessionCount, { color: C.risk }]}>⚠ {risk}</Text>}
+        <View style={s.sessionTopRow}>
+          <View style={[s.sessionAvatar, { backgroundColor: avatar?.avatar_bg ?? '#555' }]}>
+            <Icon name={(avatar?.icon ?? 'user') as IconName} size={18} color="#FFF" />
           </View>
-        )}
+          <View style={s.sessionInfo}>
+            <Text style={s.sessionName}>{avatar?.name_ko ?? '아바타'}</Text>
+            <Text style={s.sessionStatus}>
+              {analyzing ? '분석 중' : recording ? '녹음 중' : '대기'}
+            </Text>
+          </View>
+          {savedExpressions.length > 0 ? (
+            <TouchableOpacity
+              style={s.savedChip}
+              onPress={() => setShowSavedModal(true)}
+              activeOpacity={0.75}
+            >
+              <BookOpen size={13} color={C.terra} />
+              <Text style={s.savedChipText}>{savedExpressions.length}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {(final > 0 || ok > 0 || risk > 0) ? (
+          <View style={s.statsStrip}>
+            <View style={s.statItem}>
+              <Text style={s.statNum}>{final}</Text>
+              <Text style={s.statLabel}>발화</Text>
+            </View>
+            <View style={s.statDivider} />
+            <View style={s.statItem}>
+              <Text style={[s.statNum, { color: C.ok }]}>{ok}</Text>
+              <Text style={s.statLabel}>잘함</Text>
+            </View>
+            <View style={s.statDivider} />
+            <View style={s.statItem}>
+              <Text style={[s.statNum, { color: C.risk }]}>{risk}</Text>
+              <Text style={s.statLabel}>주의</Text>
+            </View>
+          </View>
+        ) : null}
       </View>
+
+      {/* ── Scenario banner (avatar practice mode only) ── */}
+      {scenarioObj && scenarioBannerVisible ? (
+        <View style={s.scenarioBanner}>
+          <Target size={13} color={C.terra} strokeWidth={2} />
+          <Text style={s.scenarioBannerText} numberOfLines={1}>{scenarioObj.name_ko}</Text>
+          <TouchableOpacity onPress={() => setScenarioBannerVisible(false)} hitSlop={8}>
+            <XIcon size={14} color={C.ink40} strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* ── Transcript ── */}
       <View style={s.feed}>
@@ -626,6 +730,8 @@ export default function RealtimeSessionScreen() {
                   key={turn.id} turn={turn}
                   avatarName={avatar?.name_ko}
                   insight={insights.find(i => i.turnId === turn.id)}
+                  onSaveInsight={handleSaveInsight}
+                  isInsightSaved={isInsightSaved}
                 />
               ))}
           {solo.length > 0 && (
@@ -684,6 +790,43 @@ export default function RealtimeSessionScreen() {
           {!busy && <ArrowRight size={15} color="#FFFFFF" strokeWidth={2.5} />}
         </TouchableOpacity>
       </View>
+      {/* ── Saved expressions modal ── */}
+      <Modal visible={showSavedModal} transparent animationType="slide" onRequestClose={() => setShowSavedModal(false)}>
+        <View style={sm.backdrop}>
+          <View style={sm.sheet}>
+            <View style={sm.header}>
+              <View style={sm.headerLeft}>
+                <BookOpen size={18} color={C.terra} />
+                <Text style={sm.title}>배운 표현</Text>
+                <Text style={sm.count}>{savedExpressions.length}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowSavedModal(false)} hitSlop={8}>
+                <XIcon size={20} color={C.ink70} />
+              </TouchableOpacity>
+            </View>
+            {savedExpressions.length === 0 ? (
+              <View style={sm.emptyWrap}>
+                <Text style={sm.emptyTitle}>저장된 표현이 없어요</Text>
+                <Text style={sm.emptySub}>대화 중 북마크 아이콘을 눌러 표현을 저장할 수 있어요</Text>
+              </View>
+            ) : (
+              <ScrollView style={sm.scroll} contentContainerStyle={sm.scrollContent}>
+                {savedExpressions.map(e => (
+                  <View key={e.id} style={sm.item}>
+                    <Text style={sm.itemOriginal}>{e.original}</Text>
+                    <View style={sm.itemArrowRow}>
+                      <ArrowRight size={12} color={C.terra} />
+                      <Text style={sm.itemCorrected}>{e.corrected}</Text>
+                    </View>
+                    <Text style={sm.itemNote}>{e.note}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Rating modal ── */}
       <Modal visible={showRating} transparent animationType="fade" onRequestClose={() => setShowRating(false)}>
         <View style={rm.backdrop}>
@@ -724,7 +867,6 @@ const s = StyleSheet.create({
 
   // Session card
   sessionCard: {
-    flexDirection: 'row', alignItems: 'center',
     marginHorizontal: 16, marginTop: 12, marginBottom: 10,
     paddingHorizontal: 16, paddingVertical: 13,
     backgroundColor: C.white,
@@ -734,8 +876,8 @@ const s = StyleSheet.create({
     shadowOpacity: 0.07,
     shadowRadius: 8,
     elevation: 3,
-    gap: 12,
   },
+  sessionTopRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   sessionAvatar: {
     width: 42, height: 42, borderRadius: 21,
     alignItems: 'center', justifyContent: 'center',
@@ -745,12 +887,36 @@ const s = StyleSheet.create({
   sessionStatus: { fontSize: 12, color: C.ink40, marginTop: 2 },
   sessionCounts: { flexDirection: 'row', gap: 8 },
   sessionCount: { fontSize: 13, fontWeight: '700' },
+  savedChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.terraFg, paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 99,
+  },
+  savedChipText: { fontSize: 12, fontWeight: '700', color: C.terra },
+  statsStrip: {
+    flexDirection: 'row', alignItems: 'center',
+    marginTop: 12, paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: C.ink10,
+  },
+  statItem: { flex: 1, alignItems: 'center', gap: 2 },
+  statNum: { fontSize: 17, fontWeight: '800', color: C.ink100 },
+  statLabel: { fontSize: 10, fontWeight: '600', color: C.ink40, letterSpacing: 0.5, textTransform: 'uppercase' },
+  statDivider: { width: 1, height: 28, backgroundColor: C.ink10 },
 
   // Timer (now in dock)
   timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   timerDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: C.ink20 },
   timerDotRec: { backgroundColor: C.recRed },
   timerText: { fontSize: 20, fontWeight: '700', color: C.ink100, letterSpacing: 1 },
+
+  // Scenario banner
+  scenarioBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 16, marginBottom: 8,
+    paddingHorizontal: 14, paddingVertical: 9,
+    backgroundColor: C.terraFg, borderRadius: 12,
+  },
+  scenarioBannerText: { flex: 1, fontSize: 13, fontWeight: '600', color: C.terra },
 
   // Feed
   feed: { flex: 1, paddingHorizontal: 16 },
@@ -870,6 +1036,7 @@ const ins = StyleSheet.create({
   },
   msg: { fontSize: 13, color: C.ink70, lineHeight: 18, flex: 1 },
   sugg: { fontSize: 12, fontWeight: '600', lineHeight: 18, paddingLeft: 2 },
+  saveBtn: { padding: 2 },
 });
 
 // Suggestion cards
@@ -902,6 +1069,47 @@ const em = StyleSheet.create({
     backgroundColor: C.terra,
   },
   analyzeText: { fontSize: 13, color: C.terra, fontWeight: '600' },
+  tipChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 16, paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 99, backgroundColor: C.terraFg,
+  },
+  tipText: { fontSize: 13, color: C.terra, fontWeight: '600' },
+});
+
+// Saved expressions modal
+const sm = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: C.white,
+    borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    paddingHorizontal: 20, paddingTop: 18, paddingBottom: 28,
+    maxHeight: '75%',
+  },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  title: { fontSize: 17, fontWeight: '800', color: C.ink100 },
+  count: {
+    fontSize: 12, fontWeight: '700', color: C.terra,
+    backgroundColor: C.terraFg, paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: 99, overflow: 'hidden',
+  },
+  scroll: { maxHeight: 480 },
+  scrollContent: { gap: 10, paddingBottom: 8 },
+  item: {
+    backgroundColor: C.paper, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12, gap: 5,
+  },
+  itemOriginal: { fontSize: 14, color: C.ink70, lineHeight: 20 },
+  itemArrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  itemCorrected: { fontSize: 14, fontWeight: '700', color: C.terra, flex: 1 },
+  itemNote: { fontSize: 11, color: C.ink40, marginTop: 2, lineHeight: 16 },
+  emptyWrap: { alignItems: 'center', paddingVertical: 32, gap: 8 },
+  emptyTitle: { fontSize: 15, fontWeight: '700', color: C.ink70 },
+  emptySub: { fontSize: 13, color: C.ink40, textAlign: 'center', paddingHorizontal: 20, lineHeight: 19 },
 });
 
 // Rating modal

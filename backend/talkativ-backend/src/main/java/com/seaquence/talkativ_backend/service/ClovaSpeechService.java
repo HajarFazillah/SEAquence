@@ -118,8 +118,9 @@ public class ClovaSpeechService {
                     String text = segment.path("text").asText("");
                     double start = segment.path("start").asDouble(0);
                     double end = segment.path("end").asDouble(0);
+                    double confidence = segment.path("confidence").asDouble(1.0);
 
-                    turns.add(new SpeakerTurn(speaker, text, start, end));
+                    turns.add(new SpeakerTurn(speaker, text, start, end, confidence));
                 }
             }
 
@@ -153,12 +154,14 @@ public class ClovaSpeechService {
         private final String text;
         private final double start;
         private final double end;
+        private final double confidence;
 
-        public SpeakerTurn(String speaker, String text, double start, double end) {
+        public SpeakerTurn(String speaker, String text, double start, double end, double confidence) {
             this.speaker = speaker;
             this.text = text;
             this.start = start;
             this.end = end;
+            this.confidence = confidence;
         }
 
         public String getSpeaker() {
@@ -175,6 +178,10 @@ public class ClovaSpeechService {
 
         public double getEnd() {
             return end;
+        }
+
+        public double getConfidence() {
+            return confidence;
         }
     }
 }

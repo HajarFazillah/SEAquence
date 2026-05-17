@@ -13,6 +13,7 @@ import { loginUser } from '../services/apiAuth';
 import { SPRING_SERVER_URL } from '../constants';
 
 
+// ⚠️ Move this to a .env file (react-native-dotenv) before making the repo public.
 GoogleSignin.configure({
   webClientId: '482478499619-38qm0qviq4nooj10ibke90lmndk1lo1v.apps.googleusercontent.com',
 });
@@ -45,7 +46,6 @@ export const LoginScreen: React.FC = () => {
     try {
       await login();
       const profile = await me();
-      console.log('=== KAKAO PROFILE ===', JSON.stringify(profile));
 
       const response = await fetch(`${SPRING_SERVER_URL}/auth/kakao`, {
         method: 'POST',
@@ -59,7 +59,6 @@ export const LoginScreen: React.FC = () => {
       });
 
       const data = await response.json();
-      console.log('=== BACKEND RESPONSE ===', JSON.stringify(data));
 
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('userId', data.userId);
@@ -67,7 +66,6 @@ export const LoginScreen: React.FC = () => {
 
       navigation.navigate('Main');
     } catch (error: any) {
-      console.log('Kakao login failed:', error.message);
       Alert.alert('Kakao Login Failed', error.message);
     }
   };
@@ -77,7 +75,6 @@ export const LoginScreen: React.FC = () => {
     try {
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
-      console.log('=== GOOGLE PROFILE ===', JSON.stringify(userInfo));
 
       const response = await fetch(`${SPRING_SERVER_URL}/auth/google`, {
         method: 'POST',
@@ -91,7 +88,6 @@ export const LoginScreen: React.FC = () => {
       });
 
       const data = await response.json();
-      console.log('=== BACKEND RESPONSE ===', JSON.stringify(data));
 
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('userId', data.userId);
@@ -149,7 +145,7 @@ export const LoginScreen: React.FC = () => {
             <Text style={styles.loginButtonText}>LOG IN</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.forgotPassword}>
+          <TouchableOpacity style={styles.forgotPassword} onPress={() => navigation.navigate('ForgotPassword')}>
             <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
           </TouchableOpacity>
 

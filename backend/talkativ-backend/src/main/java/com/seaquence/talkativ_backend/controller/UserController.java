@@ -1,6 +1,8 @@
 package com.seaquence.talkativ_backend.controller;
 
+import com.seaquence.talkativ_backend.dto.ForgotPasswordRequest;
 import com.seaquence.talkativ_backend.dto.RegisterRequest;
+import com.seaquence.talkativ_backend.dto.ResetPasswordRequest;
 import com.seaquence.talkativ_backend.dto.UserResponse;
 import com.seaquence.talkativ_backend.service.UserService;
 import com.seaquence.talkativ_backend.dto.LoginRequest;
@@ -70,6 +72,26 @@ public class UserController {
     public ResponseEntity<UserStats> getMyStats(Authentication auth) {
         String userId = (String) auth.getPrincipal();
         return ResponseEntity.ok(userService.getMyStats(userId));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<String> forgotPassword(@RequestBody ForgotPasswordRequest request) {
+        try {
+            userService.forgotPassword(request.getEmail());
+        } catch (Exception ignored) {
+            // Swallow all errors — never reveal whether the email exists
+        }
+        return ResponseEntity.ok("If that email is registered, a reset code has been sent.");
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordRequest request) {
+        try {
+            userService.resetPassword(request.getEmail(), request.getCode(), request.getNewPassword());
+            return ResponseEntity.ok("Password reset successfully.");
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage()));
+        }
     }
 
 }
