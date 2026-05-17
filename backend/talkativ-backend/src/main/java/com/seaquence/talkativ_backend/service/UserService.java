@@ -18,6 +18,9 @@ import com.seaquence.talkativ_backend.security.JwtUtil;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -38,6 +41,7 @@ public class UserService {
     private final EmailService emailService;
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public UserService(UserRepository userRepository, JwtUtil jwtUtil,
             PasswordEncoder passwordEncoder,
@@ -71,6 +75,11 @@ public class UserService {
         user.setNativeLang(request.getNativeLang());
         user.setTargetLang(request.getTargetLang());
         user.setKoreanLevel(request.getKoreanLevel() != null ? request.getKoreanLevel() : "intermediate");
+        user.setAge(request.getAge());
+        user.setGender(request.getGender());
+        user.setMemo(request.getMemo());
+        user.setInterests(toJson(request.getInterests()));
+        user.setDislikes(toJson(request.getDislikes()));
         user.setProvider("local");
         user.setPrivacyConsent(true);
 
@@ -114,12 +123,24 @@ public class UserService {
 
         if (request.getUsername() != null)
             user.setUsername(request.getUsername());
+        if (request.getEmail() != null)
+            user.setEmail(request.getEmail());
         if (request.getNativeLang() != null)
             user.setNativeLang(request.getNativeLang());
         if (request.getTargetLang() != null)
             user.setTargetLang(request.getTargetLang());
         if (request.getKoreanLevel() != null)
             user.setKoreanLevel(request.getKoreanLevel());
+        if (request.getAge() != null)
+            user.setAge(request.getAge());
+        if (request.getGender() != null)
+            user.setGender(request.getGender());
+        if (request.getMemo() != null)
+            user.setMemo(request.getMemo());
+        if (request.getInterests() != null)
+            user.setInterests(toJson(request.getInterests()));
+        if (request.getDislikes() != null)
+            user.setDislikes(toJson(request.getDislikes()));
 
         userRepository.save(user);
         return toResponse(user);
@@ -206,14 +227,37 @@ public class UserService {
 
     // Convert entity to response DTO
     private UserResponse toResponse(User user) {
-    return new UserResponse(
-            user.getUserId(),
-            user.getUsername(),
-            user.getEmail(),
-            user.getNativeLang(),
-            user.getTargetLang(),
-            user.getKoreanLevel(),
-            user.getProvider(),
-            user.getAvatarUrl());
-}
+        return new UserResponse(
+                user.getUserId(),
+                user.getUsername(),
+                user.getEmail(),
+                user.getNativeLang(),
+                user.getTargetLang(),
+                user.getKoreanLevel(),
+                user.getProvider(),
+                user.getAvatarUrl(),
+                user.getAge(),
+                user.getGender(),
+                user.getMemo(),
+                fromJson(user.getInterests()),
+                fromJson(user.getDislikes()));
+    }
+
+    private String toJson(List<String> values) {
+        if (values == null) return null;
+        try {
+            return OBJECT_MAPPER.writeValueAsString(values);
+        } catch (Exception e) {
+            return "[]";
+        }
+    }
+
+    private List<String> fromJson(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            return OBJECT_MAPPER.readValue(json, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
 }

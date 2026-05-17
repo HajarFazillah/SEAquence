@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet,
   ScrollView, TextInput, TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Heart, ThumbsDown, Plus, X, Sparkles } from 'lucide-react-native';
 import { Header, Card, Button, Tag } from '../components';
+import { updateMyProfile } from '../services/apiUser';
 
 const INTEREST_OPTIONS = [
   'K-POP', '영화', '드라마', '음악', '독서', '여행', '카페', '음식',
@@ -26,8 +28,13 @@ export default function EditInterestsScreen() {
   const [customDislike, setCustomDislike] = useState('');
   
   // Track custom added items
-  const [customInterests, setCustomInterests] = useState<string[]>([]);
-  const [customDislikes, setCustomDislikes] = useState<string[]>([]);
+  const [customInterests, setCustomInterests] = useState<string[]>(
+    interests.filter(item => !INTEREST_OPTIONS.includes(item)),
+  );
+  const [customDislikes, setCustomDislikes] = useState<string[]>(
+    dislikes.filter(item => !INTEREST_OPTIONS.includes(item)),
+  );
+  const [isSaving, setIsSaving] = useState(false);
 
   const toggleInterest = (item: string) => {
     if (interests.includes(item)) {
@@ -75,15 +82,18 @@ export default function EditInterestsScreen() {
     setCustomDislikes(customDislikes.filter((i) => i !== item));
   };
 
-  const handleSave = () => {
-    // TODO: Save to API - custom keywords will be analyzed by LLM
-    console.log('Saving:', { 
-      interests, 
-      dislikes,
-      customInterests,
-      customDislikes,
-    });
-    navigation.goBack();
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      await updateMyProfile({ interests, dislikes });
+      navigation.goBack();
+    } catch (err) {
+      console.log('Interests update failed:', err);
+      Alert.alert('저장 실패', '관심사를 저장하지 못했어요. 다시 시도해주세요.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -234,9 +244,9 @@ export default function EditInterestsScreen() {
       {/* Save Button */}
       <View style={styles.footer}>
         <Button
-          title="저장하기"
+          title={isSaving ? '저장 중...' : '저장하기'}
           onPress={handleSave}
-          disabled={interests.length === 0}
+          disabled={interests.length === 0 || isSaving}
         />
       </View>
     </SafeAreaView>

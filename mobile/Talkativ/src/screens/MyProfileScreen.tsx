@@ -1,30 +1,48 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet,
-  ScrollView, TouchableOpacity, Image, Switch, Alert,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  Switch,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { fetchMyVocabulary } from '../services/apiVocabulary';
 import {
-  ChevronRight, Bell, Moon, Globe,
-  HelpCircle, LogOut, Edit, Heart, BookOpen,
-  MessageCircle, MessageSquare,
-  User, Sparkles, Camera,
+  ChevronRight,
+  Globe,
+  LogOut,
+  Edit,
+  Heart,
+  BookOpen,
+  MessageCircle,
+  MessageSquare,
+  User,
+  Sparkles,
+  Camera,
 } from 'lucide-react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Card, Header, Tag } from '../components';
-import { getMyProfile, getUserStats, UserProfile, UserStats } from '../services/apiUser';
+import {
+  getMyProfile,
+  getUserStats,
+  UserProfile,
+  UserStats,
+} from '../services/apiUser';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CUSTOM_AVATAR_KEY = 'custom_avatar_url';
 
 const mockUser = {
-  name: 'Nunnalin',
-  email: 'nunnalin@example.com',
-  avatarUrl: 'https://i.pravatar.cc/100?img=47',
+  name: 'New User',
+  email: 'newuser@example.com',
+  avatarUrl: 'https://api.dicebear.com/9.x/thumbs/png?seed=NewUser',
   age: '25',
   gender: 'female',
   koreanLevel: 'intermediate',
@@ -36,23 +54,20 @@ const mockUser = {
 };
 
 const KOREAN_LEVELS: Record<string, { label: string; labelEn: string }> = {
-  beginner:     { label: '초급', labelEn: 'Beginner' },
+  beginner: { label: '초급', labelEn: 'Beginner' },
   intermediate: { label: '중급', labelEn: 'Intermediate' },
-  advanced:     { label: '고급', labelEn: 'Advanced' },
+  advanced: { label: '고급', labelEn: 'Advanced' },
 };
 
 const GENDER_LABELS: Record<string, string> = {
-  male:   '남성',
+  male: '남성',
   female: '여성',
-  other:  '기타',
+  other: '기타',
 };
 
 const MENU_ITEMS = [
-  { id: 'notifications', icon: Bell,        label: '알림 설정',  hasToggle: true },
-  { id: 'language',      icon: Globe,       label: '언어',       value: '한국어' },
-  { id: 'darkMode',      icon: Moon,        label: '다크 모드',  hasToggle: true },
-  { id: 'help',          icon: HelpCircle,  label: '도움말' },
-  { id: 'logout',        icon: LogOut,      label: '로그아웃',   danger: true },
+  { id: 'language', icon: Globe, label: '언어', value: '한국어' },
+  { id: 'logout', icon: LogOut, label: '로그아웃', danger: true },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -68,14 +83,12 @@ const InfoItem = ({ label, value }: { label: string; value: string }) => (
 
 export const MyProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const [notifications,   setNotifications]   = useState(true);
-  const [darkMode,        setDarkMode]        = useState(false);
-  const [realUser,        setRealUser]        = useState<UserProfile | null>(null);
-  const [stats,           setStats]           = useState<UserStats>({
-    completedSessions:  0,
+  const [realUser, setRealUser] = useState<UserProfile | null>(null);
+  const [stats, setStats] = useState<UserStats>({
+    completedSessions: 0,
     learnedExpressions: 0,
-    practiceMinutes:    0,
-    progressPercent:    0,
+    practiceMinutes: 0,
+    progressPercent: 0,
   });
   // Friend's addition: local override for the profile picture
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string | null>(null);
@@ -86,55 +99,78 @@ export const MyProfileScreen: React.FC = () => {
       .catch(err => console.log('Profile fetch failed:', err));
 
     AsyncStorage.getItem(CUSTOM_AVATAR_KEY)
-      .then(saved => { if (saved) setCustomAvatarUrl(saved); })
+      .then(saved => {
+        if (saved) setCustomAvatarUrl(saved);
+      })
       .catch(err => console.log('Failed to load custom avatar:', err));
   }, []);
 
-  // Refetch stats + vocab counts every time the profile screen regains focus,
-  // so saving/deleting vocab elsewhere is reflected immediately.
+  // Refetch profile, stats, and vocab counts every time the profile screen
+  // regains focus, so edits made on child screens are reflected immediately.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        const [statsRes, vocabRes] = await Promise.allSettled([
+        const [profileRes, statsRes, vocabRes] = await Promise.allSettled([
+          getMyProfile(),
           getUserStats(),
           fetchMyVocabulary(),
         ]);
         if (cancelled) return;
 
+        if (profileRes.status === 'fulfilled') {
+          setRealUser(profileRes.value);
+        }
+
         const base: UserStats =
           statsRes.status === 'fulfilled'
             ? statsRes.value
-            : { completedSessions: 0, learnedExpressions: 0, practiceMinutes: 0, progressPercent: 0 };
+            : {
+                completedSessions: 0,
+                learnedExpressions: 0,
+                practiceMinutes: 0,
+                progressPercent: 0,
+              };
 
         if (vocabRes.status === 'fulfilled') {
           const words = vocabRes.value.filter(v => v.kind === 'word').length;
-          const phrases = vocabRes.value.filter(v => v.kind === 'phrase').length;
+          const phrases = vocabRes.value.filter(
+            v => v.kind === 'phrase',
+          ).length;
           setStats({ ...base, learnedWords: words, learnedPhrases: phrases });
         } else {
           setStats({ ...base, learnedWords: 0, learnedPhrases: 0 });
         }
       })();
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+      };
     }, []),
   );
 
   const display = useMemo(() => {
     const koreanLevel = realUser?.koreanLevel ?? mockUser.koreanLevel;
     return {
-      name:             realUser?.username    ?? mockUser.name,
+      name: realUser?.username ?? mockUser.name,
       // customAvatarUrl takes priority, then backend avatar, then mock
-      avatarUrl:        customAvatarUrl ?? realUser?.avatarUrl ?? mockUser.avatarUrl,
-      age:              realUser?.age         ?? mockUser.age,
-      gender:           realUser?.gender      ?? mockUser.gender,
+      avatarUrl: customAvatarUrl ?? realUser?.avatarUrl ?? mockUser.avatarUrl,
+      age: realUser?.age ?? mockUser.age,
+      gender: realUser?.gender ?? mockUser.gender,
       koreanLevel,
-      koreanLevelLabel: KOREAN_LEVELS[koreanLevel]?.label   ?? '중급',
-      koreanLevelEn:    KOREAN_LEVELS[koreanLevel]?.labelEn ?? 'Intermediate',
-      nativeLang:       realUser?.nativeLang  ?? mockUser.nativeLang,
-      memo:             realUser?.memo        ?? mockUser.memo,
-      interests:        realUser?.interests && realUser.interests.length > 0 ? realUser.interests : mockUser.interests,
-      dislikes:         realUser?.dislikes  && realUser.dislikes.length  > 0 ? realUser.dislikes  : mockUser.dislikes,
-      genderLabel:      GENDER_LABELS[realUser?.gender ?? mockUser.gender] ?? '미설정',
+      koreanLevelLabel: KOREAN_LEVELS[koreanLevel]?.label ?? '중급',
+      koreanLevelEn: KOREAN_LEVELS[koreanLevel]?.labelEn ?? 'Intermediate',
+      nativeLang: realUser?.nativeLang ?? mockUser.nativeLang,
+      memo: realUser?.memo ?? mockUser.memo,
+      interests:
+        realUser?.interests && realUser.interests.length > 0
+          ? realUser.interests
+          : mockUser.interests,
+      dislikes:
+        realUser?.dislikes && realUser.dislikes.length > 0
+          ? realUser.dislikes
+          : mockUser.dislikes,
+      genderLabel:
+        GENDER_LABELS[realUser?.gender ?? mockUser.gender] ?? '미설정',
     };
   }, [realUser, customAvatarUrl]); // re-derive whenever customAvatarUrl changes
 
@@ -151,19 +187,23 @@ export const MyProfileScreen: React.FC = () => {
           onPress: () => {
             launchImageLibrary(
               { mediaType: 'photo', quality: 0.8, selectionLimit: 1 },
-              (response) => {
+              response => {
                 if (response.didCancel) return;
                 if (response.errorCode) {
-                  Alert.alert('오류', '사진을 불러오지 못했어요. 다시 시도해주세요.');
+                  Alert.alert(
+                    '오류',
+                    '사진을 불러오지 못했어요. 다시 시도해주세요.',
+                  );
                   return;
                 }
                 const uri = response.assets?.[0]?.uri;
                 if (uri) {
                   setCustomAvatarUrl(uri);
-                  AsyncStorage.setItem(CUSTOM_AVATAR_KEY, uri)
-                    .catch(err => console.log('Failed to save avatar:', err));
+                  AsyncStorage.setItem(CUSTOM_AVATAR_KEY, uri).catch(err =>
+                    console.log('Failed to save avatar:', err),
+                  );
                 }
-              }
+              },
             );
           },
         },
@@ -171,29 +211,49 @@ export const MyProfileScreen: React.FC = () => {
           text: '기본 사진으로',
           onPress: () => {
             setCustomAvatarUrl(null);
-            AsyncStorage.removeItem(CUSTOM_AVATAR_KEY)
-              .catch(err => console.log('Failed to remove avatar:', err));
+            AsyncStorage.removeItem(CUSTOM_AVATAR_KEY).catch(err =>
+              console.log('Failed to remove avatar:', err),
+            );
           },
         },
         { text: '취소', style: 'cancel' },
-      ]
+      ],
     );
   };
 
-  const handleEditProfile    = () => navigation.navigate('EditProfile');
-  const handleEditInterests  = () => navigation.navigate('EditInterests', {
-    interests: display.interests,
-    dislikes:  display.dislikes,
-  });
-  const handleViewWords      = () => navigation.navigate('SavedVocabulary', { type: 'words' });
-  const handleViewPhrases    = () => navigation.navigate('SavedVocabulary', { type: 'phrases' });
+  const handleEditProfile = () => navigation.navigate('EditProfile');
+  const handleEditInterests = () =>
+    navigation.navigate('EditInterests', {
+      interests: display.interests,
+      dislikes: display.dislikes,
+    });
+  const handleViewWords = () =>
+    navigation.navigate('SavedVocabulary', { type: 'words' });
+  const handleViewPhrases = () =>
+    navigation.navigate('SavedVocabulary', { type: 'phrases' });
 
   const handleMenuPress = (itemId: string) => {
     switch (itemId) {
-      case 'notifications': setNotifications(prev => !prev); break;
-      case 'darkMode':      setDarkMode(prev => !prev);      break;
-      case 'logout':        navigation.navigate('Login');     break;
-      default: break;
+      case 'logout':
+  Alert.alert(
+    '로그아웃',
+    '로그아웃하시겠어요?',
+    [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '로그아웃',
+        style: 'destructive',
+        onPress: async () => {
+          await AsyncStorage.multiRemove(['token', 'userId', 'user_id']);
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          });
+        },
+      },
+    ],
+  );
+  break;
     }
   };
 
@@ -201,17 +261,25 @@ export const MyProfileScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <Header title="프로필" showBack={false} showBell />
+      <Header title="프로필" showBack={false} />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         {/* ── Hero card ── */}
         <Card variant="elevated" style={styles.heroCard}>
           <View style={styles.heroTopRow}>
             <View style={styles.avatarWrap}>
-              <Image source={{ uri: display.avatarUrl }} style={styles.avatar} />
+              <Image
+                source={{ uri: display.avatarUrl }}
+                style={styles.avatar}
+              />
               {/* Camera icon opens photo picker; Edit navigates to profile form */}
-              <TouchableOpacity style={styles.editAvatarBtn} onPress={handleChangePhoto}>
+              <TouchableOpacity
+                style={styles.editAvatarBtn}
+                onPress={handleChangePhoto}
+              >
                 <Camera size={12} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
@@ -228,12 +296,16 @@ export const MyProfileScreen: React.FC = () => {
 
           <View style={styles.heroStatsRow}>
             <View style={styles.heroStatBox}>
-              <Text style={styles.heroStatValue}>{stats.completedSessions}</Text>
+              <Text style={styles.heroStatValue}>
+                {stats.completedSessions}
+              </Text>
               <Text style={styles.heroStatLabel}>대화 완료</Text>
             </View>
             <View style={styles.heroStatDivider} />
             <View style={styles.heroStatBox}>
-              <Text style={styles.heroStatValue}>{(stats.learnedWords ?? 0) + (stats.learnedPhrases ?? 0)}</Text>
+              <Text style={styles.heroStatValue}>
+                {(stats.learnedWords ?? 0) + (stats.learnedPhrases ?? 0)}
+              </Text>
               <Text style={styles.heroStatLabel}>배운 단어/표현</Text>
             </View>
           </View>
@@ -246,14 +318,20 @@ export const MyProfileScreen: React.FC = () => {
               <User size={18} color="#6C3BFF" />
               <Text style={styles.sectionTitleText}>기본 정보</Text>
             </View>
-            <TouchableOpacity onPress={handleEditProfile} style={styles.editBtn}>
+            <TouchableOpacity
+              onPress={handleEditProfile}
+              style={styles.editBtn}
+            >
               <Edit size={14} color="#6C3BFF" />
               <Text style={styles.editLink}>수정</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.infoGrid}>
             <InfoItem label="이름" value={display.name} />
-            <InfoItem label="나이" value={display.age ? `${display.age}세` : '미설정'} />
+            <InfoItem
+              label="나이"
+              value={display.age ? `${display.age}세` : '미설정'}
+            />
             <InfoItem label="성별" value={display.genderLabel} />
           </View>
         </Card>
@@ -267,8 +345,10 @@ export const MyProfileScreen: React.FC = () => {
             </View>
           </View>
           <View style={styles.infoGrid}>
-            <InfoItem label="모국어" value={display.nativeLang || '미설정'} />
-            <InfoItem label="한국어 수준" value={`${display.koreanLevelLabel} (${display.koreanLevelEn})`} />
+            <InfoItem
+              label="한국어 수준"
+              value={`${display.koreanLevelLabel} (${display.koreanLevelEn})`}
+            />
             <InfoItem label="학습 진행도" value={`${stats.progressPercent}%`} />
           </View>
         </Card>
@@ -278,26 +358,39 @@ export const MyProfileScreen: React.FC = () => {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <Heart size={18} color="#E85D8E" />
-              <Text style={styles.sectionTitleText}>관심사와 피하고 싶은 주제</Text>
+              <Text style={styles.sectionTitleText}>
+                관심사와 피하고 싶은 주제
+              </Text>
             </View>
-            <TouchableOpacity onPress={handleEditInterests} style={styles.editBtn}>
+            <TouchableOpacity
+              onPress={handleEditInterests}
+              style={styles.editBtn}
+            >
               <Edit size={14} color="#6C3BFF" />
               <Text style={styles.editLink}>수정</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.groupLabel}>관심사</Text>
-          <View style={styles.tagWrap}>
-            {display.interests.map((interest, i) => (
-              <Tag key={i} label={interest} selected />
-            ))}
-          </View>
+          {display.interests.length > 0 ? (
+            <View style={styles.tagWrap}>
+              {display.interests.map((interest, i) => (
+                <Tag key={i} label={interest} selected />
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>아직 선택한 관심사가 없어요.</Text>
+          )}
           <View style={styles.divider} />
           <Text style={styles.groupLabel}>피하고 싶은 주제</Text>
-          <View style={styles.tagWrap}>
-            {display.dislikes.map((dislike, i) => (
-              <Tag key={i} label={dislike} variant="outline" />
-            ))}
-          </View>
+          {display.dislikes.length > 0 ? (
+            <View style={styles.tagWrap}>
+              {display.dislikes.map((dislike, i) => (
+                <Tag key={i} label={dislike} variant="outline" />
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>피하고 싶은 주제가 없어요.</Text>
+          )}
         </Card>
 
         {/* ── AI 참고 메모 ── */}
@@ -307,18 +400,27 @@ export const MyProfileScreen: React.FC = () => {
               <MessageSquare size={18} color="#6C3BFF" />
               <Text style={styles.sectionTitleText}>AI 참고 메모</Text>
             </View>
-            <TouchableOpacity onPress={handleEditProfile} style={styles.editBtn}>
+            <TouchableOpacity
+              onPress={handleEditProfile}
+              style={styles.editBtn}
+            >
               <Edit size={14} color="#6C3BFF" />
               <Text style={styles.editLink}>수정</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.memoText}>{display.memo || '아직 작성된 메모가 없어요.'}</Text>
+          <Text style={styles.memoText}>
+            {display.memo || '아직 작성된 메모가 없어요.'}
+          </Text>
         </Card>
 
         {/* ── 학습 기록 ── */}
         <Text style={styles.sectionTitle}>학습 기록</Text>
         <View style={styles.statsRow}>
-          <TouchableOpacity style={[styles.statCard, styles.statCardClickable]} onPress={handleViewWords} activeOpacity={0.75}>
+          <TouchableOpacity
+            style={[styles.statCard, styles.statCardClickable]}
+            onPress={handleViewWords}
+            activeOpacity={0.75}
+          >
             <View style={[styles.statIconBg, styles.wordsIconBg]}>
               <BookOpen size={20} color="#6C3BFF" />
             </View>
@@ -329,7 +431,11 @@ export const MyProfileScreen: React.FC = () => {
             <ChevronRight size={18} color="#B0B0C5" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.statCard, styles.statCardClickable]} onPress={handleViewPhrases} activeOpacity={0.75}>
+          <TouchableOpacity
+            style={[styles.statCard, styles.statCardClickable]}
+            onPress={handleViewPhrases}
+            activeOpacity={0.75}
+          >
             <View style={[styles.statIconBg, styles.phrasesIconBg]}>
               <MessageCircle size={20} color="#4CAF50" />
             </View>
@@ -347,29 +453,37 @@ export const MyProfileScreen: React.FC = () => {
           {MENU_ITEMS.map((item, index) => (
             <TouchableOpacity
               key={item.id}
-              style={[styles.menuItem, index < MENU_ITEMS.length - 1 && styles.menuItemBorder]}
+              style={[
+                styles.menuItem,
+                index < MENU_ITEMS.length - 1 && styles.menuItemBorder,
+              ]}
               onPress={() => handleMenuPress(item.id)}
             >
               <View style={styles.menuItemLeft}>
-                <View style={[styles.menuIconBg, item.danger && styles.menuIconDangerBg]}>
-                  <item.icon size={18} color={item.danger ? '#E53935' : '#6C6C80'} />
+                <View
+                  style={[
+                    styles.menuIconBg,
+                    item.danger && styles.menuIconDangerBg,
+                  ]}
+                >
+                  <item.icon
+                    size={18}
+                    color={item.danger ? '#E53935' : '#6C6C80'}
+                  />
                 </View>
-                <Text style={[styles.menuItemLabel, item.danger && styles.menuItemLabelDanger]}>
+                <Text
+                  style={[
+                    styles.menuItemLabel,
+                    item.danger && styles.menuItemLabelDanger,
+                  ]}
+                >
                   {item.label}
                 </Text>
               </View>
 
-              {item.hasToggle ? (
-                <Switch
-                  value={item.id === 'notifications' ? notifications : darkMode}
-                  onValueChange={() => handleMenuPress(item.id)}
-                  trackColor={{ false: '#E2E2EC', true: '#6C3BFF' }}
-                  thumbColor="#FFFFFF"
-                />
-              ) : item.value ? (
+              {item.value ? (
                 <View style={styles.menuItemRight}>
                   <Text style={styles.menuItemValue}>{item.value}</Text>
-                  <ChevronRight size={18} color="#B0B0C5" />
                 </View>
               ) : !item.danger ? (
                 <ChevronRight size={18} color="#B0B0C5" />
@@ -387,11 +501,11 @@ export const MyProfileScreen: React.FC = () => {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe:    { flex: 1, backgroundColor: '#F7F7FB' },
+  safe: { flex: 1, backgroundColor: '#F7F7FB' },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
 
   // Hero
-  heroCard:       {
+  heroCard: {
     marginTop: 16,
     marginBottom: 18,
     padding: 20,
@@ -399,94 +513,191 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E8E8F0',
   },
-  heroTopRow:     { flexDirection: 'row', alignItems: 'center' },
-  avatarWrap:     { position: 'relative', marginRight: 16 },
-  avatar:         { width: 82, height: 82, borderRadius: 41, backgroundColor: '#ECECF4' },
-  editAvatarBtn:  {
-    position: 'absolute', right: -2, bottom: -2,
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: '#6C3BFF', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: '#FFFFFF',
+  heroTopRow: { flexDirection: 'row', alignItems: 'center' },
+  avatarWrap: { position: 'relative', marginRight: 16 },
+  avatar: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: '#ECECF4',
   },
-  heroCopy:       { flex: 1 },
-  userName:       { fontSize: 24, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },
-  levelChip:      {
-    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
-    backgroundColor: '#F3EEFF', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
+  editAvatarBtn: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#6C3BFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
-  levelChipText:  { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
-  heroStatsRow:   {
-    flexDirection: 'row', alignItems: 'center',
-    marginTop: 18, paddingTop: 18,
-    borderTopWidth: 1, borderTopColor: '#F0F0F5',
+  heroCopy: { flex: 1 },
+  userName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 4,
   },
-  heroStatBox:     { flex: 1, alignItems: 'center' },
+  levelChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3EEFF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  levelChipText: { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
+  heroStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F5',
+  },
+  heroStatBox: { flex: 1, alignItems: 'center' },
   heroStatDivider: { width: 1, height: 34, backgroundColor: '#F0F0F5' },
-  heroStatValue:   { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginBottom: 4 },
-  heroStatLabel:   { fontSize: 11, color: '#7A7A92' },
+  heroStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 4,
+  },
+  heroStatLabel: { fontSize: 11, color: '#7A7A92' },
 
   // Section cards
-  sectionTitle:    { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
-  sectionCard:     {
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginBottom: 12,
+  },
+  sectionCard: {
     marginBottom: 16,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: '#E8E8F0',
   },
-  sectionHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sectionTitleText:{ fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
-  editBtn:         {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#F3EEFF', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10,
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
   },
-  editLink:        { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sectionTitleText: { fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F3EEFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  editLink: { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
 
   // Info grid
-  infoGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  infoItem:  { width: '48%', backgroundColor: '#FAFAFD', borderRadius: 16, padding: 12, minHeight: 76 },
-  infoLabel: { fontSize: 11, fontWeight: '600', color: '#8E8EA4', marginBottom: 6 },
-  infoValue: { fontSize: 14, lineHeight: 20, color: '#1A1A2E', fontWeight: '600' },
+  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  infoItem: {
+    width: '48%',
+    backgroundColor: '#FAFAFD',
+    borderRadius: 16,
+    padding: 12,
+    minHeight: 76,
+  },
+  infoLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#8E8EA4',
+    marginBottom: 6,
+  },
+  infoValue: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#1A1A2E',
+    fontWeight: '600',
+  },
 
   // Tags
-  groupLabel: { fontSize: 12, fontWeight: '600', color: '#6C6C80', marginBottom: 10 },
-  tagWrap:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  divider:    { height: 1, backgroundColor: '#F0F0F5', marginVertical: 16 },
-  memoText:   { fontSize: 14, lineHeight: 21, color: '#56566F' },
+  groupLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6C6C80',
+    marginBottom: 10,
+  },
+  tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  divider: { height: 1, backgroundColor: '#F0F0F5', marginVertical: 16 },
+  emptyText: { fontSize: 13, lineHeight: 20, color: '#8E8EA4' },
+  memoText: { fontSize: 14, lineHeight: 21, color: '#56566F' },
 
   // Stats
-  statsRow:         { flexDirection: 'row', gap: 12, marginBottom: 12 },
-  statCard:         {
-    flex: 1, backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16,
-    flexDirection: 'row', alignItems: 'center',
+  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  statCardClickable:{ borderWidth: 1, borderColor: '#F0F0F5' },
-  statIconBg:       { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  wordsIconBg:      { backgroundColor: '#F0EDFF' },
-  phrasesIconBg:    { backgroundColor: '#E8F5E9' },
-  statTextContainer:{ flex: 1 },
-  statValue:        { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
-  statLabel:        { fontSize: 11, color: '#6C6C80', marginTop: 2 },
+  statCardClickable: { borderWidth: 1, borderColor: '#F0F0F5' },
+  statIconBg: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  wordsIconBg: { backgroundColor: '#F0EDFF' },
+  phrasesIconBg: { backgroundColor: '#E8F5E9' },
+  statTextContainer: { flex: 1 },
+  statValue: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  statLabel: { fontSize: 11, color: '#6C6C80', marginTop: 2 },
 
   // Menu
-  menuCard:            {
+  menuCard: {
     padding: 0,
     overflow: 'hidden',
     marginBottom: 20,
     borderWidth: 1,
     borderColor: '#E8E8F0',
   },
-  menuItem:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
-  menuItemBorder:      { borderBottomWidth: 1, borderBottomColor: '#F0F0F5' },
-  menuItemLeft:        { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuIconBg:          { width: 36, height: 36, borderRadius: 10, backgroundColor: '#F5F5FA', alignItems: 'center', justifyContent: 'center' },
-  menuIconDangerBg:    { backgroundColor: '#FFEBEE' },
-  menuItemLabel:       { fontSize: 15, color: '#1A1A2E', fontWeight: '500' },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  menuItemBorder: { borderBottomWidth: 1, borderBottomColor: '#F0F0F5' },
+  menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F5F5FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuIconDangerBg: { backgroundColor: '#FFEBEE' },
+  menuItemLabel: { fontSize: 15, color: '#1A1A2E', fontWeight: '500' },
   menuItemLabelDanger: { color: '#E53935' },
-  menuItemRight:       { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  menuItemValue:       { fontSize: 14, color: '#6C6C80' },
+  menuItemRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  menuItemValue: { fontSize: 14, color: '#6C6C80' },
 
-  version: { textAlign: 'center', fontSize: 12, color: '#B0B0C5', marginTop: 8 },
+  version: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#B0B0C5',
+    marginTop: 8,
+  },
 });
 
 export default MyProfileScreen;
