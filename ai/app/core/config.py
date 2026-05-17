@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = ""
     DB_NAME: str = "talkativ"
 
+    # Backward-compatible aliases used by older local RDS env files
+    MYSQL_HOST: Optional[str] = None
+    MYSQL_PORT: Optional[int] = None
+    MYSQL_DATABASE: Optional[str] = None
+    MYSQL_USER: Optional[str] = None
+    MYSQL_PASSWORD: Optional[str] = None
+
     # Server
     DEBUG: bool = False
 
@@ -40,6 +47,21 @@ class Settings(BaseSettings):
         """If PRIMARY key not set, fall back to main key."""
         if not self.NAVER_CLOVA_API_KEY_PRIMARY and self.NAVER_CLOVA_API_KEY:
             object.__setattr__(self, 'NAVER_CLOVA_API_KEY_PRIMARY', self.NAVER_CLOVA_API_KEY)
+
+        fields_set = self.model_fields_set
+        mysql_to_db = {
+            "MYSQL_HOST": "DB_HOST",
+            "MYSQL_PORT": "DB_PORT",
+            "MYSQL_USER": "DB_USER",
+            "MYSQL_PASSWORD": "DB_PASSWORD",
+            "MYSQL_DATABASE": "DB_NAME",
+        }
+        for mysql_field, db_field in mysql_to_db.items():
+            mysql_value = getattr(self, mysql_field)
+            if mysql_value is not None and db_field not in fields_set:
+                object.__setattr__(self, db_field, mysql_value)
+            elif mysql_value is None:
+                object.__setattr__(self, mysql_field, getattr(self, db_field))
 
     class Config:
         env_file = ".env"
