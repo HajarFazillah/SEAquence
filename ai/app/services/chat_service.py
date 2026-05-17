@@ -1137,6 +1137,28 @@ def _listener_title_base_counts(text: str) -> Counter:
     return counts
 
 
+def collapse_repeated_phrases(text: str) -> str:
+    """Collapse immediately repeated token bigrams/trigrams and duplicated josa suffixes.
+
+    Why: Per-token corrections can include surrounding context (e.g. '면담' → '세 시에 면담을').
+    When merged into the whole-sentence correction those tokens stack into '세 시에 세 시에 ...'
+    and josa like '을' double up into '면담을을'. Safer to collapse defensively at the end
+    than to chase every upstream code path.
+    """
+    if not text:
+        return text
+    cleaned = text
+    # Collapse repeated trigrams then bigrams (e.g. "세 시에 X 세 시에 X" → "세 시에 X").
+    for size in (3, 2):
+        pattern = r"((?:[가-힣A-Za-z0-9]+(?:\s+|$)){%d})\1+" % size
+        cleaned = re.sub(pattern, r"\1", cleaned)
+    # Collapse doubled Korean josa (을을, 이이, 가가, 는는, 도도, 만만, 의의, 에에, 와와, 과과).
+    cleaned = re.sub(r"([을이가는도만의에와과])\1+(?=\s|[.!?…。！？]|$)", r"\1", cleaned)
+    # Normalize any extra whitespace introduced by the collapse.
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned
+
+
 def is_suspicious_semantic_expansion(source_text: str, candidate_text: str) -> bool:
     """Reject corrections that add intensity or emphasis the user did not say."""
     source_text = source_text or ""
@@ -1181,6 +1203,23 @@ def is_suspicious_semantic_expansion(source_text: str, candidate_text: str) -> b
             return True
         if index >= 2 and token == tokens[index - 1] == tokens[index - 2]:
             return True
+
+    # Detect repeated bigrams like "세 시에 세 시에" from LLM hallucination.
+    # These appear as alternating tokens so the per-token checks above miss them.
+    if len(tokens) >= 4:
+        source_tokens = re.findall(r"[가-힣A-Za-z0-9]+", source_text or "")
+        source_bigram_counts: dict = {}
+        for i in range(len(source_tokens) - 1):
+            bg = (source_tokens[i], source_tokens[i + 1])
+            source_bigram_counts[bg] = source_bigram_counts.get(bg, 0) + 1
+        candidate_bigram_counts: dict = {}
+        for i in range(len(tokens) - 1):
+            bg = (tokens[i], tokens[i + 1])
+            candidate_bigram_counts[bg] = candidate_bigram_counts.get(bg, 0) + 1
+        for bg, count in candidate_bigram_counts.items():
+            if count >= 2 and count > source_bigram_counts.get(bg, 0):
+                return True
+
     return False
 
 
@@ -3878,6 +3917,8 @@ class ChatService:
                         corrections=corrections,
                     )
 
+            best_corrected = collapse_repeated_phrases(best_corrected)
+
             has_whole_sentence_speech_correction = any(
                 c.type == CorrectionType.SPEECH_LEVEL and c.original.strip() == user_message.strip()
                 for c in corrections
@@ -3925,6 +3966,7 @@ class ChatService:
             corrected_message = best_corrected
 
         if corrected_message:
+            corrected_message = collapse_repeated_phrases(corrected_message)
             corrections = merge_surface_corrections(corrections, user_message, corrected_message)
 
         minimal_corrected = build_minimal_edit_correction(user_message, expected_norm, local_rule_correction)
@@ -4055,6 +4097,28 @@ class ChatService:
             corrections=corrections,
             message_intent=message_intent,
         )
+
+        _before_cm = corrected_message
+        corrected_message = collapse_repeated_phrases(corrected_message)
+        if _before_cm != corrected_message:
+            print(f"[collapse] corrected_message: {_before_cm!r} -> {corrected_message!r}")
+        cleaned_corrections = []
+        for c in corrections:
+            new_corrected = collapse_repeated_phrases(c.corrected)
+            if new_corrected != c.corrected:
+                print(f"[collapse] correction {c.type.value}: {c.corrected!r} -> {new_corrected!r}")
+            cleaned_corrections.append(InlineCorrection(
+                original=c.original,
+                corrected=new_corrected,
+                type=c.type,
+                severity=c.severity,
+                explanation=c.explanation,
+                tip=c.tip,
+            ))
+        corrections = cleaned_corrections
+        print(f"[collapse] final corrected_message={corrected_message!r}")
+        for c in corrections:
+            print(f"[collapse] final correction type={c.type.value} original={c.original!r} corrected={c.corrected!r}")
 
         return RealTimeCorrection(
             original_message=user_message,

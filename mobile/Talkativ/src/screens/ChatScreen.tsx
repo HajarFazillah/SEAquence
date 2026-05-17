@@ -320,6 +320,15 @@ const applyCorrectionOnce = (text: string, original: string, corrected: string) 
       searchFrom = index + original.length;
       continue;
     }
+    // If corrected ends with original (e.g., "세 시에" ends with "시에"), skip when
+    // the added prefix is already present immediately before this match position.
+    if (corrected.endsWith(original) && corrected.length > original.length) {
+      const addedPrefix = corrected.slice(0, corrected.length - original.length);
+      if (index >= addedPrefix.length && text.slice(index - addedPrefix.length, index) === addedPrefix) {
+        searchFrom = index + original.length;
+        continue;
+      }
+    }
     return `${text.slice(0, index)}${corrected}${text.slice(index + original.length)}`;
   }
 };
