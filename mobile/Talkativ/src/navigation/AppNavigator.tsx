@@ -7,16 +7,17 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import {
   View,
-  ActivityIndicator,
-  StyleSheet,
   Text,
+  StyleSheet,
   TouchableOpacity,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SPRING_SERVER_URL } from '../constants';
 import { Home, Moon, Mic, User } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Auth Screens
+import WelcomeScreen from '../screens/WelcomeScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import SignUpScreen from '../screens/SignUpScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
@@ -217,6 +218,7 @@ const MENU_ITEMS: {
 ];
 
 const HIDE_MENU_ROUTES = new Set([
+  'Welcome',
   'Login',
   'SignUp',
   'ForgotPassword',
@@ -302,8 +304,6 @@ const PersistentBottomMenu = ({
 };
 
 export const AppNavigator: React.FC = () => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [, setIsAuthenticated] = useState(false);
   const [currentRouteName, setCurrentRouteName] = useState<string>();
   const insets = useSafeAreaInsets();
 
@@ -312,30 +312,25 @@ export const AppNavigator: React.FC = () => {
   );
   const bottomMenuHeight = shouldShowMenu ? 68 + insets.bottom : 0;
 
+  // Validate stored token silently; navigate to Main if still valid
   useEffect(() => {
-    const checkAuth = async () => {
+    (async () => {
       try {
         const token = await AsyncStorage.getItem('token');
-        setIsAuthenticated(!!token);
+        if (!token) return;
+        const res = await fetch(`${SPRING_SERVER_URL}/api/users/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          navigationRef.navigate('Main' as never);
+        } else {
+          await AsyncStorage.multiRemove(['token', 'userId', 'user_id']);
+        }
       } catch {
-        setIsAuthenticated(false);
-      } finally {
-        setIsLoading(false);
+        // Backend unreachable — stay on Welcome
       }
-    };
-
-    const timeout = setTimeout(() => setIsLoading(false), 3000);
-    checkAuth().then(() => clearTimeout(timeout));
+    })();
   }, []);
-
-  if (isLoading) {
-    return (
-      <View style={styles.loadingScreen}>
-        <Text style={styles.splashWelcome}>Welcome to Talkativ!</Text>
-        <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" style={styles.splashSpinner} />
-      </View>
-    );
-  }
 
   return (
     <NavigationContainer
@@ -347,8 +342,12 @@ export const AppNavigator: React.FC = () => {
     >
       <View style={styles.appShell}>
         <View style={[styles.navigatorShell, { paddingBottom: bottomMenuHeight }]}>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Navigator
+            initialRouteName="Welcome"
+            screenOptions={{ headerShown: false }}
+          >
             {/* Auth */}
+            <Stack.Screen name="Welcome" component={WelcomeScreen} />
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="SignUp" component={SignUpScreen} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
@@ -438,21 +437,6 @@ const styles = StyleSheet.create({
   },
   navigatorShell: {
     flex: 1,
-  },
-  loadingScreen: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#6C3BFF',
-  },
-  splashWelcome: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.75)',
-    marginTop: 8,
-  },
-  splashSpinner: {
-    marginTop: 48,
   },
   bottomMenu: {
     position: 'absolute',

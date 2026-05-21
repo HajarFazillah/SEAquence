@@ -1,6 +1,7 @@
 import { getAuthHeader } from './apiAuth';
 import { IconName } from '../components/Icon';
 import { SPRING_API_BASE_URL } from '../constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface UserProfile {
   userId: string;
@@ -111,4 +112,22 @@ export const deleteAvatar = async (id: string): Promise<void> => {
     headers: { 'Content-Type': 'application/json', ...headers },
   });
   if (!response.ok) throw new Error('Failed to delete avatar');
+};
+
+export const updateMyProfile = async (data: Partial<UserProfile>): Promise<UserProfile> => {
+  const headers = await getAuthHeader();
+  const userId = await AsyncStorage.getItem('userId');
+
+  if (!userId) {
+    throw new Error('No logged-in user ID found');
+  }
+
+  const response = await fetch(`${SPRING_BASE_URL}/api/users/${userId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) throw new Error('Failed to update user profile');
+  return response.json();
 };

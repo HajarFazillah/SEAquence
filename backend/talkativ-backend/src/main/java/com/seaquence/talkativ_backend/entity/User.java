@@ -42,6 +42,21 @@ public class User {
     @Column(name = "korean_level", length = 20)
     private String koreanLevel = "intermediate";
 
+    @Column(length = 10)
+    private String age;
+
+    @Column(length = 20)
+    private String gender;
+
+    @Column(length = 1000)
+    private String memo;
+
+    @Column(length = 1000)
+    private String interests;
+
+    @Column(length = 1000)
+    private String dislikes;
+
     @Column(name = "privacy_consent")
     private Boolean privacyConsent = false;
 
@@ -77,6 +92,21 @@ public class User {
 
     public String getKoreanLevel() { return koreanLevel; }
     public void setKoreanLevel(String koreanLevel) { this.koreanLevel = koreanLevel; }
+
+    public String getAge() { return age; }
+    public void setAge(String age) { this.age = age; }
+
+    public String getGender() { return gender; }
+    public void setGender(String gender) { this.gender = gender; }
+
+    public String getMemo() { return memo; }
+    public void setMemo(String memo) { this.memo = memo; }
+
+    public String getInterests() { return interests; }
+    public void setInterests(String interests) { this.interests = interests; }
+
+    public String getDislikes() { return dislikes; }
+    public void setDislikes(String dislikes) { this.dislikes = dislikes; }
 
     public Boolean getPrivacyConsent() { return privacyConsent; }
     public void setPrivacyConsent(Boolean privacyConsent) { this.privacyConsent = privacyConsent; }
