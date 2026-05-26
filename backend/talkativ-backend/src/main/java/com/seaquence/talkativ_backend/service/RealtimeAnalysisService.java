@@ -15,6 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 public class RealtimeAnalysisService {
@@ -40,21 +41,26 @@ public class RealtimeAnalysisService {
         this.restTemplate = new RestTemplate();
     }
 
-    // Overload for WebSocket handler (receives raw bytes)
+    // Overload for WebSocket handler (receives raw bytes + avatar context)
     public RealtimeAnalysisResponse analyzeRealtimeAudio(
             byte[] audioData,
             String filename,
             String avatarRole,
+            String avatarName,
             String userId,
             String sessionId,
             String expectedSpeechLevel,
             String userSpeakerHint,
-            String chunkIndexRaw
+            String chunkIndexRaw,
+            List<Map<String, String>> conversationHistory,
+            String avatarJson,
+            String scenarioJson
     ) {
         ClovaSpeechService.ClovaSpeechResult speechResult =
                 clovaSpeechService.transcribeWithDiarization(audioData, filename);
-        return buildResponse(speechResult, avatarRole, userId, sessionId,
-                expectedSpeechLevel, userSpeakerHint, chunkIndexRaw);
+        return buildResponse(speechResult, avatarRole, avatarName, userId, sessionId,
+                expectedSpeechLevel, userSpeakerHint, chunkIndexRaw,
+                conversationHistory, avatarJson, scenarioJson);
     }
 
     public RealtimeAnalysisResponse analyzeRealtimeAudio(
@@ -67,25 +73,30 @@ public class RealtimeAnalysisService {
             String chunkIndexRaw
     ) {
         ClovaSpeechService.ClovaSpeechResult speechResult = clovaSpeechService.transcribeWithDiarization(file);
-        return buildResponse(speechResult, avatarRole, userId, sessionId,
-                expectedSpeechLevel, userSpeakerHint, chunkIndexRaw);
+        return buildResponse(speechResult, avatarRole, null, userId, sessionId,
+                expectedSpeechLevel, userSpeakerHint, chunkIndexRaw,
+                Collections.emptyList(), null, null);
     }
 
     private RealtimeAnalysisResponse buildResponse(
             ClovaSpeechService.ClovaSpeechResult speechResult,
             String avatarRole,
+            String avatarName,
             String userId,
             String sessionId,
             String expectedSpeechLevel,
             String userSpeakerHint,
-            String chunkIndexRaw
+            String chunkIndexRaw,
+            List<Map<String, String>> conversationHistory,
+            String avatarJson,
+            String scenarioJson
     ) {
 
         List<TranscriptTurnDto> turns = new ArrayList<>();
         List<InsightDto> insights = new ArrayList<>();
 
         if (speechResult.getTurns() == null || speechResult.getTurns().isEmpty()) {
-            return new RealtimeAnalysisResponse(turns, insights);
+            return new RealtimeAnalysisResponse(turns, insights, null);
         }
 
         // Identify which CLOVA speaker label maps to the user.
@@ -177,7 +188,21 @@ public class RealtimeAnalysisService {
             }
         }
 
-        return new RealtimeAnalysisResponse(turns, insights);
+        // Generate avatar response if in avatar mode and user spoke
+        String avatarResponse = null;
+        boolean hasUserSpeech = turns.stream().anyMatch(t ->
+                t.getText() != null && !t.getText().isBlank());
+        if (avatarRole != null && !avatarRole.isBlank() && hasUserSpeech) {
+            String userLastMessage = turns.stream()
+                    .map(TranscriptTurnDto::getText)
+                    .filter(t -> t != null && !t.isBlank())
+                    .reduce("", (a, b) -> a.isBlank() ? b : a + " " + b);
+            avatarResponse = generateAvatarResponse(
+                    avatarJson, scenarioJson, conversationHistory, userLastMessage, resolvedSpeechLevel);
+        }
+
+        RealtimeAnalysisResponse resp = new RealtimeAnalysisResponse(turns, insights, avatarResponse);
+        return resp;
     }
 
     private int parseChunkIndex(String chunkIndexRaw) {
@@ -240,6 +265,43 @@ public class RealtimeAnalysisService {
             }
         }
         return out;
+    }
+
+    private String generateAvatarResponse(
+            String avatarJson,
+            String scenarioJson,
+            List<Map<String, String>> conversationHistory,
+            String userMessage,
+            String speechLevel) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("avatar", avatarJson != null ? objectMapper.readTree(avatarJson) : new HashMap<>());
+            if (scenarioJson != null) body.put("scenario", objectMapper.readTree(scenarioJson));
+
+            List<Map<String, String>> capped = conversationHistory;
+            if (capped.size() > 8) capped = capped.subList(capped.size() - 8, capped.size());
+            body.put("conversation_history", capped);
+            body.put("user_message", userMessage);
+            body.put("speech_level", speechLevel != null ? speechLevel : "polite");
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    aiServerUrl + "/api/v1/chat/avatar-respond",
+                    HttpMethod.POST,
+                    request,
+                    String.class
+            );
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            String text = root.path("response").asText("").trim();
+            return text.isBlank() ? null : text;
+        } catch (Exception e) {
+            System.err.println("[Realtime] avatar respond failed: " + e.getMessage());
+            return null;
+        }
     }
 
     private List<String> suggestResponses(

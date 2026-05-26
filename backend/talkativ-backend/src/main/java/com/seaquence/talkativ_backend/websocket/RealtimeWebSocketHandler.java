@@ -10,7 +10,11 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Component
 public class RealtimeWebSocketHandler extends TextWebSocketHandler {
@@ -35,14 +39,32 @@ public class RealtimeWebSocketHandler extends TextWebSocketHandler {
         String sessionId        = payload.path("sessionId").asText(null);
         String userId           = payload.path("userId").asText("anonymous");
         String avatarRole       = payload.path("avatarRole").asText(null);
+        String avatarName       = payload.path("avatarName").asText(null);
         String speechLevel      = payload.path("expectedSpeechLevel").asText("polite");
         String chunkIndex       = payload.path("chunkIndex").asText("0");
         String filename         = "chunk-" + chunkIndex + ".m4a";
 
+        JsonNode avatarNode     = payload.path("avatar");
+        JsonNode scenarioNode   = payload.path("scenario");
+
+        List<Map<String, String>> conversationHistory = new ArrayList<>();
+        JsonNode historyNode = payload.path("conversationHistory");
+        if (historyNode.isArray()) {
+            for (JsonNode item : historyNode) {
+                Map<String, String> turn = new HashMap<>();
+                turn.put("speaker", item.path("speaker").asText(""));
+                turn.put("text", item.path("text").asText(""));
+                conversationHistory.add(turn);
+            }
+        }
+
         byte[] audioData = Base64.getDecoder().decode(audioBase64);
 
         RealtimeAnalysisResponse result = realtimeAnalysisService.analyzeRealtimeAudio(
-                audioData, filename, avatarRole, userId, sessionId, speechLevel, null, chunkIndex
+                audioData, filename, avatarRole, avatarName, userId, sessionId,
+                speechLevel, null, chunkIndex, conversationHistory,
+                avatarNode.isMissingNode() ? null : avatarNode.toString(),
+                scenarioNode.isMissingNode() ? null : scenarioNode.toString()
         );
 
         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(result)));

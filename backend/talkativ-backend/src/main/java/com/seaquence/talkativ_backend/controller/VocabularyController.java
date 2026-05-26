@@ -4,6 +4,7 @@ import com.seaquence.talkativ_backend.entity.Vocabulary;
 import com.seaquence.talkativ_backend.repository.VocabularyRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -97,6 +98,14 @@ public class VocabularyController {
                 ? repo.findByUserIdOrderByCreatedAtDesc(userId)
                 : repo.findByUserIdAndKindOrderByCreatedAtDesc(userId, kind);
         return ResponseEntity.ok(rows);
+    }
+
+    @DeleteMapping("/me")
+    @Transactional
+    public ResponseEntity<Void> deleteAll(Authentication auth) {
+        String userId = resolveUserId(auth);
+        repo.deleteByUserId(userId);
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")

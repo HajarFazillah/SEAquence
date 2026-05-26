@@ -6,6 +6,7 @@ import com.seaquence.talkativ_backend.entity.Session;
 import com.seaquence.talkativ_backend.repository.SessionRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -80,6 +81,17 @@ public class SessionController {
                 session.getEndedAt() != null ? session.getEndedAt().toString() : null);
 
         return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/me")
+    @Transactional
+    public ResponseEntity<Void> deleteMySessionHistory(Authentication auth) {
+        if (auth == null || auth.getPrincipal() == null) {
+            return ResponseEntity.status(401).build();
+        }
+        String userId = (String) auth.getPrincipal();
+        sessionRepository.deleteByUserId(userId);
+        return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{sessionId}/end")

@@ -9,4 +9,5 @@ public interface MistakeRepository extends JpaRepository<Mistake, Long> {
     List<Mistake> findByUserId(String userId);
     List<Mistake> findByUserIdOrderByCreatedAtDesc(String userId);
     List<Mistake> findBySessionIdOrderByTurnNumberAsc(String sessionId);
+    void deleteByUserId(String userId);
 }

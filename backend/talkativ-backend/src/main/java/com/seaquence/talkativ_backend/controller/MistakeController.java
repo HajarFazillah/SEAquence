@@ -5,6 +5,7 @@ import com.seaquence.talkativ_backend.entity.Mistake;
 import com.seaquence.talkativ_backend.repository.MistakeRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -63,6 +64,17 @@ public class MistakeController {
         List<Mistake> mistakes = mistakeRepository
                 .findBySessionIdOrderByTurnNumberAsc(sessionId);
         return ResponseEntity.ok(mistakes);
+    }
+
+    // Delete all mistakes for the current user
+    @DeleteMapping("/me")
+    @Transactional
+    public ResponseEntity<Void> deleteMyMistakes(Authentication auth) {
+        String userId = (auth != null && auth.getPrincipal() != null)
+                ? (String) auth.getPrincipal()
+                : "anonymous";
+        mistakeRepository.deleteByUserId(userId);
+        return ResponseEntity.noContent().build();
     }
 
     // Get all mistakes for the current user

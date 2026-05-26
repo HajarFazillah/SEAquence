@@ -8,4 +8,5 @@ public interface SessionRepository extends JpaRepository<Session, String> {
     List<Session> findByUserIdAndStatus(String userId, String status);
     List<Session> findByUserIdAndAvatarId(String userId, String avatarId);
     List<Session> findByUserId(String userId);
+    void deleteByUserId(String userId);
 }
