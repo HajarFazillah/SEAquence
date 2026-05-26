@@ -20,12 +20,13 @@ import {
 } from 'lucide-react-native';
 import { Icon, type IconName } from '../components';
 import { createSession, endSession } from '../services/apiSession';
+import { makePreviewPayload, saveConversationPreview } from '../services/conversationPreview';
 import {
   analyzeRealtimeAudio,
   TranscriptTurnResult,
   InsightResult,
 } from '../services/realtimeAnalysisService';
-import { REALTIME_WS_URL } from '../constants';
+import { REALTIME_WS_URL, AI_API_BASE_URL } from '../constants';
 import Sound, { RecordBackType } from 'react-native-nitro-sound';
 import RNFS from 'react-native-fs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -303,8 +304,42 @@ export default function RealtimeSessionScreen() {
     })();
   }, []);
 
-  // Register this session in the DB so stats (completedSessions, practiceMinutes) are tracked.
+  // Fetch avatar opening line when in avatar practice mode
   useEffect(() => {
+    if (!scenarioObj || !avatar) return;
+    fetch(`${AI_API_BASE_URL}/chat/avatar-respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        avatar,
+        scenario: scenarioObj,
+        conversation_history: [],
+        user_message: null,
+        speech_level: expectedSpeechLevel,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        const text: string = data?.response;
+        if (text && text.trim()) {
+          const openerTurn: TranscriptTurn = {
+            id: `avatar-opener-${Date.now()}`,
+            speaker: avatar.name_ko,
+            text: text.trim(),
+            type: 'final',
+          };
+          setTurns([openerTurn]);
+          conversationHistoryRef.current = [{ speaker: 'avatar', text: text.trim() }];
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Register this session in the DB so stats (completedSessions, practiceMinutes) are tracked.
+  // Skip when resuming an existing session — the DB record already exists.
+  useEffect(() => {
+    if (routeSessionId) return;
     createSession({
       avatarId: String(avatar?.id ?? 'system'),
       avatarName: avatar?.name_ko ?? '상대방',
@@ -315,6 +350,33 @@ export default function RealtimeSessionScreen() {
     }).then(s => {
       sessionIdRef.current = s.sessionId;
     }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Restore turns when resuming an existing session ─────────────────────────
+  useEffect(() => {
+    if (!routeSessionId) return;
+    AsyncStorage.getItem(`realtime_turns_${routeSessionId}`)
+      .then(raw => {
+        if (!raw) return;
+        try {
+          const prev: TranscriptTurn[] = JSON.parse(raw);
+          if (Array.isArray(prev) && prev.length > 0) {
+            setTurns(prev);
+            setHasStarted(true);
+            setHasRecorded(true);
+            // Rebuild conversation history so AI context is preserved
+            conversationHistoryRef.current = prev
+              .filter(t => t.type === 'final')
+              .map(t => ({
+                speaker: t.speaker === '나' ? 'user' : 'avatar',
+                text: t.text,
+              }))
+              .slice(-16);
+          }
+        } catch {}
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Map avatar's expected speech level (from user) to backend code (formal|polite|informal).
@@ -339,6 +401,7 @@ export default function RealtimeSessionScreen() {
   const [recUri, setRecUri]         = useState('');
   const [savedExpressions, setSavedExpressions] = useState<SavedExpression[]>([]);
   const [showSavedModal, setShowSavedModal] = useState(false);
+  const conversationHistoryRef = useRef<{speaker: string; text: string}[]>([]);
 
   const handleSaveInsight = useCallback((insight: Insight, turn: TranscriptTurn) => {
     if (!insight.suggestion || !turn.text) return;
@@ -457,6 +520,21 @@ export default function RealtimeSessionScreen() {
     try { if (sessionIdRef.current) await endSession(sessionIdRef.current); } catch {}
 
     const finalTurns = turns.filter(t => t.type === 'final');
+
+    // Save a preview so the session appears on the home screen "최근 대화" section
+    // and in ConversationHistory (기록 보기).
+    const lastUserTurn   = finalTurns.filter(t => t.speaker === '나').slice(-1)[0];
+    const lastAvatarTurn = finalTurns.filter(t => t.speaker !== '나').slice(-1)[0];
+    saveConversationPreview(makePreviewPayload({
+      sessionId:       sessionIdRef.current,
+      avatarId:        String(avatar?.id ?? 'system'),
+      avatarName:      avatar?.name_ko ?? '아바타',
+      situation:       typeof situation === 'object' ? (situation as any)?.name_ko : (situation ?? '일상 대화'),
+      messageCount:    finalTurns.length,
+      lastUserMessage: lastUserTurn?.text,
+      lastAiMessage:   lastAvatarTurn?.text,
+    })).catch(() => {});
+
     navigation.navigate('Analytics', {
       avatar,
       duration: fmt(duration),
@@ -467,7 +545,7 @@ export default function RealtimeSessionScreen() {
       source: 'session',
       savedExpressions,
     });
-  }, [navigation, avatar, duration, turns, insights, savedExpressions]);
+  }, [navigation, avatar, situation, duration, turns, insights, savedExpressions]);
 
   const cancelSession = useCallback(async () => {
     if (ended.current) return;
@@ -506,7 +584,7 @@ export default function RealtimeSessionScreen() {
     return u;
   }, [navigation, ending, onCancelPress]));
 
-  const processAnalysisResult = useCallback((res: { turns?: TranscriptTurnResult[]; insights?: InsightResult[] } | null, chunkIndex: number) => {
+  const processAnalysisResult = useCallback((res: { turns?: TranscriptTurnResult[]; insights?: InsightResult[]; avatarResponse?: string } | null, chunkIndex: number) => {
     const nextTurns = normTurns(res?.turns ?? []).filter(t => t.text.trim().length > 0);
     const seenLabels: string[] = [];
     for (const t of nextTurns) {
@@ -529,7 +607,37 @@ export default function RealtimeSessionScreen() {
         turnId: '',
       });
     }
-    setTurns(p => [...p.filter(t => t.type !== 'partial'), ...nextTurns]);
+
+    // Build avatar response turn and update conversation history
+    const avatarResponseText = res?.avatarResponse?.trim();
+    const avatarTurn: TranscriptTurn | null = avatarResponseText && avatar?.name_ko ? {
+      id: `avatar-reply-${chunkIndex}-${Date.now()}`,
+      speaker: avatar.name_ko,
+      text: avatarResponseText,
+      type: 'final',
+    } : null;
+
+    if (nextTurns.length > 0 || avatarTurn) {
+      const userText = nextTurns.map(t => t.text).join(' ').trim();
+      const newHistory = [...conversationHistoryRef.current];
+      if (userText) newHistory.push({ speaker: 'user', text: userText });
+      if (avatarResponseText) newHistory.push({ speaker: 'avatar', text: avatarResponseText });
+      conversationHistoryRef.current = newHistory.slice(-16);
+    }
+
+    const allNewTurns = avatarTurn ? [...nextTurns, avatarTurn] : nextTurns;
+    setTurns(p => {
+      const combined = [...p.filter(t => t.type !== 'partial'), ...allNewTurns];
+      // Persist final turns so session can be resumed with full history
+      const finalTurns = combined.filter(t => t.type === 'final');
+      if (finalTurns.length > 0) {
+        AsyncStorage.setItem(
+          `realtime_turns_${sessionIdRef.current}`,
+          JSON.stringify(finalTurns),
+        ).catch(() => {});
+      }
+      return combined;
+    });
     setInsights(p => {
       const seen = new Set(p.map(i => i.message));
       return [...p, ...nextInsights.filter(i => !seen.has(i.message))];
@@ -557,8 +665,12 @@ export default function RealtimeSessionScreen() {
           sessionId: sessionIdRef.current,
           userId,
           avatarRole: avatar?.role ?? '',
+          avatarName: avatar?.name_ko ?? '',
+          avatar: avatar ?? null,
+          scenario: scenarioObj ?? null,
           expectedSpeechLevel,
           chunkIndex,
+          conversationHistory: conversationHistoryRef.current.slice(-8),
         }));
         return;
       } catch (e) {
@@ -891,7 +1003,7 @@ export default function RealtimeSessionScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.canvas },
+  safe: { flex: 1, backgroundColor: '#FFFFFF' },
 
   cancelBtn: {
     padding: 4,
