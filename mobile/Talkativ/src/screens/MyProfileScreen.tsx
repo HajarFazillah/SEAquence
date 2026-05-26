@@ -260,6 +260,17 @@ export const MyProfileScreen: React.FC = () => {
           );
           return;
         }
+
+        // Clear local conversation preview cards and per-session histories
+        // so the home screen no longer shows stale chat history cards.
+        const allKeys = await AsyncStorage.getAllKeys();
+        const sessionKeys = allKeys.filter(
+          k => k.startsWith('chat_history_') || k.startsWith('realtime_turns_'),
+        );
+        await AsyncStorage.multiRemove([
+          'conversation_previews_v1',
+          ...sessionKeys,
+        ]);
       }
 
       Alert.alert('완료', '선택한 데이터가 삭제되었어요.');
