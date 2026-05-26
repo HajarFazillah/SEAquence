@@ -11,6 +11,7 @@ import {
 } from 'lucide-react-native';
 import { Icon, Card, StatusBadge, type IconName } from '../components';
 import { AI_SERVER_URL } from '../constants';
+import { humanizeRoleId } from '../services/api';
 
 const C = {
   canvas:  '#F2F1F7',
@@ -182,7 +183,7 @@ export default function ScenarioIntroScreen() {
                   </View>
                   <View style={s.infoTexts}>
                     <Text style={s.infoLabel}>내 역할</Text>
-                    <Text style={s.infoValue}>{situation.user_role_in_scene}</Text>
+                    <Text style={s.infoValue}>{humanizeRoleId(situation.user_role_in_scene)}</Text>
                   </View>
                 </View>
                 <View style={s.infoDivider} />

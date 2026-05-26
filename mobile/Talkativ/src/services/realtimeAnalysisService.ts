@@ -23,6 +23,7 @@ export type InsightResult = {
 export type RealtimeAnalysisResponse = {
   turns?: TranscriptTurnResult[];
   insights?: InsightResult[];
+  avatarResponse?: string;
 };
 
 export async function analyzeRealtimeAudio(

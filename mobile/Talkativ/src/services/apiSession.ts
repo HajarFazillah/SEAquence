@@ -91,6 +91,17 @@ export const createSession = async (request: SessionRequest): Promise<ActiveSess
   return response.json();
 };
 
+export const deleteAllMySessions = async (): Promise<void> => {
+  const headers = await jsonHeaders();
+  const response = await fetch(`${SPRING_BASE_URL}/api/sessions/me`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new Error(`deleteAllMySessions failed (${response.status})`);
+  }
+};
+
 export const endSession = async (sessionId: string): Promise<void> => {
   const headers = await jsonHeaders();
   const response = await fetch(`${SPRING_BASE_URL}/api/sessions/${sessionId}/end`, {
