@@ -68,6 +68,14 @@ public class UserController {
         return ResponseEntity.ok(userService.getMe(userId));
     }
 
+    @PutMapping("/me")
+    public ResponseEntity<UserResponse> updateMe(
+            @RequestBody RegisterRequest request,
+            Authentication auth) {
+        String userId = (String) auth.getPrincipal();
+        return ResponseEntity.ok(userService.updateUser(userId, request));
+    }
+
     @GetMapping("/me/stats")
     public ResponseEntity<UserStats> getMyStats(Authentication auth) {
         String userId = (String) auth.getPrincipal();

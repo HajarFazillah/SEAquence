@@ -12,9 +12,11 @@ export const loginUser = async (email: string, password: string) => {
   });
   if (!response.ok) throw new Error('Invalid email or password.');
   const data = await response.json();
+  // LoginResponse shape: { token: string, user: { userId: string, ... } }
+  const userId = data.user?.userId ?? data.userId ?? '';
   await AsyncStorage.setItem('token', data.token);
-  await AsyncStorage.setItem('userId', String(data.userId));
-  await AsyncStorage.setItem('user_id', String(data.userId));
+  await AsyncStorage.setItem('userId', userId);
+  await AsyncStorage.setItem('user_id', userId);
   return data;
 };
 

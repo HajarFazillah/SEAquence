@@ -672,6 +672,29 @@ export default function ChatScreen() {
     saveConversationPreview(buildLatestPreviewPayload(messages, avatar, situation, sessionIdRef.current)).catch(() => {});
   }, [avatar, messages, situation]);
 
+  // ── Load full message history when resuming an existing session ────────────
+  useEffect(() => {
+    if (!route.params?.sessionId) return;   // new session — nothing to restore
+    const sid = sessionIdRef.current;
+    AsyncStorage.getItem(`chat_history_${sid}`)
+      .then(raw => {
+        if (!raw) return;
+        try {
+          const prev: Message[] = JSON.parse(raw);
+          if (Array.isArray(prev) && prev.length > 0) setMessages(prev);
+        } catch {}
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Persist full message history so it can be restored on resume ───────────
+  useEffect(() => {
+    const sid = sessionIdRef.current;
+    if (!sid || messages.length === 0) return;
+    AsyncStorage.setItem(`chat_history_${sid}`, JSON.stringify(messages)).catch(() => {});
+  }, [messages]);
+
   const handleSend = async () => {
     if (!input.trim() || loading) return;
     const text = input.trim();

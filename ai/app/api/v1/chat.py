@@ -1202,3 +1202,61 @@ JSON만 반환하세요:
     except Exception as e:
         print(f"[suggest] error: {e}")
         return SuggestResponse(suggestions=[])
+
+
+# ── Avatar conversational response for realtime sessions ──────────────────────
+
+class AvatarRespondRequest(BaseModel):
+    avatar: Dict[str, Any]
+    scenario: Optional[Dict[str, Any]] = None
+    conversation_history: List[Dict[str, str]] = Field(default_factory=list)
+    user_message: Optional[str] = None  # None = generate opener
+    speech_level: str = "polite"
+
+class AvatarRespondResponse(BaseModel):
+    response: str
+
+@router.post("/avatar-respond", response_model=AvatarRespondResponse)
+async def avatar_respond(request: AvatarRespondRequest):
+    """Generate avatar's conversational reply (or opening line) for realtime session."""
+    avatar      = request.avatar or {}
+    avatar_name = avatar.get("name_ko") or avatar.get("role") or "아바타"
+    avatar_role = avatar.get("role") or ""
+    avatar_desc = avatar.get("description") or avatar.get("description_ko") or ""
+    scenario    = request.scenario or {}
+    scenario_name = scenario.get("name_ko", "")
+    scenario_desc = scenario.get("description_ko", "")
+
+    system_prompt = f"""당신은 {avatar_name}입니다. {avatar_role} 역할로 사용자와 한국어로 대화하고 있습니다.
+{f"아바타 설명: {avatar_desc}" if avatar_desc else ""}
+{f"시나리오: {scenario_name} — {scenario_desc}" if scenario_name else ""}
+
+규칙:
+- 반드시 1~2 문장으로만 대답하세요.
+- {avatar_name} 캐릭터에서 절대 벗어나지 마세요.
+- 대사만 출력하세요. 설명, 따옴표, 메타 텍스트는 쓰지 마세요."""
+
+    from app.services.clova_service import Message
+    history_messages = []
+    for h in (request.conversation_history or [])[-8:]:
+        role = "assistant" if h.get("speaker") == "avatar" else "user"
+        history_messages.append(Message(role=role, content=h.get("text", "")))
+
+    user_prompt = request.user_message if request.user_message else \
+        "지금 시나리오 상황에서 첫 마디를 자연스럽게 시작하세요."
+
+    try:
+        result = await clova_service.generate_with_system_prompt(
+            system_prompt=system_prompt,
+            user_message=user_prompt,
+            conversation_history=history_messages if history_messages else None,
+            max_tokens=100,
+            temperature=0.8,
+        )
+        text = result.content.strip().strip('"\'').strip()
+        if not text:
+            return AvatarRespondResponse(response="")
+        return AvatarRespondResponse(response=text)
+    except Exception as e:
+        print(f"[avatar-respond] error: {e}")
+        return AvatarRespondResponse(response="")

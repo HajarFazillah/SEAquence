@@ -60,6 +60,16 @@ export const fetchMyVocabulary = async (
   return res.json();
 };
 
+export const deleteAllMyVocabulary = async (): Promise<void> => {
+  const res = await fetch(`${SPRING_API_BASE_URL}/api/vocabulary/me`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`delete all vocab failed: ${res.status}`);
+  }
+};
+
 export const deleteVocabulary = async (id: number): Promise<void> => {
   const res = await fetch(`${SPRING_API_BASE_URL}/api/vocabulary/${id}`, {
     method: 'DELETE',

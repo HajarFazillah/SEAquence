@@ -26,6 +26,7 @@ import Svg, { Circle, G, Polyline, Line, Text as SvgText } from 'react-native-sv
 import { Tag } from '../components';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AI_SERVER_URL } from '../constants';
+import { humanizeRoleId } from '../services/api';
 import {
   fetchMyWeakAreas,
   fetchMyMistakes,
@@ -497,7 +498,7 @@ const buildPersonalizationSignals = (
     .slice(0, 3)
     .map(item => ({
       key: item.key,
-      label: RELATIONSHIP_LABELS[item.key] || item.key,
+      label: RELATIONSHIP_LABELS[item.key] || humanizeRoleId(item.key),
       value: `${item.corrections}번`,
       note: '',
       severity: signalSeverity(item.rate),

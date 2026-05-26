@@ -14,4 +14,5 @@ import lombok.Setter;
 public class RealtimeAnalysisResponse {
     private List<TranscriptTurnDto> turns;
     private List<InsightDto> insights;
+    private String avatarResponse;
 }

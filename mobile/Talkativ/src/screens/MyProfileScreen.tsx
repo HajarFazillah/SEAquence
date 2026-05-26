@@ -24,6 +24,7 @@ import {
   User,
   Sparkles,
   Camera,
+  Trash2,
 } from 'lucide-react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -34,6 +35,9 @@ import {
   UserProfile,
   UserStats,
 } from '../services/apiUser';
+import { deleteAllMyMistakes } from '../services/apiMistakes';
+import { deleteAllMySessions } from '../services/apiSession';
+import { deleteAllMyVocabulary } from '../services/apiVocabulary';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -67,6 +71,7 @@ const GENDER_LABELS: Record<string, string> = {
 
 const MENU_ITEMS = [
   { id: 'language', icon: Globe, label: '언어', value: '한국어' },
+  { id: 'reset', icon: Trash2, label: '데이터 초기화', warning: true },
   { id: 'logout', icon: LogOut, label: '로그아웃', danger: true },
 ];
 
@@ -221,6 +226,64 @@ export const MyProfileScreen: React.FC = () => {
     );
   };
 
+  // ── Data-reset helpers ─────────────────────────────────────────────────────
+
+  const executeReset = useCallback(async (scope: 'local' | 'server' | 'all') => {
+    try {
+      if (scope === 'local' || scope === 'all') {
+        await AsyncStorage.multiRemove([
+          'custom_avatar_url',
+          'favorite_avatars',
+          'custom_situations',
+          'talkativ.personalization.events.v1',
+        ]);
+        setCustomAvatarUrl(null);
+      }
+
+      if (scope === 'server' || scope === 'all') {
+        const [mistakesRes, sessionsRes, vocabRes] = await Promise.allSettled([
+          deleteAllMyMistakes(),
+          deleteAllMySessions(),
+          deleteAllMyVocabulary(),
+        ]);
+
+        const failures = [
+          mistakesRes.status === 'rejected' && '실수 기록',
+          sessionsRes.status  === 'rejected' && '세션 기록',
+          vocabRes.status     === 'rejected' && '단어/표현',
+        ].filter(Boolean) as string[];
+
+        if (failures.length > 0) {
+          Alert.alert(
+            '서버 삭제 실패',
+            `다음 항목을 삭제하지 못했어요:\n${failures.map(f => `• ${f}`).join('\n')}\n\n서버 연결을 확인하거나 잠시 후 다시 시도해주세요.`,
+          );
+          return;
+        }
+      }
+
+      Alert.alert('완료', '선택한 데이터가 삭제되었어요.');
+    } catch {
+      Alert.alert('오류', '데이터 삭제 중 오류가 발생했어요. 다시 시도해주세요.');
+    }
+  }, []);
+
+  const confirmAndClear = useCallback((scope: 'local' | 'server' | 'all') => {
+    const descriptions: Record<typeof scope, string> = {
+      local:  '기기에 저장된 프로필 사진, 즐겨찾기, 직접 만든 상황, 연습 패턴 기록이 삭제돼요.',
+      server: '서버에 저장된 세션 기록, 실수 기록, 단어/표현이 모두 삭제돼요.',
+      all:    '기기 데이터와 서버에 저장된 세션 기록, 실수 기록, 단어/표현이 모두 삭제돼요.',
+    };
+    Alert.alert(
+      '정말 삭제하시겠어요?',
+      `${descriptions[scope]}\n\n이 작업은 되돌릴 수 없어요.`,
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '삭제', style: 'destructive', onPress: () => executeReset(scope) },
+      ],
+    );
+  }, [executeReset]);
+
   const handleEditProfile = () => navigation.navigate('EditProfile');
   const handleEditInterests = () =>
     navigation.navigate('EditInterests', {
@@ -235,25 +298,38 @@ export const MyProfileScreen: React.FC = () => {
   const handleMenuPress = (itemId: string) => {
     switch (itemId) {
       case 'logout':
-  Alert.alert(
-    '로그아웃',
-    '로그아웃하시겠어요?',
-    [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '로그아웃',
-        style: 'destructive',
-        onPress: async () => {
-          await AsyncStorage.multiRemove(['token', 'userId', 'user_id']);
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Login' }],
-          });
-        },
-      },
-    ],
-  );
-  break;
+        Alert.alert(
+          '로그아웃',
+          '로그아웃하시겠어요?',
+          [
+            { text: '취소', style: 'cancel' },
+            {
+              text: '로그아웃',
+              style: 'destructive',
+              onPress: async () => {
+                await AsyncStorage.multiRemove(['token', 'userId', 'user_id']);
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                });
+              },
+            },
+          ],
+        );
+        break;
+
+      case 'reset':
+        Alert.alert(
+          '데이터 초기화',
+          '어떤 데이터를 삭제하시겠어요?\n\n기기 데이터 — 프로필 사진, 즐겨찾기, 직접 만든 상황, 연습 패턴\n\n서버 기록 — 세션 기록, 실수 기록, 저장한 단어/표현',
+          [
+            { text: '취소', style: 'cancel' },
+            { text: '기기 데이터만',  onPress: () => confirmAndClear('local') },
+            { text: '서버 기록만',    onPress: () => confirmAndClear('server') },
+            { text: '전체 삭제', style: 'destructive', onPress: () => confirmAndClear('all') },
+          ],
+        );
+        break;
     }
   };
 
@@ -464,28 +540,41 @@ export const MyProfileScreen: React.FC = () => {
                   style={[
                     styles.menuIconBg,
                     item.danger && styles.menuIconDangerBg,
+                    item.warning && styles.menuIconWarningBg,
                   ]}
                 >
                   <item.icon
                     size={18}
-                    color={item.danger ? '#E53935' : '#6C6C80'}
+                    color={
+                      item.danger ? '#E53935' :
+                      item.warning ? '#F57C00' :
+                      '#6C6C80'
+                    }
                   />
                 </View>
-                <Text
-                  style={[
-                    styles.menuItemLabel,
-                    item.danger && styles.menuItemLabelDanger,
-                  ]}
-                >
-                  {item.label}
-                </Text>
+                <View style={styles.menuItemLabelWrap}>
+                  <Text
+                    style={[
+                      styles.menuItemLabel,
+                      item.danger && styles.menuItemLabelDanger,
+                      item.warning && styles.menuItemLabelWarning,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                  {item.warning ? (
+                    <Text style={styles.menuItemSublabel}>
+                      기기 저장 데이터만 삭제 · 되돌릴 수 없음
+                    </Text>
+                  ) : null}
+                </View>
               </View>
 
               {item.value ? (
                 <View style={styles.menuItemRight}>
                   <Text style={styles.menuItemValue}>{item.value}</Text>
                 </View>
-              ) : !item.danger ? (
+              ) : !item.danger && !item.warning ? (
                 <ChevronRight size={18} color="#B0B0C5" />
               ) : null}
             </TouchableOpacity>
@@ -603,13 +692,12 @@ const styles = StyleSheet.create({
   editLink: { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
 
   // Info grid
-  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  infoGrid: { flexDirection: 'row', gap: 10 },
   infoItem: {
-    width: '48%',
+    flex: 1,
     backgroundColor: '#FAFAFD',
     borderRadius: 16,
     padding: 12,
-    minHeight: 76,
   },
   infoLabel: {
     fontSize: 11,
@@ -677,7 +765,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   menuItemBorder: { borderBottomWidth: 1, borderBottomColor: '#F0F0F5' },
-  menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   menuIconBg: {
     width: 36,
     height: 36,
@@ -687,8 +775,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuIconDangerBg: { backgroundColor: '#FFEBEE' },
+  menuIconWarningBg: { backgroundColor: '#FFF3E0' },
+  menuItemLabelWrap: { flex: 1 },
   menuItemLabel: { fontSize: 15, color: '#1A1A2E', fontWeight: '500' },
   menuItemLabelDanger: { color: '#E53935' },
+  menuItemLabelWarning: { color: '#F57C00' },
+  menuItemSublabel: { fontSize: 11, color: '#B0A090', marginTop: 2 },
   menuItemRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   menuItemValue: { fontSize: 14, color: '#6C6C80' },
 

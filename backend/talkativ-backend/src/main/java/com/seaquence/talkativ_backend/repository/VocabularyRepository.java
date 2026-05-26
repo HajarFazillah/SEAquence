@@ -10,4 +10,5 @@ public interface VocabularyRepository extends JpaRepository<Vocabulary, Long> {
     List<Vocabulary> findByUserIdOrderByCreatedAtDesc(String userId);
     List<Vocabulary> findByUserIdAndKindOrderByCreatedAtDesc(String userId, String kind);
     Optional<Vocabulary> findByUserIdAndKindAndWord(String userId, String kind, String word);
+    void deleteByUserId(String userId);
 }

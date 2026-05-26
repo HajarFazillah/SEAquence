@@ -7,10 +7,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChevronRight, Shuffle } from 'lucide-react-native';
-import { StatusBadge, Icon } from '../components';
+import { ChevronRight, Shuffle, MessageCircle } from 'lucide-react-native';
 import { useHomeData } from '../hooks/useHomeData';
-import { ActiveSession } from '../services/apiSession';
+import type { ConversationPreview } from '../services/conversationPreview';
 import { fetchMyWeakAreas } from '../services/apiMistakes';
 import { getMyAvatars, getMyProfile } from '../services/apiUser';
 import { AI_SERVER_URL } from '../constants';
@@ -38,11 +37,11 @@ const getMistakeLabel = (type?: string) =>
 
 // ─── Donut chart ──────────────────────────────────────────────────────────────
 
-const DONUT_SIZE         = 120;
-const DONUT_RADIUS       = 42;
-const DONUT_STROKE       = 16;
+const DONUT_SIZE          = 120;
+const DONUT_RADIUS        = 42;
+const DONUT_STROKE        = 16;
 const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
-const WEAK_PALETTE       = ['#F97066', '#FB923C', '#FBBF24', '#818CF8', '#34D399'];
+const WEAK_PALETTE        = ['#F97066', '#FB923C', '#FBBF24', '#818CF8', '#34D399'];
 
 const canonicalType = (type?: string | null): string => {
   switch ((type || '').toLowerCase()) {
@@ -67,63 +66,50 @@ const WEAK_LABELS: Record<string, string> = {
   spelling: '표기', naturalness: '자연스러움', other: '기타',
 };
 
-// ─── Progress Card ─────────────────────────────────────────────────────────────
+// ─── Recent Conversation Card ──────────────────────────────────────────────────
 
-const ProgressCard = ({ item, onPress, index }: {
-  item: ActiveSession; onPress: () => void; index: number;
-}) => {
-  const anim      = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    Animated.spring(anim, { toValue: 1, delay: index * 70, tension: 70, friction: 10, useNativeDriver: true }).start();
-  }, [anim, index]);
-
-  return (
-    <Animated.View style={{
-      opacity: anim,
-      transform: [
-        { scale: scaleAnim },
-        { translateX: anim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
-      ],
-    }}>
-      <TouchableOpacity
-        onPress={onPress}
-        onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, tension: 200 }).start()}
-        onPressOut={() => Animated.spring(scaleAnim, { toValue: 1,    useNativeDriver: true, tension: 200 }).start()}
-        activeOpacity={1}
-      >
-        <View style={styles.progressCard}>
-          <View style={styles.progressAvatarRow}>
-            <View style={[styles.progressAvatarIcon, { backgroundColor: item.avatarBg || '#6C3BFF' }]}>
-              <Icon name={item.avatarIcon as any} size={17} color="#FFFFFF" />
-            </View>
-            <StatusBadge status={item.difficulty} />
-          </View>
-          <Text style={styles.progressAvatarName} numberOfLines={1}>{item.avatarName}</Text>
-          <Text style={styles.progressSituation} numberOfLines={2}>{item.situation}</Text>
-          <View style={{ flex: 1 }} />
-          <Text style={styles.progressTime}>{formatRelativeTime(item.lastMessageAt)}</Text>
+const RecentCard = ({ item, onPress }: { item: ConversationPreview; onPress: () => void }) => (
+  <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+    <View style={styles.recentCard}>
+      <View style={styles.recentCardRow}>
+        <View style={styles.recentAvatarIcon}>
+          <Text style={styles.recentAvatarInitial}>
+            {(item.avatarName || '?')[0].toUpperCase()}
+          </Text>
         </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-};
+        <View style={{ flex: 1 }}>
+          <Text style={styles.recentAvatarName} numberOfLines={1}>
+            {item.avatarName || '대화 상대'}
+          </Text>
+          <Text style={styles.recentSituation} numberOfLines={1}>
+            {item.situation || '일상 대화'}
+          </Text>
+        </View>
+        <View style={styles.recentTimeBadge}>
+          <Text style={styles.recentTime}>{formatRelativeTime(item.updatedAt)}</Text>
+        </View>
+      </View>
+      {(item.aiSnippet || item.userSnippet) ? (
+        <Text style={styles.recentSnippet} numberOfLines={2}>
+          {item.aiSnippet ? `AI: ${item.aiSnippet}` : `나: ${item.userSnippet}`}
+        </Text>
+      ) : null}
+      <View style={styles.recentFooter}>
+        <MessageCircle size={11} color="#9CA3AF" />
+        <Text style={styles.recentMsgCount}>{item.messageCount}개 메시지</Text>
+      </View>
+    </View>
+  </TouchableOpacity>
+);
 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
-const CARD_STEP = 164 + 12;
-
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const { profile, stats, activeSessions, loading } = useHomeData();
+  const { profile, stats, conversationPreviews, loading } = useHomeData();
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string | null>(null);
   const [rawWeakAreas, setRawWeakAreas]       = useState<any[]>([]);
   const [randomLoading, setRandomLoading]     = useState(false);
-
-  const carouselRef   = useRef<ScrollView>(null);
-  const carouselIndex = useRef(0);
-  const userScrolling = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -144,15 +130,11 @@ export const HomeScreen: React.FC = () => {
     ]).start();
   }, [ctaAnim, headerAnim]);
 
-  useEffect(() => {
-    if (activeSessions.length <= 1) return;
-    const id = setInterval(() => {
-      if (userScrolling.current) return;
-      carouselIndex.current = (carouselIndex.current + 1) % activeSessions.length;
-      carouselRef.current?.scrollTo({ x: carouselIndex.current * CARD_STEP, animated: true });
-    }, 2800);
-    return () => clearInterval(id);
-  }, [activeSessions.length]);
+  const recentPreviews = useMemo(() =>
+    Object.values(conversationPreviews)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 5),
+  [conversationPreviews]);
 
   const weakChartData = useMemo(() => {
     const merged = new Map<string, { count: number; weightedScore: number }>();
@@ -187,7 +169,6 @@ export const HomeScreen: React.FC = () => {
 
       const avatar = avatars[Math.floor(Math.random() * avatars.length)];
 
-      // Ask AI to generate a situation tailored to this avatar + user profile
       const res = await fetch(`${AI_SERVER_URL}/api/v1/chat/suggest-situations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -207,14 +188,6 @@ export const HomeScreen: React.FC = () => {
     } finally {
       setRandomLoading(false);
     }
-  };
-
-  const handleContinueConversation = (item: ActiveSession) => {
-    navigation.navigate('Chat', {
-      avatar:    { id: item.avatarId, name_ko: item.avatarName, icon: item.avatarIcon, avatarBg: item.avatarBg, difficulty: item.difficulty },
-      situation: { name_ko: item.situation },
-      sessionId: item.sessionId,
-    });
   };
 
   if (loading) {
@@ -238,7 +211,7 @@ export const HomeScreen: React.FC = () => {
         }]}>
           <TouchableOpacity style={styles.profileRow} onPress={() => navigation.navigate('My Profile')} activeOpacity={0.8}>
             <Image
-              source={{ uri: customAvatarUrl ?? profile?.avatarUrl ?? 'https://i.pravatar.cc/100?img=47' }}
+              source={{ uri: customAvatarUrl ?? profile?.avatarUrl ?? 'https://api.dicebear.com/9.x/thumbs/png?seed=NewUser' }}
               style={styles.avatar}
             />
             <Text style={styles.greeting}>
@@ -290,57 +263,42 @@ export const HomeScreen: React.FC = () => {
           </View>
         </Animated.View>
 
-        {/* ── In Progress ── */}
+        {/* ── 최근 대화 ── */}
         <View style={styles.sectionHeader}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitle}>진행 중</Text>
-            {activeSessions.length > 0 && (
-              <View style={styles.countBadge}>
-                <Text style={styles.countText}>{activeSessions.length}</Text>
-              </View>
-            )}
-          </View>
-          <TouchableOpacity style={styles.sectionLink} onPress={() => navigation.navigate('ConversationHistory')} activeOpacity={0.7}>
-            <Text style={styles.sectionLinkText}>기록 보기</Text>
+          <Text style={styles.sectionTitle}>최근 대화</Text>
+          <TouchableOpacity
+            style={styles.sectionLink}
+            onPress={() => navigation.navigate('ConversationHistory')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.sectionLinkText}>전체 보기</Text>
             <ChevronRight size={13} color="#6C3BFF" />
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          ref={carouselRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.horizontalScroll}
-          contentContainerStyle={styles.horizontalContent}
-          onScrollBeginDrag={() => { userScrolling.current = true; }}
-          onMomentumScrollEnd={e => {
-            userScrolling.current = false;
-            carouselIndex.current = Math.round(e.nativeEvent.contentOffset.x / CARD_STEP);
-          }}
-          onScrollEndDrag={e => {
-            userScrolling.current = false;
-            carouselIndex.current = Math.round(e.nativeEvent.contentOffset.x / CARD_STEP);
-          }}
-        >
-          {activeSessions.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateTitle}>진행 중인 대화가 없어요</Text>
-              <Text style={styles.emptyStateText}>아바타 탭에서 새 대화를 시작해보세요</Text>
-            </View>
-          ) : (
-            activeSessions.map((item, index) => (
-              <ProgressCard
-                key={item.sessionId}
-                item={item}
-                index={index}
-                onPress={() => handleContinueConversation(item)}
-              />
-            ))
-          )}
-        </ScrollView>
+        {recentPreviews.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateTitle}>아직 대화 기록이 없어요</Text>
+            <Text style={styles.emptyStateText}>아바타 탭에서 첫 대화를 시작해보세요</Text>
+          </View>
+        ) : (
+          recentPreviews.map(preview => (
+            <RecentCard
+              key={preview.sessionId}
+              item={preview}
+              onPress={() =>
+                navigation.navigate('Chat', {
+                  avatar:    { id: preview.avatarId, name_ko: preview.avatarName },
+                  situation: preview.situation ? { name_ko: preview.situation } : undefined,
+                  sessionId: preview.sessionId,
+                })
+              }
+            />
+          ))
+        )}
 
         {/* ── 학습 통계 ── */}
-        <View style={styles.sectionHeader}>
+        <View style={[styles.sectionHeader, { marginTop: 24 }]}>
           <Text style={styles.sectionTitle}>학습 통계</Text>
           <TouchableOpacity style={styles.sectionLink} onPress={() => navigation.navigate('Analytics', { source: 'home' })} activeOpacity={0.7}>
             <Text style={styles.sectionLinkText}>자세히 보기</Text>
@@ -437,32 +395,43 @@ const styles = StyleSheet.create({
 
   // Section headers
   sectionHeader:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitle:    { fontSize: 16, fontWeight: '700', color: '#111827', letterSpacing: -0.3 },
-  countBadge:      { backgroundColor: '#EEF2FF', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
-  countText:       { color: '#6C3BFF', fontWeight: '700', fontSize: 12 },
   sectionLink:     { flexDirection: 'row', alignItems: 'center', gap: 2 },
   sectionLinkText: { fontSize: 12, fontWeight: '600', color: '#6C3BFF' },
 
-  // Scroll
-  horizontalScroll:  { marginBottom: 28 },
-  horizontalContent: { gap: 12, paddingRight: 4 },
-
-  // Empty state (진행 중)
-  emptyState:      { paddingVertical: 24, paddingHorizontal: 4 },
+  // Empty state (no conversations yet)
+  emptyState:      { paddingVertical: 28, paddingHorizontal: 4, alignItems: 'center', marginBottom: 8 },
   emptyStateTitle: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 4 },
   emptyStateText:  { fontSize: 12, color: '#6B7280' },
 
-  // Progress Card
-  progressCard: {
-    width: 164, borderRadius: 16, backgroundColor: '#FFFFFF',
-    padding: 14, minHeight: 150, borderWidth: 1, borderColor: '#E8E8F0',
+  // Recent conversation cards
+  recentCard: {
+    borderRadius: 14, backgroundColor: '#FFFFFF',
+    padding: 14, marginBottom: 10,
+    borderWidth: 1, borderColor: '#E8E8F0',
   },
-  progressAvatarRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  progressAvatarIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  progressAvatarName: { fontSize: 14, fontWeight: '700', color: '#111827', letterSpacing: -0.2, marginBottom: 4 },
-  progressSituation:  { fontSize: 13, color: '#374151', lineHeight: 18 },
-  progressTime:       { fontSize: 11, color: '#9CA3AF', fontWeight: '500', marginTop: 10 },
+  recentCardRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 },
+  recentAvatarIcon: {
+    width: 36, height: 36, borderRadius: 12,
+    backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  recentAvatarInitial: { fontSize: 16, fontWeight: '700', color: '#6C3BFF' },
+  recentAvatarName:    { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 2 },
+  recentSituation:     { fontSize: 12, color: '#6B7280' },
+  recentTimeBadge: {
+    backgroundColor: '#F5F3FF', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 4,
+  },
+  recentTime: { fontSize: 11, fontWeight: '600', color: '#6C3BFF' },
+  recentSnippet: {
+    fontSize: 13, color: '#374151', lineHeight: 19,
+    backgroundColor: '#F9FAFB', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 7,
+    marginBottom: 6,
+  },
+  recentFooter:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  recentMsgCount: { fontSize: 11, color: '#9CA3AF' },
 
   // 학습 통계 — donut chart card
   weakCard: {
@@ -478,15 +447,15 @@ const styles = StyleSheet.create({
   weakDonutCenter: {
     position: 'absolute', alignItems: 'center', justifyContent: 'center',
   },
-  weakDonutValue: { fontSize: 20, fontWeight: '800', color: '#111827', lineHeight: 24 },
-  weakDonutLabel: { fontSize: 10, fontWeight: '600', color: '#6B7280', marginTop: 2 },
-  weakLegend:     { flex: 1, gap: 8 },
-  weakLegendRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  weakLegendDot:  { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
+  weakDonutValue:  { fontSize: 20, fontWeight: '800', color: '#111827', lineHeight: 24 },
+  weakDonutLabel:  { fontSize: 10, fontWeight: '600', color: '#6B7280', marginTop: 2 },
+  weakLegend:      { flex: 1, gap: 8 },
+  weakLegendRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  weakLegendDot:   { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
   weakLegendLabel: { flex: 1, fontSize: 12, fontWeight: '600', color: '#374151' },
   weakLegendCount: { fontSize: 12, color: '#9CA3AF', fontWeight: '500' },
-  weakEmpty:      { paddingVertical: 24, alignItems: 'center' },
-  weakEmptyText:  { fontSize: 13, color: '#9CA3AF' },
+  weakEmpty:       { paddingVertical: 24, alignItems: 'center' },
+  weakEmptyText:   { fontSize: 13, color: '#9CA3AF' },
 });
 
 export default HomeScreen;

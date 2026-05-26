@@ -54,6 +54,16 @@ export const fetchMyWeakAreas = async (): Promise<WeakArea[]> => {
   return res.json();
 };
 
+export const deleteAllMyMistakes = async (): Promise<void> => {
+  const res = await fetch(`${SPRING_API_BASE_URL}/api/mistakes/me`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`delete mistakes failed: ${res.status}`);
+  }
+};
+
 export const saveMistakesToBackend = async (
   sessionId: string,
   turnNumber: number,
