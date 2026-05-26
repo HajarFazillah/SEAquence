@@ -17,6 +17,7 @@ import { AI_SERVER_URL } from '../constants';
 const AI_SERVER = AI_SERVER_URL;
 
 import { saveMistakesToBackend } from '../services/apiMistakes';
+import { createSession, endSession } from '../services/apiSession';
 
 const saveMistakes = async (
   sessionId: string,
@@ -206,6 +207,7 @@ const buildLatestPreviewPayload = (
     messageCount: messages.length,
     lastUserMessage: latestUser,
     lastAiMessage: latestAi,
+    sessionType: 'chat',
   });
 };
 
@@ -944,6 +946,25 @@ export default function ChatScreen() {
     saveConversationPreview(buildLatestPreviewPayload(messages, avatar, situation, sessionIdRef.current)).catch(() => {});
   }, [avatar, messages, situation]);
 
+  // ── Register this chat session in the DB so it counts toward 완료 대화 ──────
+  // Skip for resumed sessions — the DB record already exists.
+  useEffect(() => {
+    if (route.params?.sessionId) return;
+    createSession({
+      avatarId: String(avatar?.id ?? 'system'),
+      avatarName: avatar?.name_ko ?? '아바타',
+      avatarIcon: avatar?.icon ?? 'user',
+      avatarBg: avatar?.avatar_bg ?? '#6C3BFF',
+      situation: typeof situation === 'object'
+        ? (situation as any)?.name_ko ?? '일상 대화'
+        : (situation ?? '일상 대화'),
+      difficulty: avatar?.difficulty ?? 'medium',
+    }).then(s => {
+      sessionIdRef.current = s.sessionId;
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Load full message history when resuming an existing session ────────────
   useEffect(() => {
     if (!route.params?.sessionId) return;   // new session — nothing to restore
@@ -1049,6 +1070,9 @@ export default function ChatScreen() {
         }),
       }).catch(err => console.log('end-session failed:', err));
     }
+
+    // Mark session as completed in the DB so it counts toward 완료 대화 stat.
+    try { if (sessionIdRef.current) await endSession(sessionIdRef.current); } catch {}
 
     navigation.navigate('ConversationSummary', { avatar, duration: durationStr, situation, conversationHistory: history, finalMood: avatarMood, sessionReport, sessionCorrections, avgScore, sessionId: sessionIdRef.current });
   };
