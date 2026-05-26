@@ -12,6 +12,8 @@ export interface ConversationPreview {
   aiSnippet?: string;
   updatedAt: string;
   messageCount: number;
+  /** 'chat' = text-based ChatScreen session; 'realtime' = voice RealtimeSessionScreen session */
+  sessionType?: 'chat' | 'realtime';
 }
 
 const clip = (text?: string, max = 44): string => {
@@ -73,6 +75,7 @@ export const makePreviewPayload = (params: {
   messageCount: number;
   lastUserMessage?: string;
   lastAiMessage?: string;
+  sessionType?: 'chat' | 'realtime';
 }): ConversationPreview => ({
   sessionId: params.sessionId,
   avatarId: params.avatarId,
@@ -82,6 +85,7 @@ export const makePreviewPayload = (params: {
   userSnippet: clip(params.lastUserMessage),
   aiSnippet: clip(params.lastAiMessage),
   updatedAt: new Date().toISOString(),
+  sessionType: params.sessionType ?? 'chat',
 });
 
 export const getAllConversationPreviews = async (): Promise<ConversationPreview[]> => {

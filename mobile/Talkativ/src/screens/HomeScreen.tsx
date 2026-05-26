@@ -7,7 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChevronRight, Shuffle, MessageCircle } from 'lucide-react-native';
+import { ChevronRight, Shuffle, MessageCircle, Mic } from 'lucide-react-native';
 import { useHomeData } from '../hooks/useHomeData';
 import type { ConversationPreview } from '../services/conversationPreview';
 import { fetchMyWeakAreas } from '../services/apiMistakes';
@@ -95,8 +95,12 @@ const RecentCard = ({ item, onPress }: { item: ConversationPreview; onPress: () 
         </Text>
       ) : null}
       <View style={styles.recentFooter}>
-        <MessageCircle size={11} color="#9CA3AF" />
-        <Text style={styles.recentMsgCount}>{item.messageCount}개 메시지</Text>
+        {item.sessionType === 'realtime'
+          ? <Mic size={11} color="#9CA3AF" />
+          : <MessageCircle size={11} color="#9CA3AF" />}
+        <Text style={styles.recentMsgCount}>
+          {item.sessionType === 'realtime' ? '음성 세션 · ' : ''}{item.messageCount}개 발화
+        </Text>
       </View>
     </View>
   </TouchableOpacity>
@@ -286,13 +290,21 @@ export const HomeScreen: React.FC = () => {
             <RecentCard
               key={preview.sessionId}
               item={preview}
-              onPress={() =>
-                navigation.navigate('Chat', {
-                  avatar:    { id: preview.avatarId, name_ko: preview.avatarName },
-                  situation: preview.situation ? { name_ko: preview.situation } : undefined,
-                  sessionId: preview.sessionId,
-                })
-              }
+              onPress={() => {
+                if (preview.sessionType === 'realtime') {
+                  navigation.navigate('RealtimeSession', {
+                    avatar:    { id: preview.avatarId, name_ko: preview.avatarName },
+                    situation: preview.situation ? { name_ko: preview.situation } : undefined,
+                    sessionId: preview.sessionId,
+                  });
+                } else {
+                  navigation.navigate('Chat', {
+                    avatar:    { id: preview.avatarId, name_ko: preview.avatarName },
+                    situation: preview.situation ? { name_ko: preview.situation } : undefined,
+                    sessionId: preview.sessionId,
+                  });
+                }
+              }}
             />
           ))
         )}

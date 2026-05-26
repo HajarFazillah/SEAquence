@@ -174,14 +174,23 @@ export default function ConversationHistoryScreen() {
                   key={item.sessionId}
                   variant="elevated"
                   style={styles.historyCard}
-                  onPress={() => navigation.navigate('Chat', {
-                    avatar: avatar || {
-                      id: item.avatarId,
-                      name_ko: item.avatarName,
-                    },
-                    situation: item.situation ? { name_ko: item.situation } : undefined,
-                    sessionId: item.sessionId,
-                  })}
+                  onPress={() => {
+                    const avatarObj = avatar || { id: item.avatarId, name_ko: item.avatarName };
+                    const situationObj = item.situation ? { name_ko: item.situation } : undefined;
+                    if (item.sessionType === 'realtime') {
+                      navigation.navigate('RealtimeSession', {
+                        avatar: avatarObj,
+                        situation: situationObj,
+                        sessionId: item.sessionId,
+                      });
+                    } else {
+                      navigation.navigate('Chat', {
+                        avatar: avatarObj,
+                        situation: situationObj,
+                        sessionId: item.sessionId,
+                      });
+                    }
+                  }}
                 >
                   <View style={styles.cardTop}>
                     <View style={[styles.avatarStub, { backgroundColor: avatar?.avatar_bg || '#F0EDFF' }]}>

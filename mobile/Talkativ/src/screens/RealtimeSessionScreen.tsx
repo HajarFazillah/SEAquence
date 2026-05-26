@@ -533,6 +533,7 @@ export default function RealtimeSessionScreen() {
       messageCount:    finalTurns.length,
       lastUserMessage: lastUserTurn?.text,
       lastAiMessage:   lastAvatarTurn?.text,
+      sessionType:     'realtime',
     })).catch(() => {});
 
     navigation.navigate('Analytics', {
