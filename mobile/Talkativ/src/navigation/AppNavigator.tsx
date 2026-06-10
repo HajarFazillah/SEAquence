@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SPRING_SERVER_URL } from '../constants';
-import { Home, MapPin } from 'lucide-react-native';
+import { Home, Moon, Mic, User } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Auth Screens
@@ -91,7 +91,6 @@ export type MainTabParamList = {
 
 export type RootStackParamList = {
   // Auth
-  Welcome: undefined;
   Login: undefined;
   SignUp: undefined;
   ForgotPassword: undefined;
@@ -207,25 +206,15 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-type BottomMenuRoute = 'Home' | 'Map';
-
 const MENU_ITEMS: {
-  route: BottomMenuRoute;
-  label?: string;
+  route: keyof MainTabParamList;
+  label: string;
   icon: any;
-  onPress: () => void;
 }[] = [
-  {
-    route: 'Home',
-    label: '홈',
-    icon: Home,
-    onPress: () => navigationRef.navigate('Main', { screen: 'Home' }),
-  },
-  {
-    route: 'Map',
-    icon: MapPin,
-    onPress: () => navigationRef.navigate('AvatarSelection'),
-  },
+  { route: 'Home', label: '홈', icon: Home },
+  { route: 'Avatar', label: '아바타', icon: Moon },
+  { route: 'Real-time', label: '실시간', icon: Mic },
+  { route: 'My Profile', label: '프로필', icon: User },
 ];
 
 const HIDE_MENU_ROUTES = new Set([
@@ -238,28 +227,27 @@ const HIDE_MENU_ROUTES = new Set([
   'CreateProfileStep2',
 ]);
 
-const ROUTE_TO_MENU: Record<string, BottomMenuRoute> = {
+const ROUTE_TO_MENU: Record<string, keyof MainTabParamList> = {
   Main: 'Home',
   Home: 'Home',
-  Avatar: 'Map',
-  'Real-time': 'Map',
-  'My Profile': 'Home',
-  AvatarSelection: 'Map',
-  AvatarCompatibility: 'Map',
-  AvatarDetail: 'Map',
-  CreateAvatar: 'Map',
-  RealtimeSession: 'Map',
-  ScenarioIntro: 'Map',
-  EditProfile: 'Home',
-  EditInterests: 'Home',
-  SavedVocabulary: 'Home',
-  Chat: 'Map',
+  Avatar: 'Avatar',
+  'Real-time': 'Real-time',
+  'My Profile': 'My Profile',
+  AvatarSelection: 'Avatar',
+  AvatarCompatibility: 'Avatar',
+  AvatarDetail: 'Avatar',
+  CreateAvatar: 'Avatar',
+  RealtimeSession: 'Real-time',
+  EditProfile: 'My Profile',
+  EditInterests: 'My Profile',
+  SavedVocabulary: 'My Profile',
+  Chat: 'Home',
   ConversationSummary: 'Home',
   Analytics: 'Home',
   ConversationHistory: 'Home',
-  SituationSelection: 'Map',
-  CreateSituation: 'Map',
-  SpeechRecommendation: 'Map',
+  SituationSelection: 'Home',
+  CreateSituation: 'Home',
+  SpeechRecommendation: 'Home',
   Feedback: 'Home',
 };
 
@@ -276,6 +264,11 @@ const PersistentBottomMenu = ({
     return null;
   }
 
+  const handlePress = (route: keyof MainTabParamList) => {
+    if (!navigationRef.isReady()) return;
+    navigationRef.navigate('Main', { screen: route });
+  };
+
   return (
     <View
       style={[
@@ -291,23 +284,18 @@ const PersistentBottomMenu = ({
           <TouchableOpacity
             key={item.route}
             style={styles.bottomMenuItem}
-            onPress={() => {
-              if (!navigationRef.isReady()) return;
-              item.onPress();
-            }}
+            onPress={() => handlePress(item.route)}
             activeOpacity={0.75}
           >
             <Icon size={22} color={focused ? '#6C3BFF' : '#B0B0C5'} />
-            {item.label ? (
-              <Text
-                style={[
-                  styles.bottomMenuLabel,
-                  focused && styles.bottomMenuLabelActive,
-                ]}
-              >
-                {item.label}
-              </Text>
-            ) : null}
+            <Text
+              style={[
+                styles.bottomMenuLabel,
+                focused && styles.bottomMenuLabelActive,
+              ]}
+            >
+              {item.label}
+            </Text>
           </TouchableOpacity>
         );
       })}
