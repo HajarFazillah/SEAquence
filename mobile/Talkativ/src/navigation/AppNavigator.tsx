@@ -10,6 +10,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Keyboard,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SPRING_SERVER_URL } from '../constants';
@@ -253,14 +254,16 @@ const ROUTE_TO_MENU: Record<string, keyof MainTabParamList> = {
 
 const PersistentBottomMenu = ({
   currentRouteName,
+  visible,
 }: {
   currentRouteName?: string;
+  visible: boolean;
 }) => {
   const insets = useSafeAreaInsets();
   const activeRoute = ROUTE_TO_MENU[currentRouteName || ''] || 'Home';
   const menuHeight = 68 + insets.bottom;
 
-  if (!currentRouteName || HIDE_MENU_ROUTES.has(currentRouteName)) {
+  if (!currentRouteName || !visible) {
     return null;
   }
 
@@ -305,10 +308,22 @@ const PersistentBottomMenu = ({
 
 export const AppNavigator: React.FC = () => {
   const [currentRouteName, setCurrentRouteName] = useState<string>();
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const insets = useSafeAreaInsets();
 
+  // Hide the bottom nav while the keyboard is open so it doesn't float
+  // above the keyboard — it stays a normal fixed bottom bar otherwise.
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   const shouldShowMenu = Boolean(
-    currentRouteName && !HIDE_MENU_ROUTES.has(currentRouteName)
+    currentRouteName && !HIDE_MENU_ROUTES.has(currentRouteName) && !keyboardVisible
   );
   const bottomMenuHeight = shouldShowMenu ? 68 + insets.bottom : 0;
 
@@ -344,13 +359,13 @@ export const AppNavigator: React.FC = () => {
         <View style={[styles.navigatorShell, { paddingBottom: bottomMenuHeight }]}>
           <Stack.Navigator
             initialRouteName="Welcome"
-            screenOptions={{ headerShown: false }}
+            screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#F7F7FB' } }}
           >
             {/* Auth */}
-            <Stack.Screen name="Welcome" component={WelcomeScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="SignUp" component={SignUpScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ contentStyle: { backgroundColor: '#FFFFFF' } }} />
+            <Stack.Screen name="Login" component={LoginScreen} options={{ contentStyle: { backgroundColor: '#FFFFFF' } }} />
+            <Stack.Screen name="SignUp" component={SignUpScreen} options={{ contentStyle: { backgroundColor: '#FFFFFF' } }} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ contentStyle: { backgroundColor: '#FFFFFF' } }} />
 
             {/* Main Tabs */}
             <Stack.Screen name="Main" component={MainTabs} />
@@ -424,7 +439,7 @@ export const AppNavigator: React.FC = () => {
           </Stack.Navigator>
         </View>
 
-        <PersistentBottomMenu currentRouteName={currentRouteName} />
+        <PersistentBottomMenu currentRouteName={currentRouteName} visible={shouldShowMenu} />
       </View>
     </NavigationContainer>
   );

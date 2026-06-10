@@ -541,7 +541,7 @@ export default function CreateAvatarScreen() {
         <Text style={styles.stepInfoTitle}>{STEPS[currentStep - 1].title}</Text>
         <Text style={styles.stepInfoSubtitle}>{STEPS[currentStep - 1].subtitle}</Text>
       </View>
-      <KeyboardAvoidingView style={styles.keyboardContainer} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={styles.keyboardContainer} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {renderCurrentStep()}
         </ScrollView>
