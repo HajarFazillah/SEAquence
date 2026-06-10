@@ -81,9 +81,8 @@ SEAquence/
 ├── infra/                           # Infrastructure configuration
 ├── doc/                             # Project documentation
 │   ├── README_EN.md                 # English README (this file)
-│   ├── Project-Scenario.md          # Project scenario and SW package definitions
-│   ├── GroundRules.md               # Team collaboration rules
-│   └── 08-SEAquence-2차보고서v2-SitiHajarAsyiqin.pdf   # 2nd Report (final)
+│   ├── ProjectScenario.md           # Project scenario and SW package definitions
+│   └── GroundRules.md               # Team collaboration rules
 └── README.md                        # Korean README
 ```
 

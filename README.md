@@ -79,9 +79,8 @@ SEAquence/
 ├── infra/                           # 인프라 설정
 ├── doc/                             # 프로젝트 문서 모음
 │   ├── README_EN.md                 # 영문 README
-│   ├── Project-Scenario.md          # 프로젝트 시나리오 및 SW 패키지 정의
-│   ├── GroundRules.md               # 팀 협업 규칙
-│   └── 08-SEAquence-2차보고서v2-SitiHajarAsyiqin.pdf   # 2차 보고서
+│   ├── ProjectScenario.md           # 프로젝트 시나리오 및 SW 패키지 정의
+│   └── GroundRules.md               # 팀 협업 규칙
 └── README.md                        # 한국어 README (this file)
 ```
 
