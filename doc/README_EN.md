@@ -52,11 +52,12 @@
   - System architecture design and core technology definition
   - Differentiation and in-depth interview preparation
 
-- **Capstone B (In Progress):**
+- **Capstone B (Completed):**
   - React Native mobile client (chat mode, real-time mode, session history, profile management)
   - Spring Boot backend and FastAPI AI server implementation
   - Avatar scenario editor, onboarding screen, and personalized learning reports
   - Prototype completion and user testing
+  - Final report submission and graduation presentation completed
 
 ---
 
