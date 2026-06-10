@@ -144,7 +144,7 @@ curl -X POST http://localhost:8000/api/v1/recommendation/speech-level/calculate 
 
 ## Database (사용 데이터)
 
-- AI 서버는 `/infra`에서 실행되는 **MySQL (`talkativ` DB, 포트 3307)** 에 직접 연결하여 사용자/세션/대화 메모리 데이터를 조회·저장합니다. 테이블 구조는 [`infra/README_INFRA.md`](../infra/README_INFRA.md)를 참고하세요.
+- AI 서버는 `/infra`에서 실행되는 **MySQL (`talkativ` DB, 포트 3307)** 에 직접 연결하여 사용자/세션/대화 메모리 데이터를 조회·저장합니다. 테이블 구조는 [`infra/README.md`](../infra/README.md)를 참고하세요.
 - 별도의 샘플/시드 데이터는 제공하지 않으며, 모바일 앱을 통해 회원가입 및 대화를 진행하면서 데이터가 누적됩니다.
 
 ---
