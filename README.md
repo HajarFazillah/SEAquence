@@ -3,7 +3,7 @@
 ### Computer Science & Engineering  
 ### Capstone Design Project B (2026-1)
 
-> 🇬🇧 English version: [README_EN.md](README_EN.md)
+> 🇬🇧 English version: [doc/README_EN.md](doc/README_EN.md)
 
 ---
 
@@ -77,11 +77,12 @@ SEAquence/
 ├── backend/                         # Spring Boot 백엔드 서버
 ├── ai/                              # FastAPI AI 서버 (HyperCLOVA X, CLOVA Speech 연동)
 ├── infra/                           # 인프라 설정
-├── README.md                        # 한국어 README
-├── README_EN.md                     # 영문 README
-├── Project-Scenario.md              # 프로젝트 시나리오 및 SW 패키지 정의
-├── GroundRules.md                   # 팀 협업 규칙
-└── 08-SEAquence-2차보고서v2-SitiHajarAsyiqin.pdf   # 2차 보고서
+├── doc/                             # 프로젝트 문서 모음
+│   ├── README_EN.md                 # 영문 README
+│   ├── Project-Scenario.md          # 프로젝트 시나리오 및 SW 패키지 정의
+│   ├── GroundRules.md               # 팀 협업 규칙
+│   └── 08-SEAquence-2차보고서v2-SitiHajarAsyiqin.pdf   # 2차 보고서
+└── README.md                        # 한국어 README (this file)
 ```
 
 ---
