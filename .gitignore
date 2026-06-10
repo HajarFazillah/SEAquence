@@ -44,7 +44,6 @@ dist/
 .pytest_cache/
 
 ### IDEs ###
-.vscode/
 .idea/
 *.iml
 .DS_Store
