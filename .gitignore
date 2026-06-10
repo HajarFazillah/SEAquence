@@ -47,6 +47,7 @@ dist/
 .idea/
 *.iml
 .DS_Store
+.vscode/
 
 ### Env files ###
 .env
