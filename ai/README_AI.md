@@ -2,8 +2,6 @@
 
 Talkativ의 AI 서버입니다. **HyperCLOVA X**(CLOVA Studio)를 이용해 한국어 아바타와의 대화 응답을 생성하고, 사용자의 발화를 분석하여 말투(경어법) 수준 평가, 표현 추천, 학습 리포트 등을 제공합니다. 모바일 앱(`mobile/Talkativ`)과 백엔드(`backend/`)에서 이 서버의 REST API를 호출합니다.
 
-> 🇬🇧 영문 버전 (구버전, 일부 항목 업데이트 필요): [README.md](README.md)
-
 ---
 
 ## Source Code 설명
