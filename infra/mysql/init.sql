@@ -8,9 +8,6 @@ USE talkativ;
 -- 1. UserAvatar
 -- Stores user identity, profile, and privacy consent
 -- ------------------------------------------------------------
-CREATE DATABASE IF NOT EXISTS talkativ;
-USE talkativ;
-
 CREATE TABLE IF NOT EXISTS users (
     user_id          VARCHAR(36)   PRIMARY KEY,
     username         VARCHAR(100)  NOT NULL,
@@ -56,7 +53,7 @@ CREATE TABLE IF NOT EXISTS session_utterance (
     raw_text       TEXT         NOT NULL,             -- STT output
     audio_url      VARCHAR(500),
     spoken_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES session(session_id) ON DELETE CASCADE
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
 );
 
 -- ------------------------------------------------------------
@@ -71,8 +68,8 @@ CREATE TABLE IF NOT EXISTS topic_preferences (
     scenario       VARCHAR(100),
     topic          VARCHAR(100),
     topic_tags     JSON,
-    FOREIGN KEY (session_id) REFERENCES session(session_id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES user_avatar(user_id) ON DELETE CASCADE
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 -- ------------------------------------------------------------
@@ -89,7 +86,7 @@ CREATE TABLE IF NOT EXISTS relationship_analysis (
     status_gap     FLOAT,
     ml_model_ver   VARCHAR(50),
     analyzed_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES session(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
     FOREIGN KEY (utterance_id) REFERENCES session_utterance(utterance_id) ON DELETE SET NULL
 );
 
@@ -122,6 +119,6 @@ CREATE TABLE IF NOT EXISTS feedback (
     llm_feedback   TEXT,                              -- HyperCLOVA X output
     suggestion     TEXT,
     created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES session(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
     FOREIGN KEY (utterance_id) REFERENCES session_utterance(utterance_id) ON DELETE SET NULL
 );
