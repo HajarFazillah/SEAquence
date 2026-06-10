@@ -31,8 +31,8 @@ const mockUser = {
   name: '',
   email: '',
   avatarUrl: '',
-  age: '',
-  gender: 'other',
+  age: '25',
+  gender: 'female',
   koreanLevel: 'intermediate',
   memo: '',
 };
