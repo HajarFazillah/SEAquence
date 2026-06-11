@@ -722,7 +722,7 @@ LEVEL_MAP = {
     "격식적":           "formal",   "공식적":            "formal",
 }
 
-_FORMAL_ENDINGS   = ["습니다", "습니까", "십니까", "겠습니다", "십시오", "으십시오"]
+_FORMAL_ENDINGS   = ["습니다", "습니까", "십니까", "겠습니다", "십시오", "으십시오", "니다", "니까"]
 _POLITE_ENDINGS   = ["어요", "아요", "이에요", "예요", "해요", "세요",
                      "네요", "군요", "죠", "나요", "가요", "래요",
                      "데요", "을게요", "ㄹ게요", "겠어요"]
@@ -925,6 +925,10 @@ def simple_convert_to_level(text: str, target: str) -> Optional[str]:
     for informal, formal in sorted(table.items(), key=lambda x: -len(x[0])):
         if text.endswith(informal):
             return text[: -len(informal)] + formal
+    if target == "formal":
+        haeyo_converted = convert_haeyo_to_hapsyo(text)
+        if haeyo_converted and haeyo_converted != text:
+            return haeyo_converted
     if target == "polite":
         best_effort = best_effort_informal_to_polite(text)
         return best_effort if best_effort != text else None
@@ -980,6 +984,36 @@ def convert_hapsida_to_target(text: str, target: str) -> Optional[str]:
             if core.endswith(original):
                 return f"{core[:-len(original)]}{corrected}{trailing}"
 
+    return None
+
+
+_POLITE_TO_FORMAL_STATEMENT = {
+    "이에요": "입니다", "예요": "입니다", "있어요": "있습니다", "없어요": "없습니다",
+    "해요": "합니다", "돼요": "됩니다", "와요": "옵니다", "봐요": "봅니다",
+    "줘요": "줍니다", "가요": "갑니다", "세요": "십니다", "워요": "웁니다",
+    "아요": "습니다", "어요": "습니다", "여요": "입니다",
+}
+
+_POLITE_TO_FORMAL_QUESTION = {
+    "이에요": "입니까", "예요": "입니까", "있어요": "있습니까", "없어요": "없습니까",
+    "해요": "합니까", "돼요": "됩니까", "와요": "옵니까", "봐요": "봅니까",
+    "줘요": "줍니까", "가요": "갑니까", "세요": "십니까", "워요": "웁니까",
+    "아요": "습니까", "어요": "습니까", "여요": "입니까",
+}
+
+
+def convert_haeyo_to_hapsyo(text: str) -> Optional[str]:
+    """해요체 종결 어미를 합쇼체(-습니다/-습니까)로 변환합니다."""
+    trailing_match = re.search(r'([.!?…。？！"\'\)\]\s]*)$', text)
+    trailing = trailing_match.group(1) if trailing_match else ""
+    core = text[: len(text) - len(trailing)] if trailing else text
+    if not core:
+        return None
+    is_question = "?" in trailing or "？" in trailing or core.endswith("까요") or core.endswith("나요")
+    table = _POLITE_TO_FORMAL_QUESTION if is_question else _POLITE_TO_FORMAL_STATEMENT
+    for ending, formal in sorted(table.items(), key=lambda x: -len(x[0])):
+        if core.endswith(ending):
+            return f"{core[:-len(ending)]}{formal}{trailing}"
     return None
 
 

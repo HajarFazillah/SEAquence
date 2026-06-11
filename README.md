@@ -3,7 +3,7 @@
 ### Computer Science & Engineering  
 ### Capstone Design Project B (2026-1)
 
-> 🇬🇧 English version: [README_EN.md](README_EN.md)
+> 🇬🇧 English version: [doc/README_EN.md](doc/README_EN.md)
 
 ---
 
@@ -50,11 +50,12 @@
   - 시스템 구조 설계 및 핵심 기술 정의
   - 차별성 정립 및 심층인터뷰 준비
 
-- **Capstone B (완료 및 진행 중):**
+- **Capstone B (완료):**
   - React Native 모바일 클라이언트 구현 (채팅·실시간 모드, 세션 이력, 프로필)
   - Spring Boot 백엔드 및 FastAPI AI 서버 구현
   - 아바타 시나리오 에디터, 온보딩 화면, 맞춤형 학습 리포트
   - 프로토타입 완성 및 사용자 테스트
+  - 최종 보고서 제출 및 졸업 발표회 완료
 
 ---
 
@@ -77,12 +78,11 @@ SEAquence/
 ├── backend/                         # Spring Boot 백엔드 서버
 ├── ai/                              # FastAPI AI 서버 (HyperCLOVA X, CLOVA Speech 연동)
 ├── infra/                           # 인프라 설정
-├── README.md                        # 한국어 README
-├── README_EN.md                     # 영문 README
-├── Project-Scenario.md              # 프로젝트 시나리오 및 SW 패키지 정의
-├── GroundRules.md                   # 팀 협업 규칙
-├── 08-SEAquence-2차보고서v2-SitiHajarAsyiqin.pdf   # 2차 보고서
-└── 08-SEAquence-2차 보고서-SitiHajarAsyiqin.pdf    # 2차 보고서 (초안)
+├── doc/                             # 프로젝트 문서 모음
+│   ├── README_EN.md                 # 영문 README
+│   ├── ProjectScenario.md           # 프로젝트 시나리오 및 SW 패키지 정의
+│   └── GroundRules.md               # 팀 협업 규칙
+└── README.md                        # 한국어 README (this file)
 ```
 
 ---

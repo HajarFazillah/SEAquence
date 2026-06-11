@@ -166,14 +166,8 @@ export const MyProfileScreen: React.FC = () => {
       koreanLevelEn: KOREAN_LEVELS[koreanLevel]?.labelEn ?? 'Intermediate',
       nativeLang: realUser?.nativeLang ?? mockUser.nativeLang,
       memo: realUser?.memo ?? mockUser.memo,
-      interests:
-        realUser?.interests && realUser.interests.length > 0
-          ? realUser.interests
-          : mockUser.interests,
-      dislikes:
-        realUser?.dislikes && realUser.dislikes.length > 0
-          ? realUser.dislikes
-          : mockUser.dislikes,
+      interests: realUser?.interests ?? [],
+      dislikes: realUser?.dislikes ?? [],
       genderLabel:
         GENDER_LABELS[realUser?.gender ?? mockUser.gender] ?? '미설정',
     };

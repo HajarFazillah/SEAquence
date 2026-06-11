@@ -44,15 +44,16 @@ dist/
 .pytest_cache/
 
 ### IDEs ###
-.vscode/
 .idea/
 *.iml
 .DS_Store
+.vscode/
 
 ### Env files ###
 .env
 **/.env
 .env.*
-!.env.example.claude/
+!.env.example
+!**/.env.example
 
 .claude/

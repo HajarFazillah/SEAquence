@@ -123,61 +123,6 @@ async def test_enhanced_analysis():
             print_test("GET /analysis/quick", False, str(e))
 
 
-async def test_ml_analysis():
-    """Test ML analysis endpoints"""
-    print_section("ML Analysis")
-    
-    async with httpx.AsyncClient() as client:
-        # Test ML status
-        try:
-            response = await client.get(f"{BASE_URL}/api/v1/ml/status")
-            print_test("GET /ml/status", response.status_code == 200)
-            data = response.json()
-            print(f"       ML Status: {data.get('ml_status', {})}")
-        except Exception as e:
-            print_test("GET /ml/status", False, str(e))
-        
-        # Test topic classification
-        try:
-            response = await client.post(
-                f"{BASE_URL}/api/v1/ml/topic",
-                json={"text": "오늘 수업 너무 어려웠어"}
-            )
-            print_test("POST /ml/topic", response.status_code == 200)
-            data = response.json()
-            print(f"       Topic: {data.get('primary_topic_ko')}")
-        except Exception as e:
-            print_test("POST /ml/topic", False, str(e))
-        
-        # Test emotion detection
-        try:
-            response = await client.post(
-                f"{BASE_URL}/api/v1/ml/emotion",
-                params={"text": "와 진짜 기뻐!! ㅎㅎㅎ"}
-            )
-            print_test("POST /ml/emotion", response.status_code == 200)
-            data = response.json()
-            print(f"       Emotion: {data.get('primary_emotion')}")
-        except Exception as e:
-            print_test("POST /ml/emotion", False, str(e))
-        
-        # Test comprehensive analysis
-        try:
-            response = await client.post(
-                f"{BASE_URL}/api/v1/ml/comprehensive",
-                json={
-                    "text": "교수님 질문 있어요",
-                    "target_role": "professor",
-                    "avatar_formality": "very_polite"
-                }
-            )
-            print_test("POST /ml/comprehensive", response.status_code == 200)
-            data = response.json()
-            print(f"       Score: {data.get('overall_score')}, Appropriate: {data.get('is_appropriate')}")
-        except Exception as e:
-            print_test("POST /ml/comprehensive", False, str(e))
-
-
 async def test_revision(clova_available: bool):
     """Test revision endpoints"""
     print_section("Revision & Sample Reply")
@@ -433,10 +378,7 @@ async def main():
     
     # Enhanced analysis
     await test_enhanced_analysis()
-    
-    # ML analysis
-    await test_ml_analysis()
-    
+
     # User progress
     await test_progress()
     

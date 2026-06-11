@@ -9,6 +9,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Heart, ThumbsDown, Plus, Sparkles, MessageSquare } from 'lucide-react-native';
 import { Header, Card, Button, Tag } from '../components';
 import { registerUser, loginUser } from '../services/apiAuth';
+import { updateMyProfile } from '../services/apiUser';
 
 const INTEREST_OPTIONS = [
   'K-POP', '영화', '드라마', '음악', '독서', '여행', '카페', '음식',
@@ -25,7 +26,7 @@ export default function CreateProfileStep2Screen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   // ← FIXED: added email + password from params
-  const { name, age, koreanLevel, email, password } = route.params || {};
+  const { name, age, gender, koreanLevel, email, password } = route.params || {};
 
   const [interests, setInterests] = useState<string[]>([]);
   const [dislikes, setDislikes] = useState<string[]>([]);
@@ -69,12 +70,20 @@ export default function CreateProfileStep2Screen() {
 
   const isValid = interests.length > 0;
 
-  // ← FIXED: now calls backend registerUser
-const handleComplete = async () => {
+  const handleComplete = async () => {
     try {
       await registerUser(name, email, password);
       // Auto login after registration
       await loginUser(email, password);
+      // Save the chosen profile details (interests, dislikes, etc.)
+      await updateMyProfile({
+        age,
+        gender,
+        koreanLevel,
+        interests,
+        dislikes,
+        memo: memo.trim(),
+      });
       navigation.navigate('Main');
     } catch (error: any) {
       Alert.alert('Registration Failed', error.message);
@@ -87,7 +96,7 @@ const handleComplete = async () => {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
           contentContainerStyle={styles.content}
