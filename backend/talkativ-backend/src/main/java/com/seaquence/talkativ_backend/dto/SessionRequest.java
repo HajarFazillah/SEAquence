@@ -8,6 +8,7 @@ public class SessionRequest {
     private String avatarBg;
     private String situation;
     private String difficulty;
+    private String sessionType;
 
     public SessionRequest() {}
 
@@ -28,4 +29,7 @@ public class SessionRequest {
 
     public String getDifficulty() { return difficulty; }
     public void setDifficulty(String difficulty) { this.difficulty = difficulty; }
+
+    public String getSessionType() { return sessionType; }
+    public void setSessionType(String sessionType) { this.sessionType = sessionType; }
 }
