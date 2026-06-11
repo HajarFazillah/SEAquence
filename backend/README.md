@@ -48,8 +48,8 @@ backend/
         │   │   ├── service/      # Business logic and external integrations
         │   │   └── websocket/    # Real-time WebSocket handler
         │   └── resources/
-        │       ├── application.yml
-        │       └── application.properties.example
+        │       └── application.yml
+        └── .env.example
         └── test/
 ```
 
@@ -86,9 +86,17 @@ MySQL is exposed at `localhost:3307`.
 
 ### 2. Configure the Backend
 
-Create `backend/talkativ-backend/.env`:
+Create `backend/talkativ-backend/.env` from the tracked template:
+
+```bash
+cp backend/talkativ-backend/.env.example backend/talkativ-backend/.env
+```
+
+Then fill in any external-service credentials needed for the evaluation:
 
 ```properties
+MYSQL_HOST=localhost
+MYSQL_PORT=3307
 MYSQL_DATABASE=talkativ
 MYSQL_USER=talkativ
 MYSQL_PASSWORD=your_password
@@ -99,10 +107,15 @@ jwt.expiration=86400000
 ai.server.url=http://localhost:8000
 clova.speech.url=your_clova_speech_endpoint
 clova.speech.secret=your_clova_speech_secret
+
+spring.mail.username=your_smtp_username
+spring.mail.password=your_smtp_app_password
 ```
 
 `application.yml` imports this file as Spring properties. Never commit `.env`
-files or real credentials.
+files or real credentials. SMTP settings are required only for password-reset
+email delivery, and CLOVA Speech settings are required only for speech
+recognition.
 
 ### 3. Run the Backend
 
