@@ -19,7 +19,7 @@ import {
   Bookmark, BookmarkCheck, BookOpen, X as XIcon, Target, Lightbulb, ArrowLeft,
 } from 'lucide-react-native';
 import { Icon, type IconName } from '../components';
-import { createSession, endSession } from '../services/apiSession';
+import { createSession, endSession, getSessionMessages, saveSessionMessages } from '../services/apiSession';
 import { makePreviewPayload, saveConversationPreview } from '../services/conversationPreview';
 import {
   analyzeRealtimeAudio,
@@ -347,6 +347,7 @@ export default function RealtimeSessionScreen() {
       avatarBg: avatar?.avatar_bg ?? '#555',
       situation: typeof situation === 'object' ? (situation as any)?.name_ko : (situation ?? '일상 대화'),
       difficulty: avatar?.difficulty ?? 'medium',
+      sessionType: 'realtime',
     }).then(s => {
       sessionIdRef.current = s.sessionId;
     }).catch(() => {});
@@ -355,8 +356,41 @@ export default function RealtimeSessionScreen() {
   // ── Restore turns when resuming an existing session ─────────────────────────
   useEffect(() => {
     if (!routeSessionId) return;
-    AsyncStorage.getItem(`realtime_turns_${routeSessionId}`)
-      .then(raw => {
+    getSessionMessages(routeSessionId)
+      .then(remote => {
+        if (remote.length > 0) {
+          const restored = remote.map((message, index): TranscriptTurn => ({
+            id: `${message.turnNumber ?? index + 1}`,
+            speaker: message.role === 'user' ? '나' : (avatar?.name_ko ?? '상대방'),
+            text: message.content,
+            type: 'final',
+          }));
+          setTurns(restored);
+          setHasStarted(true);
+          setHasRecorded(true);
+          conversationHistoryRef.current = remote.map(message => ({
+            speaker: message.role === 'user' ? 'user' : 'avatar',
+            text: message.content,
+          })).slice(-16);
+          return;
+        }
+        return AsyncStorage.getItem(`realtime_turns_${routeSessionId}`).then(raw => {
+          if (!raw) return;
+          try {
+            const prev: TranscriptTurn[] = JSON.parse(raw);
+            if (Array.isArray(prev) && prev.length > 0) {
+              setTurns(prev);
+              setHasStarted(true);
+              setHasRecorded(true);
+              conversationHistoryRef.current = prev
+                .filter(t => t.type === 'final')
+                .map(t => ({ speaker: t.speaker === '나' ? 'user' : 'avatar', text: t.text }))
+                .slice(-16);
+            }
+          } catch {}
+        });
+      })
+      .catch(() => AsyncStorage.getItem(`realtime_turns_${routeSessionId}`).then(raw => {
         if (!raw) return;
         try {
           const prev: TranscriptTurn[] = JSON.parse(raw);
@@ -374,8 +408,7 @@ export default function RealtimeSessionScreen() {
               .slice(-16);
           }
         } catch {}
-      })
-      .catch(() => {});
+      }).catch(() => {}));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -636,6 +669,10 @@ export default function RealtimeSessionScreen() {
           `realtime_turns_${sessionIdRef.current}`,
           JSON.stringify(finalTurns),
         ).catch(() => {});
+        saveSessionMessages(sessionIdRef.current, finalTurns.map(turn => ({
+          role: turn.speaker === '나' ? 'user' : 'assistant',
+          content: turn.text,
+        }))).catch(() => {});
       }
       return combined;
     });
