@@ -72,7 +72,17 @@ export default function CreateProfileStep2Screen() {
 
   const handleComplete = async () => {
     try {
-      await registerUser(name, email, password);
+      await registerUser({
+        username: name,
+        email,
+        password,
+        age,
+        gender,
+        koreanLevel,
+        memo: memo.trim(),
+        interests,
+        dislikes,
+      });
       // Auto login after registration
       await loginUser(email, password);
       // Save the chosen profile details (interests, dislikes, etc.)
