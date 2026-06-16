@@ -1510,6 +1510,42 @@ def best_effort_informal_to_polite(text: str) -> str:
     return f"{converted}{trailing}".strip()
 
 
+# When 반말 is the expected/correct speech level, these "more formal"
+# vocabulary swaps are register-mismatched (mixing 존댓말 words into a 반말
+# sentence), even though they're individually "more polite". Drop them and
+# revert corrected_message back to the informal word.
+_INFORMAL_TO_FORMAL_REGISTER_WORDS = {
+    "내가": "제가",
+    "나는": "저는",
+    "나를": "저를",
+    "나한테": "저한테",
+    "우리": "저희",
+    "밥": "식사",
+}
+
+
+def strip_register_mismatched_corrections(
+    corrected_message: Optional[str],
+    corrections: List[InlineCorrection],
+    expected_norm: str,
+) -> tuple:
+    if not corrected_message or expected_norm != "informal":
+        return corrected_message, corrections
+
+    kept: List[InlineCorrection] = []
+    for correction in corrections:
+        is_register_upgrade = (
+            correction.type in (CorrectionType.VOCABULARY, CorrectionType.HONORIFIC)
+            and _INFORMAL_TO_FORMAL_REGISTER_WORDS.get(correction.original) == correction.corrected
+        )
+        if is_register_upgrade:
+            if correction.corrected in corrected_message:
+                corrected_message = corrected_message.replace(correction.corrected, correction.original, 1)
+            continue
+        kept.append(correction)
+    return corrected_message, kept
+
+
 def prune_suspicious_corrections(
     corrections: List[InlineCorrection],
     corrected_message: Optional[str],
@@ -3213,6 +3249,10 @@ class ChatService:
         accuracy_score = native_augmented["accuracy_score"]
         summary = native_augmented["summary"]
 
+        corrected_message, corrections = strip_register_mismatched_corrections(
+            corrected_message, corrections, expected_norm,
+        )
+
         real_errors = [
             c for c in corrections
             if c.severity in (CorrectionSeverity.ERROR, CorrectionSeverity.WARNING)
@@ -3235,7 +3275,10 @@ class ChatService:
                 and c.original in corrected_message
             ]
             for sc in spelling_corrections:
+                if sc.corrected in corrected_message:
+                    continue  # LLM already applied this fix in corrected_message
                 corrected_message = corrected_message.replace(sc.original, sc.corrected, 1)
+
         verdict = result.get("verdict") or infer_verdict(has_errors, typo_count, is_level_correct)
         accuracy_score = max(0, min(100, int(accuracy_score)))
         accuracy_score = apply_error_based_score_cap(accuracy_score, corrections, is_level_correct)
