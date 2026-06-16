@@ -35,6 +35,7 @@ export interface ActiveSession {
   situation: string;
   mood: number;
   difficulty: 'easy' | 'medium' | 'hard';
+  sessionType?: 'chat' | 'realtime';
   lastMessageAt: string;
   endedAt: string | null;
 }
@@ -46,6 +47,14 @@ export interface SessionRequest {
   avatarBg: string;
   situation?: string;
   difficulty?: string;
+  sessionType?: 'chat' | 'realtime';
+}
+
+export interface SessionMessage {
+  turnNumber?: number;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt?: string;
 }
 
 export const SPRING_BASE_URL = SPRING_API_BASE_URL;
@@ -69,6 +78,13 @@ export const getActiveSessions = async (): Promise<ActiveSession[]> => {
   const headers = await jsonHeaders();
   const response = await fetch(`${SPRING_BASE_URL}/api/sessions?status=active`, { headers });
   if (!response.ok) throw new Error('Failed to fetch active sessions');
+  return response.json();
+};
+
+export const getCompletedSessions = async (): Promise<ActiveSession[]> => {
+  const headers = await jsonHeaders();
+  const response = await fetch(`${SPRING_BASE_URL}/api/sessions?status=completed`, { headers });
+  if (!response.ok) throw new Error('Failed to fetch completed sessions');
   return response.json();
 };
 
@@ -109,4 +125,26 @@ export const endSession = async (sessionId: string): Promise<void> => {
     headers,
   });
   if (!response.ok) throw new Error(`endSession failed (${response.status})`);
+};
+
+export const getSessionMessages = async (sessionId: string): Promise<SessionMessage[]> => {
+  const headers = await jsonHeaders();
+  const response = await fetch(`${SPRING_BASE_URL}/api/sessions/${sessionId}/messages`, { headers });
+  if (!response.ok) throw new Error(`getSessionMessages failed (${response.status})`);
+  return response.json();
+};
+
+export const saveSessionMessages = async (
+  sessionId: string,
+  messages: SessionMessage[],
+): Promise<void> => {
+  const headers = await jsonHeaders();
+  const response = await fetch(`${SPRING_BASE_URL}/api/sessions/${sessionId}/messages`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(messages.map(({ role, content }) => ({ role, content }))),
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new Error(`saveSessionMessages failed (${response.status})`);
+  }
 };

@@ -20,20 +20,37 @@ export const loginUser = async (email: string, password: string) => {
   return data;
 };
 
+type RegistrationProfile = {
+  username: string;
+  email: string;
+  password: string;
+  age: string;
+  gender: string;
+  koreanLevel: string;
+  memo: string;
+  interests: string[];
+  dislikes: string[];
+};
+
+const getErrorMessage = async (response: Response, fallback: string) => {
+  const data = await response.json().catch(() => null);
+  return data?.message || data?.error || fallback;
+};
+
 // Auth: Register
-export const registerUser = async (username: string, email: string, password: string) => {
+export const registerUser = async (profile: RegistrationProfile) => {
   const response = await fetch(`${SPRING_BASE_URL}/api/users/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      username,
-      email,
-      password,
+      ...profile,
       nativeLang: 'en',   // ← default for now
       targetLang: 'ko',   // ← always Korean
     }),
   });
-  if (!response.ok) throw new Error('Registration failed. Email may already be in use.');
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response, 'Registration failed. Please try again.'));
+  }
   return response.json();
 };
 

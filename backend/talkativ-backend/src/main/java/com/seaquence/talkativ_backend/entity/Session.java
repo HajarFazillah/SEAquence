@@ -39,6 +39,9 @@ public class Session {
     @Column(nullable = false, length = 20)
     private String status = "active";
 
+    @Column(name = "session_type", nullable = false, length = 20)
+    private String sessionType = "chat";
+
     @CreationTimestamp
     @Column(name = "started_at", updatable = false)
     private LocalDateTime startedAt;
@@ -76,6 +79,9 @@ public class Session {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public String getSessionType() { return sessionType; }
+    public void setSessionType(String sessionType) { this.sessionType = sessionType; }
 
     public LocalDateTime getStartedAt() { return startedAt; }
     public LocalDateTime getEndedAt() { return endedAt; }

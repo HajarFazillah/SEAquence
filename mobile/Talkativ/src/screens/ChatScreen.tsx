@@ -17,7 +17,7 @@ import { AI_SERVER_URL } from '../constants';
 const AI_SERVER = AI_SERVER_URL;
 
 import { saveMistakesToBackend } from '../services/apiMistakes';
-import { createSession, endSession } from '../services/apiSession';
+import { createSession, endSession, getSessionMessages, saveSessionMessages } from '../services/apiSession';
 
 const saveMistakes = async (
   sessionId: string,
@@ -959,6 +959,7 @@ export default function ChatScreen() {
         ? (situation as any)?.name_ko ?? '일상 대화'
         : (situation ?? '일상 대화'),
       difficulty: avatar?.difficulty ?? 'medium',
+      sessionType: 'chat',
     }).then(s => {
       sessionIdRef.current = s.sessionId;
     }).catch(() => {});
@@ -969,15 +970,31 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!route.params?.sessionId) return;   // new session — nothing to restore
     const sid = sessionIdRef.current;
-    AsyncStorage.getItem(`chat_history_${sid}`)
-      .then(raw => {
+    getSessionMessages(sid)
+      .then(remote => {
+        if (remote.length > 0) {
+          setMessages(remote.map((message, index) => ({
+            id: `${message.turnNumber ?? index + 1}`,
+            text: message.content,
+            sender: message.role === 'user' ? 'user' : 'ai',
+          })));
+          return;
+        }
+        return AsyncStorage.getItem(`chat_history_${sid}`).then(raw => {
+          if (!raw) return;
+          try {
+            const prev: Message[] = JSON.parse(raw);
+            if (Array.isArray(prev) && prev.length > 0) setMessages(prev);
+          } catch {}
+        });
+      })
+      .catch(() => AsyncStorage.getItem(`chat_history_${sid}`).then(raw => {
         if (!raw) return;
         try {
           const prev: Message[] = JSON.parse(raw);
           if (Array.isArray(prev) && prev.length > 0) setMessages(prev);
         } catch {}
-      })
-      .catch(() => {});
+      }).catch(() => {}));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -986,6 +1003,10 @@ export default function ChatScreen() {
     const sid = sessionIdRef.current;
     if (!sid || messages.length === 0) return;
     AsyncStorage.setItem(`chat_history_${sid}`, JSON.stringify(messages)).catch(() => {});
+    saveSessionMessages(sid, messages.map(message => ({
+      role: message.sender === 'user' ? 'user' : 'assistant',
+      content: message.text,
+    }))).catch(() => {});
   }, [messages]);
 
   const handleSend = async () => {
