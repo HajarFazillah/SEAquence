@@ -196,6 +196,7 @@ The backend uses MySQL 8. The initial schema is provided in
 - `Mistake`: corrections and learning feedback from past sessions
 - `Vocabulary`: words and examples saved by each user
 - `PasswordResetToken`: temporary password-reset verification codes
+- `ChatTurn`: per-turn messages saved per session (role, message, turn number)
 
 The repository does not include production user data or a separate sample-data
 set. Developers can create local test data through the registration, avatar,
