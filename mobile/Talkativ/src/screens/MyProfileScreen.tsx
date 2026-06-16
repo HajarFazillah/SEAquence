@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { fetchMyVocabulary } from '../services/apiVocabulary';
+import { logoutUser } from '../services/apiAuth';
 import {
   ChevronRight,
   Globe,
@@ -312,7 +313,7 @@ export const MyProfileScreen: React.FC = () => {
               text: '로그아웃',
               style: 'destructive',
               onPress: async () => {
-                await AsyncStorage.multiRemove(['token', 'userId', 'user_id']);
+                await logoutUser();
                 navigation.reset({
                   index: 0,
                   routes: [{ name: 'Login' }],

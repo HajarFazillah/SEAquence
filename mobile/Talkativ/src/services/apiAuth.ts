@@ -88,5 +88,19 @@ export const resetPassword = async (email: string, code: string, newPassword: st
 
 // Auth: Logout
 export const logoutUser = async () => {
-  await AsyncStorage.multiRemove(['token', 'userId', 'user_id']);
+  const allKeys = await AsyncStorage.getAllKeys();
+  const sessionKeys = allKeys.filter(
+    k => k.startsWith('chat_history_') || k.startsWith('realtime_turns_'),
+  );
+  await AsyncStorage.multiRemove([
+    'token',
+    'userId',
+    'user_id',
+    'conversation_previews_v1',
+    'custom_avatar_url',
+    'favorite_avatars',
+    'custom_situations',
+    'talkativ.personalization.events.v1',
+    ...sessionKeys,
+  ]);
 };
