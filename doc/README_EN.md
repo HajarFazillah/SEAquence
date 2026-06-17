@@ -96,4 +96,4 @@ SEAquence/
 
 ---
 
-This repository will continue to evolve as the project progresses 🚀
+This project was completed as part of the Capstone Design B course (2026-1).

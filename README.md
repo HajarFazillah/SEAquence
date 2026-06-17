@@ -94,4 +94,4 @@ SEAquence/
 
 ---
 
-This repository will continue to evolve as the project progresses 🚀
+본 프로젝트는 2026-1 캡스톤 디자인 B 과정에서 완료되었습니다.
