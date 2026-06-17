@@ -57,7 +57,6 @@ import ConversationHistoryScreen from '../screens/ConversationHistoryScreen';
 import RealtimeSessionScreen from '../screens/RealtimeSessionScreen';
 import ScenarioIntroScreen from '../screens/ScenarioIntroScreen';
 
-// Legacy
 import FeedbackScreen from '../screens/FeedbackScreen';
 
 export type TranscriptTurn = {
@@ -192,7 +191,6 @@ export type RootStackParamList = {
     avatar: any;
   };
 
-  // Legacy
   Feedback: {
     avatar?: any;
     duration?: string;

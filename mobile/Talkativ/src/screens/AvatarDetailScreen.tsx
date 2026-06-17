@@ -7,16 +7,12 @@ import {
   Clock, TrendingUp, ChevronLeft, Sparkles, Users, ChevronRight,
 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// FIX 4: Added Card to imports — it was used in JSX but missing here
 import { Icon, CompatibilityRing, Card } from '../components';
 import { SPEECH_LEVELS } from '../constants';
 import { deleteAvatar, getMyProfile } from '../services/apiUser';
 import { getAvatarSessions, ActiveSession } from '../services/apiSession';
 import { humanizeRoleId } from '../services/api';
 
-// FIX 1: BRAND and BG moved to the top — they were defined at the bottom of the
-// file but referenced throughout JSX. `const` is not hoisted, causing a
-// ReferenceError at runtime whenever any JSX used BRAND before the declaration.
 const BRAND = '#6C3BFF';
 const BG    = '#F7F7FB';
 
@@ -185,8 +181,6 @@ export default function AvatarDetailScreen() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
 
-  // FIX 5: getMyProfile was imported but never called, so userAge was always
-  // null and the age-gap label never worked. Load the profile on mount.
   useEffect(() => {
     getMyProfile()
       .then((profile) => {
@@ -651,10 +645,6 @@ const styles = StyleSheet.create({
   tagOut:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#fff', borderWidth: 0.5, borderColor: '#E5E5EA' },
   tagOutText: { fontSize: 12, fontWeight: '500', color: '#111827' },
 
-  // FIX 3: statsRow / statItem / statDivider were referenced in original JSX
-  // but never defined — caused style lookup to return undefined (no crash but
-  // layout completely broken). Added here; old duplicate stats block in JSX
-  // was removed since the stats section above already uses real data.
   statsRow:    { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 24 },
   statItem:    { flex: 1, alignItems: 'center', gap: 6 },
   statDivider: { width: 1, height: 32, backgroundColor: '#F0F0F5' },

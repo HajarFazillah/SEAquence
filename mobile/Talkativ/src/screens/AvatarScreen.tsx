@@ -279,7 +279,6 @@ export default function AvatarScreen() {
   const [compatBreakdowns,     setCompatBreakdowns]     = useState<Record<number, CompatibilityBreakdown>>({});
   const [conversationPreviews, setConversationPreviews] = useState<Record<string, ConversationPreview>>({});
 
-  // FIX: removed dead raw fetch block — only use apiService.batchCompatibility
   const fetchCompatibilityScores = async (
     avatarList: UserAvatar[],
     userInterests: string[]
@@ -350,7 +349,6 @@ export default function AvatarScreen() {
             )
           );
 
-          // FIX: FAVORITES_KEY is now defined at the top of the file
           const stored = await AsyncStorage.getItem(FAVORITES_KEY);
           setFavoriteIds(stored ? JSON.parse(stored) : []);
 
