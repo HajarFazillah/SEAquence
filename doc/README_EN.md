@@ -30,7 +30,7 @@
 - Response generation powered by the Korean LLM **HyperCLOVA X**
 
 ### 2. Relationship & Honorifics Analysis Engine
-- Morpheme-level analysis using **KoNLPy** for accurate verb endings and particles
+- Rule-based regex pattern matching via **NativeSpeechAnalyzer** for verb endings, particles, and honorific markers
 - Hierarchical relationship analysis based on user-defined role settings
 - Speech register appropriateness validation per relationship type
 
